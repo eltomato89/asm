@@ -11,3 +11,4 @@ playwright-report/
 # Master key (never commit or copy into images)
 /secrets/
 asm_master_key*
+/.claude/worktrees/
