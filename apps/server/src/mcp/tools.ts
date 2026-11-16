@@ -145,15 +145,16 @@ export const TOOLS = [
     }),
     run: (t, a, p) => {
       const { ctx, device } = t;
-      const found = searchSecrets(ctx.db, device.userId, a.query, { vaultId: a.vault_id, includeArchived: a.include_archived });
+      // Ranked in SQL (used by this project first) so the limit never cuts off the project's own secrets.
+      const found = searchSecrets(ctx.db, device.userId, a.query, {
+        vaultId: a.vault_id, includeArchived: a.include_archived, rankFirstForProjectId: p!.id,
+      });
       const used = new Set(
         (ctx.db.$client.prepare('SELECT DISTINCT secret_id FROM project_usage WHERE project_id = ?').all(p!.id) as { secret_id: string }[]).map(
           (r) => r.secret_id,
         ),
       );
-      const secrets = found
-        .map((s) => ({ ...s, used_by_this_project: used.has(s.id) }))
-        .sort((x, y) => Number(y.used_by_this_project) - Number(x.used_by_this_project));
+      const secrets = found.map((s) => ({ ...s, used_by_this_project: used.has(s.id) }));
       appendAudit(ctx.db, ctx.clock, {
         actorType: 'device', actorId: device.id, deviceId: device.id, event: 'secret.searched', project: p!.slug, ip: t.info.ip,
         meta: { query: a.query },

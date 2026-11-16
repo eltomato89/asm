@@ -42,7 +42,13 @@ export type SecretChange = {
   restoredFrom?: number;
 };
 
-export type SearchOptions = { vaultId?: string; includeArchived?: boolean; status?: 'active' | 'archived' | 'all' };
+export type SearchOptions = {
+  vaultId?: string;
+  includeArchived?: boolean;
+  status?: 'active' | 'archived' | 'all';
+  /** Rank secrets used by this project (project_usage) first, before the limit applies. Not combinable with a cursor. */
+  rankFirstForProjectId?: string;
+};
 
 // ---------- value generation ----------
 
@@ -181,6 +187,12 @@ export function searchSecretsPage(
     where.push('s.id IN (SELECT secret_id FROM secrets_fts WHERE secrets_fts MATCH @match)');
     params.match = match;
   }
+  if (opts.cursor !== undefined && opts.rankFirstForProjectId !== undefined) throw new ValidationError('invalid_cursor');
+  let order = 's.updated_at DESC, s.id DESC';
+  if (opts.rankFirstForProjectId !== undefined) {
+    order = `EXISTS (SELECT 1 FROM project_usage pu WHERE pu.project_id = @rankProject AND pu.secret_id = s.id) DESC, ${order}`;
+    params.rankProject = opts.rankFirstForProjectId;
+  }
   if (opts.cursor !== undefined) {
     const m = CURSOR_RE.exec(opts.cursor);
     if (!m) throw new ValidationError('invalid_cursor');
@@ -188,7 +200,7 @@ export function searchSecretsPage(
     params.cUpdated = Number(m[1]);
     params.cId = m[2]!;
   }
-  const sql = `${META_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY s.updated_at DESC, s.id DESC LIMIT @limit`;
+  const sql = `${META_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order} LIMIT @limit`;
   const rows = db.$client.prepare(sql).all(params) as SecretRow[];
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];

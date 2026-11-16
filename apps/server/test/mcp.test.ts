@@ -198,6 +198,29 @@ describe('mcp: search', () => {
     expect(JSON.parse(audit[0]!.meta as string)).toEqual({ query: 'stripe' });
   });
 
+  it('finds secrets by env name', async () => {
+    const { w, call } = await setup();
+    const gh = createSecret(w.ctx, w.alice.actor, { title: 'Deploy credentials', envName: 'GITHUB_TOKEN', value: 'v' });
+    const r = await call('search_secrets', { query: 'GITHUB_TOKEN', ...P });
+    expect((r.data.secrets as { id: string }[]).map((s) => s.id)).toEqual([gh.id]);
+  });
+
+  it('ranks secrets used by this project first before the 50-result limit', async () => {
+    const { w, call, approve } = await setup();
+    const old = createSecret(w.ctx, w.alice.actor, { title: 'Api key old', value: 'v0' });
+    const req = await call('request_secret', { secret_id: old.id, project: 'foo', reason: 'deploy' });
+    approve(req.data.request_id as string);
+    for (let i = 0; i < 55; i++) {
+      w.clock.advance(1000);
+      createSecret(w.ctx, w.alice.actor, { title: `Api key ${i}`, value: 'v' });
+    }
+    const r = await call('search_secrets', { query: 'api', ...P });
+    const list = r.data.secrets as { id: string; used_by_this_project: boolean }[];
+    expect(list).toHaveLength(50);
+    expect(list[0]).toMatchObject({ id: old.id, used_by_this_project: true });
+    expect(list.slice(1).every((s) => !s.used_by_this_project)).toBe(true);
+  });
+
   it('includes archived secrets (with archived.reason) only with include_archived', async () => {
     const { w, call, secret } = await setup();
     archiveSecret(w.ctx, w.alice.actor, secret.id, { reason: 'replaced by new key' });

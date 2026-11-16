@@ -69,6 +69,17 @@ describe('secrets: access and routes', () => {
     expect(searchSecrets(w.db, w.bob.id, 'git')).toEqual([]);
   });
 
+  it('search finds a secret by its env name (e.g. GITHUB_TOKEN) even if title/description differ', async () => {
+    const w = await world();
+    const s = createSecret(w.ctx, w.alice.actor, { title: 'Deploy credentials', envName: 'GITHUB_TOKEN', value: 'x1' });
+    createSecret(w.ctx, w.alice.actor, { title: 'Other', envName: 'NPM_TOKEN', value: 'x2' });
+    expect(searchSecrets(w.db, w.alice.id, 'GITHUB_TOKEN').map((x) => x.id)).toEqual([s.id]);
+    expect(searchSecrets(w.db, w.alice.id, 'github').map((x) => x.id)).toEqual([s.id]);
+    await w.req(w.alice, 'PATCH', `/api/secrets/${s.id}`, { envName: 'GH_PAT' });
+    expect(searchSecrets(w.db, w.alice.id, 'GITHUB_TOKEN')).toEqual([]);
+    expect(searchSecrets(w.db, w.alice.id, 'GH_PAT').map((x) => x.id)).toEqual([s.id]);
+  });
+
   it('search returns at most 50, newest first', async () => {
     const w = await world();
     for (let i = 0; i < 55; i++) {

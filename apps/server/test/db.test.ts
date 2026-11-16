@@ -1,3 +1,10 @@
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../src/db/client.js';
 import * as schema from '../src/db/schema.js';
@@ -43,6 +50,49 @@ describe('openDb', () => {
     db.$client.prepare("DELETE FROM secrets WHERE id = 'sec_1'").run();
     expect(fts(db, 'github')).toEqual([]);
     expect(fts(db, 'staging')).toEqual([]);
+  });
+
+  it('indexes env_name and keeps it exact on update', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    insertSecret(db);
+    expect(fts(db, '"GH_TOKEN"*')).toEqual(['sec_1']);
+    db.$client.prepare("UPDATE secrets SET env_name = 'NPM_TOKEN' WHERE id = 'sec_1'").run();
+    expect(fts(db, '"GH_TOKEN"*')).toEqual([]);
+    expect(fts(db, '"NPM_TOKEN"*')).toEqual(['sec_1']);
+  });
+
+  it('migration 0001 backfills env_name into the FTS index of an existing database', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'asm-mig-'));
+    try {
+      // Database created with only the initial migration (as on a machine that ran a pre-0001 build).
+      const src = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
+      const only0 = join(dir, 'migrations');
+      cpSync(src, only0, { recursive: true });
+      const journalPath = join(only0, 'meta', '_journal.json');
+      const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { tag: string }[] };
+      journal.entries = journal.entries.filter((e) => e.tag === '0000_init');
+      writeFileSync(journalPath, JSON.stringify(journal));
+      const file = join(dir, 'asm.db');
+      const raw = new Database(file);
+      migrate(drizzle(raw, { schema }), { migrationsFolder: only0 });
+      raw.prepare("INSERT INTO users (id, username, is_admin, created_at) VALUES ('usr_1', 'alice', 1, 1)").run();
+      raw.prepare("INSERT INTO vaults (id, name, created_at) VALUES ('vlt_1', 'V', 1)").run();
+      raw
+        .prepare(
+          `INSERT INTO secrets (id, vault_id, title, description, tags, env_name, current_version, created_by_type, created_by_id, created_at, updated_at)
+           VALUES ('sec_old', 'vlt_1', 'Deploy credentials', '', '[]', 'GITHUB_TOKEN', 1, 'user', 'usr_1', 1, 1)`,
+        )
+        .run();
+      raw.close();
+
+      const db = openDb(file);
+      expect(fts(db, '"GITHUB_TOKEN"*')).toEqual(['sec_old']);
+      expect(fts(db, 'deploy')).toEqual(['sec_old']);
+      db.$client.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('survives VACUUM with correct secret_id', () => {
