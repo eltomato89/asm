@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "./src/index.ts",
-  "exports": { ".": "./src/index.ts", "./ids": "./src/ids.ts" },
+  "exports": { ".": "./src/index.ts", "./ids": "./src/ids.ts", "./schemas": "./src/schemas.ts" },
   "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
-  "dependencies": { "ulid": "^2.3.0" }
+  "dependencies": { "ulid": "^2.3.0", "zod": "^4.6.7" }
 }

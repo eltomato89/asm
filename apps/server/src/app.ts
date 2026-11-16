@@ -9,6 +9,11 @@ import { createSetupState, type SetupState } from './auth/setup.js';
 import type { WebAuthnAdapter } from './auth/webauthn.js';
 import { installErrorHandler } from './errors.js';
 import cookie from '@fastify/cookie';
+import { registerAuditRoutes } from './audit/routes.js';
+import { createServiceCtx, type ServiceCtx, type ServiceHooks } from './context.js';
+import { registerProjectRoutes } from './projects/routes.js';
+import { registerSecretRoutes } from './secrets/routes.js';
+import { registerVaultRoutes } from './vaults/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -16,7 +21,18 @@ declare module 'fastify' {
   }
 }
 
-export type AppDeps = { config: Config; db: Db; clock: Clock; logger?: Logger; webauthn?: WebAuthnAdapter };
+export type AppDeps = {
+  config: Config;
+  db: Db;
+  clock: Clock;
+  logger?: Logger;
+  webauthn?: WebAuthnAdapter;
+  /** Cross-module service hooks (defaults are no-ops; Task 9 wires the real ones). */
+  hooks?: ServiceHooks;
+};
+
+/** Deps passed to domain route modules. */
+export type ModuleDeps = AppDeps & { ctx: ServiceCtx };
 
 const REDACT_KEYS = ['value', 'plaintext', 'password', 'token', 'authorization', 'cookie'];
 const MAX_REDACT_DEPTH = 6;
@@ -46,6 +62,12 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(cookie);
   installAuthContext(root, { db: deps.db, clock: deps.clock, publicOrigin: deps.config.publicUrl.origin });
   await root.register(registerAuthRoutes, deps);
+  const ctx = createServiceCtx({ db: deps.db, clock: deps.clock, kek: deps.config.masterKey, hooks: deps.hooks });
+  const moduleDeps: ModuleDeps = { ...deps, ctx };
+  await root.register(registerVaultRoutes, moduleDeps);
+  await root.register(registerSecretRoutes, moduleDeps);
+  await root.register(registerProjectRoutes, moduleDeps);
+  await root.register(registerAuditRoutes, moduleDeps);
   root.get('/healthz', async () => ({ status: 'ok' }));
   return root;
 }
