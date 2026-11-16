@@ -1,0 +1,19 @@
+{
+  "name": "@asm/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@asm/shared": "workspace:*",
+    "fastify": "^5.0.0",
+    "pino": "^9.0.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}

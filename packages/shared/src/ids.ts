@@ -1,0 +1,7 @@
+import { ulid } from 'ulid';
+
+export type IdPrefix = 'usr' | 'vlt' | 'sec' | 'dev' | 'req' | 'grt' | 'aud' | 'ses' | 'cli' | 'prj';
+
+export function newId(prefix: IdPrefix): string {
+  return `${prefix}_${ulid()}`;
+}
