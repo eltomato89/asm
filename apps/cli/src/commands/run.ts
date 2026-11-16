@@ -6,7 +6,8 @@ import { CliError, EXIT, usage, type Runtime } from '../runtime.js';
 
 export type RunOptions = { grant: string[]; secret: string[]; project?: string; reason?: string };
 
-const FORWARDED = ['SIGINT', 'SIGTERM'] as const;
+/** SIGINT from a terminal already reaches the child via the process group; forward it only when not interactive. */
+const forwardedSignals = (stdinIsTTY: boolean): NodeJS.Signals[] => (stdinIsTTY ? ['SIGTERM', 'SIGHUP'] : ['SIGINT', 'SIGTERM', 'SIGHUP']);
 
 /** Spawns the command with the injected env vars (only in the child) and returns its exit code. */
 export async function runCommand(rt: Runtime, cmd: Command, argv: string[], opts: RunOptions): Promise<number> {
@@ -17,10 +18,11 @@ export async function runCommand(rt: Runtime, cmd: Command, argv: string[], opts
 
   return new Promise<number>((resolve, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), { stdio: rt.deps.childStdio ?? 'inherit', env });
-    const forward = new Map(FORWARDED.map((sig) => [sig, () => void child.kill(sig)] as const));
-    for (const [sig, fn] of forward) process.on(sig, fn);
+    const source = rt.deps.signals ?? process;
+    const forward = new Map(forwardedSignals(rt.deps.stdinIsTTY === true).map((sig) => [sig, () => void child.kill(sig)] as const));
+    for (const [sig, fn] of forward) source.on(sig, fn);
     const cleanup = () => {
-      for (const [sig, fn] of forward) process.off(sig, fn);
+      for (const [sig, fn] of forward) source.off(sig, fn);
     };
     child.on('error', (err: NodeJS.ErrnoException) => {
       cleanup();

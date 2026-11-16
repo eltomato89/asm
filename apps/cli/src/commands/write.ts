@@ -6,12 +6,13 @@ import { writePrivateFile } from '../auth-store.js';
 import { collectEnv, type EnvVar } from '../inject.js';
 import { usage, type Runtime } from '../runtime.js';
 
-/** Double-quoted dotenv value: escapes `\`, `"`, `$` and newlines. */
+/** Double-quoted dotenv value: escapes `\`, `"`, `$`, backtick and newlines (safe for `set -a; . ./file`). */
 export function quoteDotenv(value: string): string {
   const escaped = value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
     .replace(/\$/g, '\\$')
+    .replace(/`/g, '\\`')
     .replace(/\r/g, '\\r')
     .replace(/\n/g, '\\n');
   return `"${escaped}"`;

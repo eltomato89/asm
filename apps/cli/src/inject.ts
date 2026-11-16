@@ -1,4 +1,5 @@
 import { CliError, EXIT, type Runtime } from './runtime.js';
+import { stripControl } from './sanitize.js';
 
 /** Same rule as the server's EnvNameSchema. */
 const ENV_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
@@ -15,6 +16,19 @@ export function parseMapping(spec: string, what: 'grant' | 'secret'): Mapping {
   if (!id.startsWith(prefix) || id.length > 100) throw new CliError(EXIT.usage, `invalid --${what}: ${spec}`);
   if (env !== undefined && !ENV_NAME_RE.test(env)) throw new CliError(EXIT.usage, `invalid env name in --${what} ${spec}`);
   return { id, env };
+}
+
+/** Env names from the server are re-validated before they reach a process env or a dotenv file. */
+function checkServerName(name: string): void {
+  if (!ENV_NAME_RE.test(name)) throw new CliError(EXIT.api, 'invalid_env_name');
+}
+
+function assertUnique(names: string[]): void {
+  const seen = new Set<string>();
+  for (const n of names) {
+    if (seen.has(n)) throw new CliError(EXIT.usage, `duplicate env name ${n}; map one of them with =OTHER_NAME`);
+    seen.add(n);
+  }
 }
 
 const noEnvName = (secretId: string, flag: string) =>
@@ -35,16 +49,21 @@ export async function collectEnv(
 
   const api = rt.api();
   const project = secrets.length > 0 ? rt.project(input.project) : '';
-  const fromRequests: Mapping[] = [];
   const created = [];
   for (const s of secrets) {
     const dto = await api.createRequest({ secretId: s.id, project, reason: input.reason! });
-    if (!s.env && !dto.secret.envName) throw noEnvName(s.id, `--secret ${s.id}`);
-    created.push({ s, dto });
+    const name = s.env ?? dto.secret.envName;
+    if (!name) throw noEnvName(s.id, `--secret ${s.id}`);
+    checkServerName(name);
+    created.push({ s, dto, name });
   }
+  // Names known before anything is redeemed (explicit mappings, env names of the requested secrets).
+  assertUnique([...grants.flatMap((g) => (g.env ? [g.env] : [])), ...created.map((c) => c.name)]);
+
+  const fromRequests: Mapping[] = [];
   for (const { s, dto } of created) {
     const done = await rt.awaitDecision(dto);
-    if (!done.grantId) throw new CliError(EXIT.api, `request ${done.id}: grant_gone`);
+    if (!done.grantId) throw new CliError(EXIT.api, `request ${stripControl(done.id)}: grant_gone`);
     fromRequests.push({ id: done.grantId, env: s.env });
   }
 
@@ -53,9 +72,11 @@ export async function collectEnv(
     const { secrets: redeemed } = await api.redeemGrant(g.id, rt.deps.hostname);
     for (const r of redeemed) {
       const name = g.env ?? r.envName;
-      if (!name) throw noEnvName(r.secretId, `--grant ${g.id}`);
+      if (!name) throw noEnvName(stripControl(r.secretId), `--grant ${g.id}`);
+      checkServerName(name);
       vars.push({ name, value: r.value });
     }
   }
+  assertUnique(vars.map((v) => v.name));
   return vars;
 }

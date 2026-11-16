@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { mergeDotenv, quoteDotenv } from '../src/commands/write.js';
@@ -39,7 +39,7 @@ describe('asm write', () => {
   });
 
   it('quotes values: escapes backslash, double quote, $ and newlines', () => {
-    expect(quoteDotenv('a\\b"c$d\ne')).toBe('"a\\\\b\\"c\\$d\\ne"');
+    expect(quoteDotenv('a\\b"c$d\ne`x`')).toBe('"a\\\\b\\"c\\$d\\ne\\`x\\`"');
   });
 
   it('warns on stderr when the file is not ignored inside a git repo', async () => {
@@ -72,4 +72,29 @@ describe('asm write', () => {
     expect(ok.code).toBe(0);
     expect(readFileSync(join(dir, '.env'), 'utf8')).toBe(`MY_KEY="${VALUE}"\n`);
   });
+
+  it('values survive `set -a; . ./.env` in sh exactly, without executing anything', async () => {
+    const dir = tmp();
+    const marker = join(dir, 'PWNED');
+    const values = [
+      `a\`touch ${marker}\`b`,
+      `$(touch ${marker})`,
+      'q"uo\\te\\" $HOME ${HOME} \\$x',
+      '`id`|sh; echo "$(whoami)"',
+    ];
+    for (const value of values) {
+      const r = await runCli(['write', '--grant', GRANT, '.env'], { api: api(value), cwd: dir });
+      expect(r.code).toBe(0);
+      const out = execFileSync('sh', ['-c', 'set -a; . ./.env; printf %s "$GITHUB_TOKEN"'], { cwd: dir, encoding: 'utf8' });
+      expect(out).toBe(value);
+      expect(existsSync(marker)).toBe(false);
+    }
+    // Newlines are written as \n (dotenv convention): sh keeps them literal, still without executing anything.
+    await runCli(['write', '--grant', GRANT, '.env'], { api: api(`l1\n$(touch ${marker})`), cwd: dir });
+    const out = execFileSync('sh', ['-c', 'set -a; . ./.env; printf %s "$GITHUB_TOKEN"'], { cwd: dir, encoding: 'utf8' });
+    expect(out).toBe(`l1\\n$(touch ${marker})`);
+    expect(existsSync(marker)).toBe(false);
+    expect(readdirSync(dir)).toEqual(['.env']);
+  });
 });
+

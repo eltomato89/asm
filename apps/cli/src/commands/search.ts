@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import type { Runtime } from '../runtime.js';
+import { stripControl } from '../sanitize.js';
 
 /** Plain text table with padded columns. */
 export function table(head: string[], rows: string[][]): string {
@@ -26,7 +27,7 @@ export function registerSearch(program: Command, rt: () => Runtime): void {
       r.stdout.write(
         table(
           ['ID', 'TITLE', 'ENV', 'VAULT', 'ARCHIVED'],
-          items.map((s) => [s.id, s.title, s.envName ?? '', s.vaultName, s.archived ? 'yes' : '']),
+          items.map((s) => [s.id, s.title, s.envName ?? '', s.vaultName, s.archived ? 'yes' : ''].map((c) => stripControl(String(c)))),
         ),
       );
     });

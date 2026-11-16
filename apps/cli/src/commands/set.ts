@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { Command } from 'commander';
 import type { GenerateInput } from '@asm/shared/api-client';
 import { CliError, EXIT, usage, type Runtime } from '../runtime.js';
+import { stripControl } from '../sanitize.js';
 
 export type SetOptions = {
   new?: boolean;
@@ -28,7 +29,10 @@ async function valueSource(rt: Runtime, cmd: Command, o: SetOptions): Promise<{ 
   const given = [o.fromStdin, o.fromEnv, o.fromFile, o.generate].filter((x) => x !== undefined && x !== false);
   if (given.length > 1) usage(cmd, 'give only one of --from-stdin, --from-env, --from-file, --generate');
   let value: string | undefined;
-  if (o.fromStdin) value = stripNewline(await rt.deps.readStdin());
+  if (o.fromStdin) {
+    if (rt.deps.stdinIsTTY) usage(cmd, '--from-stdin needs piped input (e.g. `pbpaste | asm set …`), or use --from-env');
+    value = stripNewline(await rt.deps.readStdin());
+  }
   else if (o.fromEnv !== undefined) {
     value = rt.deps.env[o.fromEnv];
     if (value === undefined) throw new CliError(EXIT.usage, `environment variable ${o.fromEnv} is not set`);
@@ -62,7 +66,7 @@ export async function setCommand(rt: Runtime, cmd: Command, secretId: string | u
     if (!source) usage(cmd, '--new requires a value source (--from-stdin, --from-env, --from-file or --generate)');
     const project = rt.project(o.project);
     const out = await rt.api().createSecret({ ...meta, title: o.title, vaultId: o.vault, project, reason: o.reason, ...source });
-    rt.stdout.write(`${out.secretId} v${out.version}\n`);
+    rt.stdout.write(`${stripControl(out.secretId)} v${Number(out.version)}\n`);
     return;
   }
 
@@ -71,13 +75,13 @@ export async function setCommand(rt: Runtime, cmd: Command, secretId: string | u
   if (!source && !hasMeta) usage(cmd, 'nothing to change: give a value source or metadata flags');
   const project = rt.project(o.project);
   const dto = await rt.api().updateSecret(secretId, { ...meta, project, reason: o.reason, ...source });
-  rt.stdout.write(`${dto.id}\n`);
+  rt.stdout.write(`${stripControl(dto.id)}\n`);
   if (dto.status === 'pending' && !o.wait) {
     rt.stderr.write('Update requested; approve it in ASM.\n');
     return;
   }
   const done = await rt.awaitDecision(dto);
-  rt.stdout.write(`approved v${done.version ?? '?'}\n`);
+  rt.stdout.write(`approved v${done.version ?? '?'}\n`.replace(/[^\x20-\x7e\n]/g, ''));
 }
 
 export function registerSet(program: Command, rt: () => Runtime): void {

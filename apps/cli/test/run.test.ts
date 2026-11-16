@@ -1,18 +1,20 @@
+import { EventEmitter } from 'node:events';
 import { closeSync, openSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '@asm/shared/api-client';
+import type { CliDeps } from '../src/runtime.js';
 import { fakeApi, requestDto, runCli, tmp } from './helpers.js';
 
 const VALUE = 'ghp_RUN_TOPSECRET_123';
 const GRANT = 'grt_01JTESTGRANT0000000000000A';
 
 /** Runs `asm run` with the child's stdout captured into a file. */
-async function runWithCapture(args: string[], api = fakeApi()) {
+async function runWithCapture(args: string[], api = fakeApi(), deps: Partial<CliDeps> = {}) {
   const file = join(tmp(), 'child-out.txt');
   const fd = openSync(file, 'w');
   try {
-    const r = await runCli(args, { api, env: process.env, deps: { childStdio: ['ignore', fd, 'inherit'] } });
+    const r = await runCli(args, { api, env: process.env, deps: { childStdio: ['ignore', fd, 'inherit'], ...deps } });
     return { ...r, child: readFileSync(file, 'utf8') };
   } finally {
     closeSync(fd);
@@ -86,4 +88,45 @@ describe('asm run', () => {
     expect(r.code).toBe(1);
     expect(r.err).toBe('asm: grant_gone\n');
   });
+
+  it('forwards SIGTERM to the child; SIGINT only when stdin is not a terminal', async () => {
+    const signals = new EventEmitter();
+    const seen: number[] = [];
+    const origOn = signals.on.bind(signals);
+    signals.on = ((ev: string, fn: () => void) => {
+      if (ev === 'SIGINT') seen.push(1);
+      return origOn(ev, fn);
+    }) as typeof signals.on;
+    const child =
+      "process.on('SIGTERM', () => process.exit(7)); process.stdout.write('ready'); setInterval(() => {}, 1000)";
+    const running = runWithCapture(['run', '--grant', GRANT, '--', 'node', '-e', child], fakeApi({ redeemGrant: redeemed() }), { signals, stdinIsTTY: true });
+    for (let i = 0; i < 100 && signals.listenerCount('SIGTERM') === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 300)); // child installs its handler
+    signals.emit('SIGTERM');
+    const r = await running;
+    expect(r.code).toBe(7);
+    expect(seen).toEqual([]); // SIGINT not forwarded for an interactive terminal
+    expect(signals.listenerCount('SIGTERM')).toBe(0);
+    expect(signals.listenerCount('SIGHUP')).toBe(0);
+  });
+
+  it('duplicate env names → exit 2 before anything is redeemed', async () => {
+    const api = fakeApi({ redeemGrant: redeemed() });
+    const r = await runCli(['run', '--grant', `${GRANT}=A`, '--grant', 'grt_01JTESTGRANT0000000000000B=A', '--', 'node'], { api });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('duplicate env name A');
+    expect(api.redeemGrant).not.toHaveBeenCalled();
+    // names only known after redemption are checked before running anything
+    const r2 = await runWithCapture(['run', '--grant', GRANT, '--grant', 'grt_01JTESTGRANT0000000000000B', '--', 'node', '-e', 'process.stdout.write("ran")'], fakeApi({ redeemGrant: redeemed() }));
+    expect(r2.code).toBe(2);
+    expect(r2.child).toBe('');
+  });
+
+  it('server-supplied env names are re-validated (exit 1 invalid_env_name)', async () => {
+    const r = await runWithCapture(['run', '--grant', GRANT, '--', 'node', '-e', 'process.stdout.write("ran")'], fakeApi({ redeemGrant: redeemed('PATH;rm -rf') }));
+    expect(r.code).toBe(1);
+    expect(r.err).toBe('asm: invalid_env_name\n');
+    expect(r.child).toBe('');
+  });
 });
+

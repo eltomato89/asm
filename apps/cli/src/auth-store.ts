@@ -1,4 +1,5 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -7,7 +8,11 @@ export type Credentials = { url: string; accessToken: string; refreshToken: stri
 
 export interface TokenStore {
   get(host: string): Promise<Credentials | undefined>;
-  set(host: string, creds: Credentials): Promise<void>;
+  /**
+   * `replace` (login): store fresh credentials at the configured location and drop copies elsewhere.
+   * Without it (refresh): update the credentials where they currently live.
+   */
+  set(host: string, creds: Credentials, opts?: { replace?: boolean }): Promise<void>;
   /** Returns true if something was deleted. */
   delete(host: string): Promise<boolean>;
 }
@@ -39,14 +44,31 @@ function parseCredentials(raw: unknown): Credentials | undefined {
   };
 }
 
-/** Writes a file atomically with mode 0600 (also tightens an existing file). */
+/** Writes a file atomically with mode 0600 (exclusive, randomly named temp file; also tightens an existing file). */
 export function writePrivateFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, content, { mode: 0o600 });
-  chmodSync(tmp, 0o600);
-  renameSync(tmp, path);
-  chmodSync(path, 0o600);
+  const tmp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  let renamed = false;
+  try {
+    const fd = openSync(tmp, 'wx', 0o600);
+    try {
+      writeSync(fd, content);
+    } finally {
+      closeSync(fd);
+    }
+    chmodSync(tmp, 0o600);
+    renameSync(tmp, path);
+    renamed = true;
+    chmodSync(path, 0o600);
+  } finally {
+    if (!renamed) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // not created
+      }
+    }
+  }
 }
 
 // ---------- in-memory (tests) ----------
@@ -126,12 +148,14 @@ export class FileStore implements TokenStore {
 
   private readAll(): Record<string, unknown> {
     if (!existsSync(this.path)) return {};
+    let data: unknown;
     try {
-      const data = JSON.parse(readFileSync(this.path, 'utf8')) as unknown;
-      return data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
+      data = JSON.parse(readFileSync(this.path, 'utf8'));
     } catch {
-      return {};
+      throw new StoreError('credentials_corrupt');
     }
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new StoreError('credentials_corrupt');
+    return data as Record<string, unknown>;
   }
 
   async get(host: string) {
@@ -154,8 +178,8 @@ export class FileStore implements TokenStore {
 }
 
 /**
- * Default store: OS keyring; the credentials file is only written with --insecure-store.
- * Reads fall back to the file so tokens stored with --insecure-store keep working (and refresh in place).
+ * Default store: OS keyring. A login with --insecure-store keeps that host's tokens in the credentials file
+ * (refreshes then update the file); a normal login moves the host back to the keyring and drops the file entry.
  */
 export class DefaultStore implements TokenStore {
   constructor(
@@ -169,7 +193,13 @@ export class DefaultStore implements TokenStore {
     return (await this.file.get(host)) ?? this.keyring.get(host);
   }
 
-  async set(host: string, creds: Credentials) {
+  async set(host: string, creds: Credentials, opts: { replace?: boolean } = {}) {
+    if (opts.replace) {
+      if (this.insecure) return this.file.set(host, creds);
+      await this.keyring.set(host, creds);
+      await this.file.delete(host);
+      return;
+    }
     if (this.insecure || (await this.file.get(host))) return this.file.set(host, creds);
     return this.keyring.set(host, creds);
   }

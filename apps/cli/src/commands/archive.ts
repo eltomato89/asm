@@ -1,5 +1,6 @@
 import type { Command } from 'commander';
 import { usage, type Runtime } from '../runtime.js';
+import { stripControl } from '../sanitize.js';
 
 export function registerArchive(program: Command, rt: () => Runtime): void {
   const cmd = program
@@ -12,6 +13,6 @@ export function registerArchive(program: Command, rt: () => Runtime): void {
       if (!o.reason || o.reason.trim() === '') usage(cmd, '--reason is required');
       const r = rt();
       const meta = await r.api().archiveSecret(secretId, { reason: o.reason, project: r.project(o.project) });
-      r.stdout.write(`${meta.id} archived\n`);
+      r.stdout.write(`${stripControl(meta.id)} archived\n`);
     });
 }

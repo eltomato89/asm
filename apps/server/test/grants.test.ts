@@ -290,6 +290,24 @@ describe('CLI device API', () => {
     expect((await call(w, cli.accessToken, 'GET', '/api/cli/secrets?q=github')).statusCode).toBe(400);
   });
 
+  it("another user's cli device: update/archive of a foreign secret → 404; createSecret into a foreign vault → 404", async () => {
+    const { w, secret } = await setup();
+    const bobCli = device(w, w.bob, 'cli');
+    const upd = await call(w, bobCli.accessToken, 'POST', `/api/cli/secrets/${secret.id}/update`, { project: 'p', reason: 'r', generate: { length: 32 } });
+    expect(upd.statusCode).toBe(404);
+    const arch = await call(w, bobCli.accessToken, 'POST', `/api/cli/secrets/${secret.id}/archive`, { project: 'p', reason: 'r' });
+    expect(arch.statusCode).toBe(404);
+    expect(w.db.$client.prepare('SELECT archived_at FROM secrets WHERE id = ?').get(secret.id)).toEqual({ archived_at: null });
+    expect(w.db.$client.prepare("SELECT COUNT(*) AS n FROM access_requests WHERE kind = 'update'").get()).toEqual({ n: 0 });
+    const req = await call(w, bobCli.accessToken, 'POST', '/api/cli/requests', { secretId: secret.id, project: 'p', reason: 'r' });
+    expect(req.statusCode).toBe(404);
+    const created = await call(w, bobCli.accessToken, 'POST', '/api/cli/secrets', {
+      title: 'Planted', vaultId: secret.vaultId, generate: { length: 32 }, project: 'p', reason: 'r',
+    });
+    expect(created.statusCode).toBe(404);
+    expect(w.db.$client.prepare('SELECT COUNT(*) AS n FROM secrets WHERE vault_id = ?').get(secret.vaultId)).toEqual({ n: 1 });
+  });
+
   it("search is scoped to the device owner's vaults and audited", async () => {
     const { w, secret, cli } = await setup();
     const bobCli = device(w, w.bob, 'cli');

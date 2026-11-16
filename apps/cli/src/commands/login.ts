@@ -2,15 +2,22 @@ import type { Command } from 'commander';
 import { ApiError } from '@asm/shared/api-client';
 import { readConfig, writeConfig } from '../auth-store.js';
 import { CliError, DEVICE_CODE_GRANT, EXIT, normalizeServer, serverHost, type Runtime } from '../runtime.js';
+import { stripControl } from '../sanitize.js';
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 const SLOW_DOWN_S = 5;
 
 /** OAuth device flow (RFC 8628): shows the user code, polls the token endpoint, stores the tokens. */
-export async function login(rt: Runtime, url: string): Promise<void> {
+export async function login(rt: Runtime, url: string, opts: { allowHttp?: boolean } = {}): Promise<void> {
   const server = normalizeServer(url);
+  const u = new URL(server);
+  if (u.protocol === 'http:' && !LOOPBACK.has(u.hostname) && !opts.allowHttp) {
+    throw new CliError(EXIT.usage, 'refusing plain http for a non-local server (use https, or --allow-http)');
+  }
   const api = rt.publicApi(server);
   const da = await api.deviceAuthorization({ client_name: 'asm-cli', hostname: rt.deps.hostname });
-  rt.stderr.write(`Open ${da.verification_uri} and enter code ${da.user_code}\n`);
+  rt.stderr.write(`Open ${stripControl(String(da.verification_uri))} and enter code ${stripControl(String(da.user_code))}\n`);
   let interval = Math.max(1, da.interval || 5);
   let remainingMs = da.expires_in * 1000;
   for (;;) {
@@ -21,7 +28,7 @@ export async function login(rt: Runtime, url: string): Promise<void> {
       const t = await api.token({ grant_type: DEVICE_CODE_GRANT, device_code: da.device_code });
       await rt.store.set(serverHost(server), {
         url: server, accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000,
-      });
+      }, { replace: true });
       writeConfig(rt.deps.configDir, { ...readConfig(rt.deps.configDir), defaultServer: server });
       rt.stderr.write(`Logged in to ${server}\n`);
       return;
@@ -45,5 +52,7 @@ export function registerLogin(program: Command, rt: (o?: { insecureStore?: boole
     .description('Pair this machine with an ASM server (device flow)')
     .argument('<url>', 'server URL, e.g. https://asm.example.com')
     .option('--insecure-store', 'store the tokens in ~/.config/asm/credentials.json (0600) instead of the OS keyring')
-    .action(async (url: string, o: { insecureStore?: boolean }) => login(rt(o.insecureStore ? { insecureStore: true } : {}), url));
+    .option('--allow-http', 'allow plain http for a non-local server')
+    .action(async (url: string, o: { insecureStore?: boolean; allowHttp?: boolean }) =>
+      login(rt(o.insecureStore ? { insecureStore: true } : {}), url, { allowHttp: o.allowHttp }));
 }

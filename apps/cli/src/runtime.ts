@@ -1,8 +1,13 @@
 import { execFileSync, type StdioOptions } from 'node:child_process';
-import { basename } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import type { Command } from 'commander';
 import { ApiError, createApiClient, type ApiClient, type CliRequestDto } from '@asm/shared/api-client';
 import { createDefaultStore, readConfig, type TokenStore } from './auth-store.js';
+import { acquireLock } from './lock.js';
+
+/** Refresh proactively when the access token expires within this window. */
+export const REFRESH_AHEAD_MS = 60_000;
 
 export type Out = { write(chunk: string): unknown };
 
@@ -23,6 +28,10 @@ export type CliDeps = {
   sleep?: (ms: number) => Promise<void>;
   /** stdio of `asm run` children (default 'inherit'). */
   childStdio?: StdioOptions;
+  /** Whether stdin is a terminal (`--from-stdin` refuses; `asm run` then leaves SIGINT to the process group). */
+  stdinIsTTY?: boolean;
+  /** Source of SIGINT/SIGTERM/SIGHUP for `asm run` forwarding (default: process). */
+  signals?: NodeJS.EventEmitter;
 };
 
 export const EXIT = { ok: 0, api: 1, usage: 2, denied: 3 } as const;
@@ -95,30 +104,60 @@ export class Runtime {
     return this.deps.makeApi?.(server) ?? createApiClient({ baseUrl: server, getAccessToken: () => undefined, fetch: this.deps.fetch });
   }
 
-  /** Authenticated client for the current server; refreshes the tokens once on 401. */
+  /** Authenticated client for the current server; refreshes proactively (≤60 s left) and once on 401. */
   api(): ApiClient {
     if (this.apiClient) return this.apiClient;
     const server = this.server();
     if (this.deps.makeApi) return (this.apiClient = this.deps.makeApi(server));
     const host = serverHost(server);
+    let lastToken: string | undefined;
     const client: ApiClient = createApiClient({
       baseUrl: server,
       fetch: this.deps.fetch,
-      getAccessToken: async () => (await this.store.get(host))?.accessToken,
-      onUnauthorized: async () => {
-        const creds = await this.store.get(host);
-        if (!creds) return false;
-        try {
-          const t = await client.token({ grant_type: 'refresh_token', refresh_token: creds.refreshToken });
-          await this.store.set(host, { url: server, accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000 });
-          return true;
-        } catch (err) {
-          if (err instanceof ApiError) return false;
-          throw err;
+      getAccessToken: async () => {
+        let creds = await this.store.get(host);
+        if (creds && creds.expiresAt > 0 && creds.expiresAt - Date.now() < REFRESH_AHEAD_MS) {
+          await this.refreshTokens(client, server, creds.accessToken);
+          creds = await this.store.get(host);
         }
+        lastToken = creds?.accessToken;
+        return lastToken;
       },
+      onUnauthorized: () => this.refreshTokens(client, server, lastToken),
     });
     return (this.apiClient = client);
+  }
+
+  /**
+   * Rotates the tokens under a cross-process lock: the server treats reuse of a rotated refresh token as theft and
+   * revokes the device, so concurrent `asm` processes must not refresh with the same token. If another process
+   * already refreshed (stored access token differs from `staleAccess`), its tokens are used instead.
+   */
+  private async refreshTokens(client: ApiClient, server: string, staleAccess: string | undefined): Promise<boolean> {
+    const host = serverHost(server);
+    mkdirSync(this.deps.configDir, { recursive: true, mode: 0o700 });
+    const release = await acquireLock(join(this.deps.configDir, `refresh-${host.replace(/[^A-Za-z0-9.-]/g, '_')}.lock`));
+    try {
+      const creds = await this.store.get(host);
+      if (!creds) return false;
+      if (staleAccess !== undefined && creds.accessToken !== staleAccess) return true;
+      let t;
+      try {
+        t = await client.token({ grant_type: 'refresh_token', refresh_token: creds.refreshToken });
+      } catch (err) {
+        if (err instanceof ApiError) return false;
+        throw err;
+      }
+      try {
+        await this.store.set(host, { url: server, accessToken: t.access_token, refreshToken: t.refresh_token, expiresAt: Date.now() + t.expires_in * 1000 });
+      } catch {
+        // The old refresh token is now rotated: without the new one this device needs a fresh login.
+        throw new CliError(EXIT.api, 'token_store_failed');
+      }
+      return true;
+    } finally {
+      release();
+    }
   }
 
   /** --project, else basename of the git toplevel, else basename of the working directory. */

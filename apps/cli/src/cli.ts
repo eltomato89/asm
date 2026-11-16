@@ -1,6 +1,7 @@
 import { Command, CommanderError } from 'commander';
 import { ApiError } from '@asm/shared/api-client';
 import { StoreError } from './auth-store.js';
+import { stripControl } from './sanitize.js';
 import { registerArchive } from './commands/archive.js';
 import { registerLogin } from './commands/login.js';
 import { registerLogout } from './commands/logout.js';
@@ -56,7 +57,7 @@ export async function main(args: string[], deps: CliDeps): Promise<number> {
     }
     if (err instanceof ApiError) {
       const hint = err.status === 401 ? ' (run: asm login <url>)' : '';
-      deps.stderr.write(`asm: ${err.code}${hint}\n`);
+      deps.stderr.write(`asm: ${stripControl(err.code)}${hint}\n`);
       return EXIT.api;
     }
     if (err instanceof StoreError) {

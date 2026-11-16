@@ -17,4 +17,5 @@ process.exitCode = await main(process.argv.slice(2), {
   readStdin,
   configDir: configDir(),
   hostname: hostname(),
+  stdinIsTTY: process.stdin.isTTY === true,
 });

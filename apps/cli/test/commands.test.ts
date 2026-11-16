@@ -81,6 +81,45 @@ describe('token refresh', () => {
   });
 });
 
+describe('hardening', () => {
+  it('login refuses plain http for non-local hosts unless --allow-http; localhost is fine', async () => {
+    const da = async () => ({ device_code: 'dc', user_code: 'U', verification_uri: 'v', expires_in: 600, interval: 5 });
+    const tok = async () => ({ access_token: 'a', refresh_token: 'r', expires_in: 3600, token_type: 'Bearer' });
+    const api = fakeApi({ deviceAuthorization: da, token: tok });
+    const r = await runCli(['login', 'http://asm.example.com'], { api });
+    expect(r.code).toBe(2);
+    expect(api.deviceAuthorization).not.toHaveBeenCalled();
+    expect((await runCli(['login', 'http://asm.example.com', '--allow-http'], { api: fakeApi({ deviceAuthorization: da, token: tok }) })).code).toBe(0);
+    expect((await runCli(['login', 'http://localhost:8080'], { api: fakeApi({ deviceAuthorization: da, token: tok }) })).code).toBe(0);
+  });
+
+  it('strips terminal control characters from server-supplied strings (login, search)', async () => {
+    const api = fakeApi({
+      deviceAuthorization: async () => ({ device_code: 'dc', user_code: 'AB\x1b]0;pwned\x07CD', verification_uri: 'https://x.test/\x1b[2Jactivate', expires_in: 600, interval: 5 }),
+      token: async () => ({ access_token: 'a', refresh_token: 'r', expires_in: 3600, token_type: 'Bearer' }),
+    });
+    const r = await runCli(['login', 'https://x.test'], { api });
+    expect(r.err).toContain('Open https://x.test/activate and enter code ABCD');
+    expect(r.err).not.toContain('\x1b');
+    const s = fakeApi({
+      searchSecrets: async () => ({
+        items: [{ id: 'sec_1', title: 'Evil\x1b[31m\r\nfake\x9b', envName: null, vaultName: 'V\x07', archived: null }],
+      }),
+    });
+    const out = (await runCli(['search', '--project', 'p'], { api: s })).out;
+    expect(out).toContain('Evilfake');
+    expect(out).not.toMatch(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/);
+  });
+
+  it('--from-stdin refuses an interactive terminal (exit 2)', async () => {
+    const api = fakeApi();
+    const r = await runCli(['set', 'sec_1', '--project', 'p', '--reason', 'r', '--from-stdin'], { api, deps: { stdinIsTTY: true } });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain('--from-env');
+    expect(api.updateSecret).not.toHaveBeenCalled();
+  });
+});
+
 describe('other commands', () => {
   it('search prints a table (id, title, env, vault, archived) and passes --archived', async () => {
     const meta = (id: string, title: string, envName: string | null, archived: boolean) => ({
