@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { newId } from '@asm/shared';
 import type { FastifyReply } from 'fastify';
-import { and, eq, gt } from 'drizzle-orm';
+import { and, eq, gt, isNull } from 'drizzle-orm';
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/client.js';
 import { sessions, users } from '../db/schema.js';
@@ -36,7 +36,7 @@ export function findSession(db: Db, clock: Clock, token: string): { session: Ses
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
-    .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, clock.now())))
+    .where(and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, clock.now()), isNull(users.disabledAt)))
     .get();
   return row;
 }

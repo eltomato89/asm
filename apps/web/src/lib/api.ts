@@ -150,7 +150,15 @@ export type AuditFilter = {
 export type AuditPage = { items: AuditRow[]; nextCursor?: string };
 export type ChainStatus = { ok: true } | { ok: false; brokenAtSeq: number };
 export type Passkey = { id: string; name: string; createdAt: number; transports: string[] | null };
-export type AdminUser = { id: string; username: string; isAdmin: boolean; createdAt: number; hasPassword: boolean; passkeyCount: number };
+export type AdminUser = {
+  id: string;
+  username: string;
+  isAdmin: boolean;
+  createdAt: number;
+  hasPassword: boolean;
+  passkeyCount: number;
+  disabledAt: number | null;
+};
 export type ConsentInfo = { clientName: string; redirectHost: string; requestedAt: number };
 export type ActivationInfo = { name: string; hostname: string | null; requestedAt: number };
 
@@ -211,6 +219,8 @@ export const api = {
   changePassword: (body: { currentPassword?: string; newPassword: string }) => post<{ ok: true }>('/api/auth/password', body),
   users: () => get<{ items: AdminUser[] }>('/api/admin/users'),
   createUser: (body: { username: string; password?: string; isAdmin: boolean }) => post<Me>('/api/admin/users', body),
+  disableUser: (userId: string) => post<AdminUser>(`/api/admin/users/${id(userId)}/disable`),
+  enableUser: (userId: string) => post<AdminUser>(`/api/admin/users/${id(userId)}/enable`),
 
   consentInfo: (req: string) => get<ConsentInfo>(`/api/oauth/consent/${id(req)}`),
   consent: (body: { req: string; decision: 'approve' | 'deny'; deviceName?: string }) => post<{ redirectTo: string }>('/api/oauth/consent', body),

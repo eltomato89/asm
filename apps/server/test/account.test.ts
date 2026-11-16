@@ -79,7 +79,7 @@ describe('GET /api/admin/users', () => {
     expect(r.statusCode).toBe(200);
     const items = r.json().items as Record<string, unknown>[];
     expect(items.map((u) => u.username)).toEqual(['alice', 'bob']);
-    expect(Object.keys(items[0]!).sort()).toEqual(['createdAt', 'hasPassword', 'id', 'isAdmin', 'passkeyCount', 'username']);
+    expect(Object.keys(items[0]!).sort()).toEqual(['createdAt', 'disabledAt', 'hasPassword', 'id', 'isAdmin', 'passkeyCount', 'username']);
     expect(items[1]).toMatchObject({ id: w.bob.id, isAdmin: false, passkeyCount: 1, hasPassword: true });
     expect((await w.req(w.bob, 'GET', '/api/admin/users')).statusCode).toBe(403);
   });

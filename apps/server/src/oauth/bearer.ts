@@ -3,7 +3,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm';
 import { hashToken } from '../auth/sessions.js';
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/client.js';
-import { devices, tokens } from '../db/schema.js';
+import { devices, tokens, users } from '../db/schema.js';
 import { protectedResourceMetadataUrl } from './metadata.js';
 import { ACCESS_TOKEN_PREFIX } from './token.js';
 
@@ -13,7 +13,7 @@ export type DeviceIdentity = { id: string; userId: string; kind: 'mcp' | 'cli'; 
 const BEARER_RE = /^Bearer +([A-Za-z0-9._~+/=-]+) *$/i;
 
 /**
- * preHandler factory: requires a valid, unexpired, unrevoked access token of an `approved` device.
+ * preHandler factory: requires a valid, unexpired, unrevoked access token of an `approved` device of an enabled user.
  * On failure: 401 with `WWW-Authenticate: Bearer resource_metadata="…"` (RFC 9728 §5.1).
  */
 export function bearerAuth(deps: { db: Db; clock: Clock; publicOrigin: string }) {
@@ -31,6 +31,7 @@ export function bearerAuth(deps: { db: Db; clock: Clock; publicOrigin: string })
           .select({ id: devices.id, userId: devices.userId, kind: devices.kind, name: devices.name })
           .from(tokens)
           .innerJoin(devices, eq(devices.id, tokens.deviceId))
+          .innerJoin(users, eq(users.id, devices.userId))
           .where(
             and(
               eq(tokens.tokenHash, hashToken(token)),
@@ -38,6 +39,7 @@ export function bearerAuth(deps: { db: Db; clock: Clock; publicOrigin: string })
               isNull(tokens.revokedAt),
               gt(tokens.expiresAt, now),
               eq(devices.status, 'approved'),
+              isNull(users.disabledAt),
             ),
           )
           .get()

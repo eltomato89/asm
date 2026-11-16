@@ -208,7 +208,7 @@ export function registerPasskeyRoutes(
     if (!row) return failLogin(req);
     if (!(await assertionValid(body.response as unknown as AuthenticationResponseJSON, expectedChallenge, row))) return failLogin(req);
     const user = db.select().from(users).where(eq(users.id, row.userId)).get();
-    if (!user) return failLogin(req);
+    if (!user || user.disabledAt !== null) return failLogin(req);
     if (req.session) deleteSession(db, req.session.id);
     const { token } = createSession(db, clock, user.id);
     appendAudit(db, clock, { actorType: 'user', actorId: user.id, event: 'auth.login', ip: req.ip, meta: { method: 'passkey' } });

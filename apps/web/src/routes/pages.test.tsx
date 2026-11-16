@@ -352,13 +352,53 @@ describe('settings page', () => {
   it('lists accounts for admins', async () => {
     appServer((c) =>
       c.path === '/api/admin/users'
-        ? { body: { items: [{ id: 'usr_1', username: 'jana', isAdmin: true, createdAt: T0, hasPassword: true, passkeyCount: 2 }] } }
+        ? { body: { items: [{ id: 'usr_1', username: 'jana', isAdmin: true, createdAt: T0, hasPassword: true, passkeyCount: 2, disabledAt: null }] } }
         : undefined,
     );
     renderApp('/settings');
     const table = await screen.findByRole('table', { name: 'Konten' });
     expect(table).toHaveTextContent('jana');
     expect(table).toHaveTextContent('Passwort, 2 Passkeys');
+  });
+
+  it('admin disables and re-enables another account after confirming; no button for the own account', async () => {
+    let disabledAt: number | null = null;
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/admin/users/usr_2/disable' && c.method === 'POST') {
+        disabledAt = T0;
+        return { body: { id: 'usr_2', username: 'tom', disabledAt } };
+      }
+      if (c.path === '/api/admin/users/usr_2/enable' && c.method === 'POST') {
+        disabledAt = null;
+        return { body: { id: 'usr_2', username: 'tom', disabledAt } };
+      }
+      if (c.path === '/api/admin/users' && c.method === 'GET') {
+        return {
+          body: {
+            items: [
+              { id: 'usr_1', username: 'jana', isAdmin: true, createdAt: T0, hasPassword: true, passkeyCount: 0, disabledAt: null },
+              { id: 'usr_2', username: 'tom', isAdmin: false, createdAt: T0, hasPassword: true, passkeyCount: 0, disabledAt },
+            ],
+          },
+        };
+      }
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/settings');
+    const table = await screen.findByRole('table', { name: 'Konten' });
+    expect(within(table).queryByRole('button', { name: 'Konto jana deaktivieren' })).toBeNull();
+    await u.click(await within(table).findByRole('button', { name: 'Konto tom deaktivieren' }));
+    const dialog = await screen.findByRole('dialog', { name: /tom deaktivieren/ });
+    expect(calls.some((c) => c.path.endsWith('/disable'))).toBe(false);
+    await u.click(within(dialog).getByRole('button', { name: 'Deaktivieren' }));
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/admin/users/usr_2/disable' && c.method === 'POST')).toBe(true));
+    expect(await within(table).findByText('deaktiviert')).toBeInTheDocument();
+    await u.click(await within(table).findByRole('button', { name: 'Konto tom aktivieren' }));
+    const d2 = await screen.findByRole('dialog', { name: /tom aktivieren/ });
+    await u.click(within(d2).getByRole('button', { name: 'Aktivieren' }));
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/admin/users/usr_2/enable' && c.method === 'POST')).toBe(true));
+    await waitFor(() => expect(within(table).queryByText('deaktiviert')).toBeNull());
   });
 
   it('admin creates a user', async () => {

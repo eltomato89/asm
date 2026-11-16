@@ -4,6 +4,7 @@ import type { Clock } from './clock.js';
 import type { Config } from './config.js';
 import type { Db } from './db/client.js';
 import { installAuthContext } from './auth/guards.js';
+import { registerAdminRoutes } from './auth/admin.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { createSetupState, type SetupState } from './auth/setup.js';
 import type { WebAuthnAdapter } from './auth/webauthn.js';
@@ -116,6 +117,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: root.log,
   });
   const moduleDeps: ModuleDeps = { ...deps, ctx };
+  await root.register(registerAdminRoutes, moduleDeps);
   await root.register(registerVaultRoutes, moduleDeps);
   await root.register(registerSecretRoutes, moduleDeps);
   await root.register(registerProjectRoutes, moduleDeps);

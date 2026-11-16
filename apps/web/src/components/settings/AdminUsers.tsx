@@ -1,10 +1,11 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
-import { api, isApiError, queryKeys } from '../../lib/api';
+import { api, isApiError, queryKeys, type AdminUser } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { RelativeTime } from '../RelativeTime';
 import { Badge } from '../ui/Badge';
 import { Button } from '../ui/Button';
+import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Input } from '../ui/Input';
 import { Skeleton } from '../ui/Skeleton';
 import { Table, TBody, Td, Th, THead, Tr } from '../ui/Table';
@@ -19,11 +20,30 @@ function userError(e: unknown): string {
   return errorText(e, 'Konto konnte nicht angelegt werden.');
 }
 
-/** Admin: list of accounts and creating new ones. The start password never enters a query/mutation cache. */
+function statusError(e: unknown): string {
+  if (isApiError(e, 'cannot_disable_self')) return 'Du kannst dein eigenes Konto nicht deaktivieren.';
+  if (isApiError(e, 'last_admin')) return 'Das letzte aktive Admin-Konto kann nicht deaktiviert werden.';
+  return errorText(e, 'Status konnte nicht geändert werden.');
+}
+
+type StatusChange = { user: AdminUser; action: 'disable' | 'enable' };
+
+/** Admin: list of accounts, creating new ones, (de)activating others. The start password never enters a query/mutation cache. */
 export function AdminUsers() {
   const qc = useQueryClient();
   const toast = useToast();
   const users = useQuery({ queryKey: queryKeys.users, queryFn: api.users });
+  const me = useQuery({ queryKey: queryKeys.me, queryFn: api.me });
+  const [change, setChange] = useState<StatusChange | null>(null);
+  const setStatus = useMutation({
+    mutationFn: (c: StatusChange) => (c.action === 'disable' ? api.disableUser(c.user.id) : api.enableUser(c.user.id)),
+    onSuccess: (u, c) => {
+      void qc.invalidateQueries({ queryKey: queryKeys.users });
+      toast(c.action === 'disable' ? `Konto ${u.username} deaktiviert.` : `Konto ${u.username} aktiviert.`, 'ok');
+      setChange(null);
+    },
+    onError: (e) => toast(statusError(e), 'danger'),
+  });
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
@@ -68,19 +88,36 @@ export function AdminUsers() {
                 <Th>Benutzername</Th>
                 <Th>Anmeldung</Th>
                 <Th>Angelegt</Th>
+                <Th>
+                  <span className="visually-hidden">Aktionen</span>
+                </Th>
               </Tr>
             </THead>
             <TBody>
               {users.data.items.map((u) => (
-                <Tr key={u.id}>
+                <Tr key={u.id} className={u.disabledAt !== null ? 'is-archived' : undefined}>
                   <Td>
-                    <span className="mono">{u.username}</span> {u.isAdmin ? <Badge>Admin</Badge> : null}
+                    <span className="mono">{u.username}</span> {u.isAdmin ? <Badge>Admin</Badge> : null}{' '}
+                    {u.disabledAt !== null ? <Badge tone="danger">deaktiviert</Badge> : null}
                   </Td>
                   <Td className="faint">
                     {[u.hasPassword ? 'Passwort' : null, u.passkeyCount ? `${u.passkeyCount} Passkey${u.passkeyCount > 1 ? 's' : ''}` : null].filter(Boolean).join(', ') || 'keine'}
                   </Td>
                   <Td>
                     <RelativeTime ts={u.createdAt} className="faint" />
+                  </Td>
+                  <Td className="r">
+                    {me.data && u.id !== me.data.id ? (
+                      u.disabledAt === null ? (
+                        <Button variant="ghost" aria-label={`Konto ${u.username} deaktivieren`} onClick={() => setChange({ user: u, action: 'disable' })}>
+                          Deaktivieren
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" aria-label={`Konto ${u.username} aktivieren`} onClick={() => setChange({ user: u, action: 'enable' })}>
+                          Aktivieren
+                        </Button>
+                      )
+                    ) : null}
                   </Td>
                 </Tr>
               ))}
@@ -113,6 +150,20 @@ export function AdminUsers() {
           </div>
         </form>
       </div>
+      <ConfirmDialog
+        open={change !== null}
+        onOpenChange={(v) => !v && setChange(null)}
+        title={change?.action === 'enable' ? `Konto ${change.user.username} aktivieren?` : `Konto ${change?.user.username ?? ''} deaktivieren?`}
+        description={
+          change?.action === 'enable'
+            ? 'Die Person kann sich danach wieder anmelden. Widerrufene Geräte bleiben widerrufen und müssen neu gekoppelt werden.'
+            : 'Die Person wird sofort abgemeldet und kann sich nicht mehr anmelden. Alle ihre Geräte werden widerrufen, offene Anfragen verweigert und Übergaben ungültig.'
+        }
+        confirmLabel={change?.action === 'enable' ? 'Aktivieren' : 'Deaktivieren'}
+        danger={change?.action !== 'enable'}
+        busy={setStatus.isPending}
+        onConfirm={() => change && setStatus.mutate(change)}
+      />
     </section>
   );
 }

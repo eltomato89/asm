@@ -13,6 +13,8 @@ export const users = sqliteTable('users', {
   passwordHash: text('password_hash'),
   isAdmin: bool('is_admin').notNull().default(false),
   createdAt: ts('created_at').notNull(),
+  /** Set by an admin (offboarding): no login, no sessions, no bearer use. */
+  disabledAt: ts('disabled_at'),
 });
 
 export const passkeys = sqliteTable('passkeys', {
