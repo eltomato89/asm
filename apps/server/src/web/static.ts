@@ -41,14 +41,15 @@ export async function registerWebStatic(app: FastifyInstance, opts: { distDir: s
     wildcard: false,
     index: false,
     cacheControl: false,
-    setHeaders: (res, filePath) => {
+    // @fastify/static >= 10 passes the FastifyReply (not the raw ServerResponse) and applies these after its own headers.
+    setHeaders: (reply, filePath) => {
       if (filePath.endsWith('.html')) {
-        for (const [k, v] of Object.entries(HTML_HEADERS)) res.setHeader(k, v);
+        reply.headers(HTML_HEADERS);
         return;
       }
-      res.setHeader('x-content-type-options', 'nosniff');
+      reply.header('x-content-type-options', 'nosniff');
       const rel = filePath.slice(distDir.length).replaceAll('\\', '/');
-      res.setHeader('cache-control', rel.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
+      reply.header('cache-control', rel.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
     },
   });
 
