@@ -27,6 +27,37 @@ function parseManifest(raw: unknown): CliManifest {
   return { version: m.version, sha256: m.sha256, size: m.size };
 }
 
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/** Semver precedence: <0 if a<b, 0 if equal, >0 if a>b; undefined if either is not a semver version. */
+export function compareVersions(a: string, b: string): number | undefined {
+  const pa = SEMVER.exec(a);
+  const pb = SEMVER.exec(b);
+  if (!pa || !pb) return undefined;
+  for (let i = 1; i <= 3; i++) {
+    const d = Number(pa[i]) - Number(pb[i]);
+    if (d !== 0) return Math.sign(d);
+  }
+  const ra = pa[4];
+  const rb = pb[4];
+  if (ra === undefined || rb === undefined) return ra === rb ? 0 : ra === undefined ? 1 : -1;
+  const xa = ra.split('.');
+  const xb = rb.split('.');
+  for (let i = 0; i < Math.max(xa.length, xb.length); i++) {
+    const x = xa[i];
+    const y = xb[i];
+    if (x === undefined) return -1;
+    if (y === undefined) return 1;
+    if (x === y) continue;
+    const nx = /^\d+$/.test(x);
+    const ny = /^\d+$/.test(y);
+    if (nx && ny) return Math.sign(Number(x) - Number(y));
+    if (nx !== ny) return nx ? -1 : 1;
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
 async function download(f: typeof fetch, url: string): Promise<Response> {
   let res: Response;
   try {
@@ -90,9 +121,15 @@ export async function update(rt: Runtime, opts: { force?: boolean } = {}): Promi
     fail('update_manifest_invalid');
   }
   const manifest = parseManifest(manifestRaw);
-  if (manifest.version === current && !opts.force) {
-    rt.stderr.write(`asm ${current} is up to date\n`);
-    return;
+  if (compareVersions(manifest.version, manifest.version) === undefined) fail('update_manifest_invalid');
+  // An unparseable local version (e.g. a custom build) counts as older than the server's.
+  const cmp = compareVersions(manifest.version, current) ?? 1;
+  if (!opts.force) {
+    if (cmp === 0) {
+      rt.stderr.write(`asm ${current} is up to date\n`);
+      return;
+    }
+    if (cmp < 0) fail(`server_version_older (server has ${manifest.version}, this is ${stripControl(current)}; use --force to install it)`);
   }
 
   let data: Uint8Array;
@@ -118,6 +155,6 @@ export function registerUpdate(program: Command, rt: () => Runtime): void {
   program
     .command('update')
     .description('Update this asm installation from the server (verified by SHA-256)')
-    .option('--force', 'reinstall even if the server has the same version')
+    .option('--force', 'install even if the server has the same or an older version')
     .action(async (o: { force?: boolean }) => update(rt(), { force: o.force }));
 }

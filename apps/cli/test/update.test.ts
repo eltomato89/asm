@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { compareVersions } from '../src/commands/update.js';
 import { runCli, SERVER, tmp } from './helpers.js';
 
 const NEW = '#!/usr/bin/env node\nconsole.log("asm 1.2.0");\n';
@@ -91,6 +92,31 @@ describe('asm update', () => {
     r = await runCli(['update', '--force'], { deps: { version: '1.2.0', selfPath: link, fetch: s.fetch } });
     expect(r.code).toBe(0);
     expect(readFileSync(real, 'utf8')).toBe(NEW);
+  });
+
+  it('older version on the server → server_version_older, file untouched; --force downgrades', async () => {
+    const { real, link } = install();
+    let s = server();
+    let r = await runCli(['update'], { deps: { version: '1.10.0', selfPath: link, fetch: s.fetch } });
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/^asm: server_version_older/);
+    expect(s.urls).toEqual([`${SERVER}/cli/asm.json`]);
+    expect(readFileSync(real, 'utf8')).toBe(OLD);
+    s = server();
+    r = await runCli(['update', '--force'], { deps: { version: '1.10.0', selfPath: link, fetch: s.fetch } });
+    expect(r.code).toBe(0);
+    expect(r.err).toContain('Updated asm 1.10.0 → 1.2.0');
+    expect(readFileSync(real, 'utf8')).toBe(NEW);
+  });
+
+  it('compares versions semver-wise', () => {
+    expect(compareVersions('1.2.0', '1.10.0')).toBe(-1);
+    expect(compareVersions('0.2.0', '0.1.9')).toBe(1);
+    expect(compareVersions('0.1.0', '0.1.0')).toBe(0);
+    expect(compareVersions('0.1.0', '0.1.0-dev')).toBe(1);
+    expect(compareVersions('0.1.0-rc.2', '0.1.0-rc.10')).toBe(-1);
+    expect(compareVersions('0.1.0-alpha', '0.1.0-1')).toBe(1);
+    expect(compareVersions('garbage', '0.1.0')).toBeUndefined();
   });
 
   it('not running from the bundle → update_unsupported', async () => {
