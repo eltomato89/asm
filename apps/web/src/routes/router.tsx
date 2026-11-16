@@ -40,7 +40,8 @@ async function currentUser(qc: QueryClient) {
 
 /**
  * Only same-origin paths are accepted as post-login targets: a string starting with "/", without control
- * characters or backslashes, that resolves to this origin (rejects `//host`, `/\\host`, absolute URLs).
+ * characters or backslashes, that resolves to this origin and whose normalized path does not start with "//"
+ * (rejects `//host`, `/\\host`, `/.//host`, absolute URLs).
  */
 export function safeRedirect(target: unknown): string | undefined {
   if (typeof target !== 'string' || !target.startsWith('/') || target.length > 2000) return undefined;
@@ -49,7 +50,8 @@ export function safeRedirect(target: unknown): string | undefined {
   try {
     const origin = window.location.origin;
     const url = new URL(target, origin);
-    if (url.origin !== origin || !url.pathname.startsWith('/')) return undefined;
+    // The normalized path must not start with "//" (e.g. "/.//evil.com" → "//evil.com", a protocol-relative URL).
+    if (url.origin !== origin || !url.pathname.startsWith('/') || url.pathname.startsWith('//')) return undefined;
     return url.pathname + url.search + url.hash;
   } catch {
     return undefined;

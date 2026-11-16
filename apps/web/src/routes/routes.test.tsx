@@ -144,6 +144,11 @@ describe('login redirect target', () => {
     expect(safeRedirect('/a\\b')).toBeUndefined();
     expect(safeRedirect('javascript:alert(1)')).toBeUndefined();
     expect(safeRedirect('/connect?req=1')).toBe('/connect?req=1');
+    // Paths that normalize to a protocol-relative "//host" would become an off-site navigation.
+    for (const t of ['/.//evil.com', '/..//evil.com', '/%2e//evil.com', '/%2E%2E//evil.com', '/a/..//evil.com', '/.///evil.com']) {
+      expect(safeRedirect(t), t).toBeUndefined();
+    }
+    expect(safeRedirect('/secrets/../activate')).toBe('/activate');
   });
 });
 
