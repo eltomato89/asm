@@ -9,13 +9,11 @@ import {
   createSecret,
   deleteSecret,
   generateValue,
-  listHistory,
-  listVersions,
-  restoreVersion,
   revealSecret,
   searchSecrets,
   unarchiveSecret,
 } from '../src/secrets/service.js';
+import { listHistory, listVersions, restoreVersion } from '../src/secrets/versions.js';
 import { FORBIDDEN_RESPONSE_KEYS, ORIGIN, addDevice, allKeys, auditRows, world } from './helpers/fixtures.js';
 
 const MIN11 = 11 * 60_000;
@@ -155,6 +153,16 @@ describe('secrets: access and routes', () => {
     expect(w.db.$client.prepare('SELECT count(*) n FROM secret_versions').get()).toEqual({ n: 0 });
     expect(w.db.$client.prepare('SELECT count(*) n FROM secrets_fts').get()).toEqual({ n: 0 });
     expect(auditRows(w.db, 'secret.deleted')).toHaveLength(1);
+  });
+
+  it('DELETE requires recent auth', async () => {
+    const w = await world();
+    const s = createSecret(w.ctx, w.alice.actor, { title: 'T', value: 'v' });
+    w.clock.advance(MIN11);
+    const r = await w.req(w.alice, 'DELETE', `/api/secrets/${s.id}`);
+    expect(r.statusCode).toBe(401);
+    expect(r.json()).toEqual({ error: 'reauth_required' });
+    expect((await w.req(w.alice, 'GET', `/api/secrets/${s.id}`)).statusCode).toBe(200);
   });
 });
 

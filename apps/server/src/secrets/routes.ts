@@ -10,12 +10,11 @@ import {
   createSecret,
   deleteSecret,
   getSecretMeta,
-  listHistory,
-  restoreVersion,
   revealSecret,
   searchSecrets,
   unarchiveSecret,
 } from './service.js';
+import { listHistory, restoreVersion } from './versions.js';
 
 const idParams = z.object({ id: z.string().min(1).max(100) });
 const versionParams = idParams.extend({ v: z.coerce.number().int().min(1) });
@@ -53,7 +52,7 @@ export async function registerSecretRoutes(app: FastifyInstance, deps: ModuleDep
     return applySecretChange(ctx, userActor(req), id, { meta, value, generate, project, reason }, reqInfo(req));
   });
 
-  app.delete('/api/secrets/:id', { preHandler: requireUser }, async (req) => {
+  app.delete('/api/secrets/:id', { preHandler: recent }, async (req) => {
     const { id } = idParams.parse(req.params);
     deleteSecret(ctx, userActor(req), id, reqInfo(req));
     return { ok: true };

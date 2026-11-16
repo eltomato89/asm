@@ -88,4 +88,32 @@ describe('projects', () => {
     expect(getProject(w.db, w.alice.id, p.id).secrets.map((x) => x.secret.id)).toEqual([sa.id]);
     expect(() => projectsForSecret(w.db, w.bob.id, sa.id)).toThrow();
   });
+
+  it('projects are only visible via accessible usage: B neither lists, opens nor merges A\'s project', async () => {
+    const w = await world();
+    const devA = addDevice(w.db, w.alice.id);
+    const devB = addDevice(w.db, w.bob.id, 'bob-cli');
+    createSecret(w.ctx, devA, { title: 'A', value: 'v', project: 'alice-secret-project', reason: 'r' });
+    createSecret(w.ctx, devB, { title: 'B', value: 'v', project: 'bob-project', reason: 'r' });
+    const pa = touchProject(w.ctx, 'alice-secret-project');
+    const pb = touchProject(w.ctx, 'bob-project');
+    touchProject(w.ctx, 'nobody-uses-me');
+
+    expect(listProjects(w.db, w.bob.id).map((p) => p.slug)).toEqual(['bob-project']);
+    expect(listProjects(w.db, w.alice.id).map((p) => p.slug)).toEqual(['alice-secret-project']);
+    const viaRoute = (await w.req(w.bob, 'GET', '/api/projects')).json().items as { slug: string }[];
+    expect(viaRoute.map((p) => p.slug)).toEqual(['bob-project']);
+    expect((await w.req(w.bob, 'GET', `/api/projects/${pa.id}`)).statusCode).toBe(404);
+
+    expect((await w.req(w.bob, 'POST', `/api/projects/${pa.id}/merge`, { into: pb.id })).statusCode).toBe(404);
+    expect((await w.req(w.bob, 'POST', `/api/projects/${pb.id}/merge`, { into: pa.id })).statusCode).toBe(404);
+    expect(touchProject(w.ctx, 'alice-secret-project').id).toBe(pa.id);
+    expect(touchProject(w.ctx, 'bob-project').id).toBe(pb.id);
+
+    // shared vault access makes the project visible
+    const v = (await w.req(w.alice, 'POST', '/api/vaults', { name: 'Team' })).json();
+    await w.req(w.alice, 'POST', `/api/vaults/${v.id}/members`, { username: 'bob' });
+    createSecret(w.ctx, devA, { vaultId: v.id, title: 'Shared', value: 'v', project: 'alice-secret-project', reason: 'r' });
+    expect(listProjects(w.db, w.bob.id).map((p) => p.slug).sort()).toEqual(['alice-secret-project', 'bob-project']);
+  });
 });

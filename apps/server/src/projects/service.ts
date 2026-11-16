@@ -1,5 +1,5 @@
 import { newId, ProjectNameSchema, type ProjectDetail, type ProjectDto, type SecretMeta } from '@asm/shared';
-import { desc, eq, isNull } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { ServiceCtx } from '../context.js';
 import type { Db } from '../db/client.js';
 import { projects } from '../db/schema.js';
@@ -56,17 +56,39 @@ export function recordUsage(ctx: ServiceCtx, projectId: string, secretId: string
     .run(projectId, secretId, deviceId, ctx.clock.now());
 }
 
-/** Projects are global names; merged projects are hidden. */
-export function listProjects(db: Db, _userId: string): ProjectDto[] {
-  return db.select().from(projects).where(isNull(projects.mergedInto)).orderBy(desc(projects.lastSeen)).all().map(toDto);
+// A project is visible to a user only through usage on a secret in one of their vaults or by one of their devices.
+const VISIBLE = `EXISTS (
+  SELECT 1 FROM project_usage u
+   WHERE u.project_id = p.id
+     AND (u.device_id IN (SELECT id FROM devices WHERE user_id = @userId)
+          OR u.secret_id IN (SELECT s.id FROM secrets s JOIN vault_members m ON m.vault_id = s.vault_id AND m.user_id = @userId)))`;
+
+type ProjectRow = { id: string; slug: string; display_name: string; merged_into: string | null; first_seen: number; last_seen: number };
+const fromRow = (r: ProjectRow): Project => ({
+  id: r.id, slug: r.slug, displayName: r.display_name, mergedInto: r.merged_into, firstSeen: r.first_seen, lastSeen: r.last_seen,
+});
+
+/** Canonical project if visible to the user, else 404 (no existence oracle). */
+function visibleProject(db: Db, userId: string, id: string): Project {
+  const p = resolveProject(db, id);
+  const ok = p && db.$client.prepare(`SELECT 1 FROM projects p WHERE p.id = @id AND ${VISIBLE}`).get({ id: p.id, userId });
+  if (!p || !ok) throw new HttpError(404, 'not_found');
+  return p;
+}
+
+/** Non-merged projects visible to the user. */
+export function listProjects(db: Db, userId: string): ProjectDto[] {
+  const rows = db.$client
+    .prepare(`SELECT p.* FROM projects p WHERE p.merged_into IS NULL AND ${VISIBLE} ORDER BY p.last_seen DESC, p.id`)
+    .all({ userId }) as ProjectRow[];
+  return rows.map((r) => toDto(fromRow(r)));
 }
 
 type UsageRow = { secret_id: string; device_id: string; device_name: string; device_kind: 'mcp' | 'cli'; last_used_at: number };
 
 /** Usage of the project, restricted to secrets in vaults the user is a member of. */
 export function getProject(db: Db, userId: string, id: string): ProjectDetail {
-  const project = resolveProject(db, id);
-  if (!project) throw new HttpError(404, 'not_found');
+  const project = visibleProject(db, userId, id);
   const rows = db.$client
     .prepare(
       `SELECT u.secret_id, u.device_id, d.name AS device_name, d.kind AS device_kind, u.last_used_at
@@ -96,13 +118,12 @@ export function getProject(db: Db, userId: string, id: string): ProjectDetail {
   };
 }
 
-/** Marks `from` as merged into `into` and moves its usage rows. Audit rows keep their original project string. */
-export function mergeProjects(ctx: ServiceCtx, _userId: string, fromId: string, intoId: string): ProjectDto {
+/** Both projects must be visible to the user (else 404). Marks `from` as merged into `into` and moves its usage rows. Audit rows keep their original project string. */
+export function mergeProjects(ctx: ServiceCtx, userId: string, fromId: string, intoId: string): ProjectDto {
   const db = ctx.db;
   return db.$client.transaction((): ProjectDto => {
-    const from = resolveProject(db, fromId);
-    const into = resolveProject(db, intoId);
-    if (!from || !into) throw new HttpError(404, 'not_found');
+    const from = visibleProject(db, userId, fromId);
+    const into = visibleProject(db, userId, intoId);
     if (from.id === into.id) throw new ValidationError('same_project');
     db.$client
       .prepare(

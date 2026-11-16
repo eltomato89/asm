@@ -8,11 +8,8 @@ import {
   SecretCreateSchema,
   SecretInputSchema,
   SecretValueSchema,
-  type ActorRef,
-  type SecretHistory,
   type SecretInput,
   type SecretMeta,
-  type SecretVersionDto,
 } from '@asm/shared';
 import { eq } from 'drizzle-orm';
 import { appendAudit } from '../audit/audit.js';
@@ -116,7 +113,7 @@ function snapshotOf(r: SecretRow): MetaSnapshot {
 }
 
 /** The secret if the user is a member of its vault, else 404 (no existence oracle). */
-function loadAccessible(db: Db, userId: string, secretId: string): SecretRow {
+export function loadAccessible(db: Db, userId: string, secretId: string): SecretRow {
   const row = db.$client.prepare(`${META_SELECT} WHERE s.id = @secretId`).get({ userId, secretId }) as SecretRow | undefined;
   if (!row) throw new HttpError(404, 'not_found');
   return row;
@@ -167,7 +164,7 @@ export function searchSecrets(db: Db, userId: string, query: string, opts: Searc
 
 // ---------- writes ----------
 
-function userOnly(actor: Actor): void {
+export function userOnly(actor: Actor): void {
   if (actor.type !== 'user') throw new HttpError(403, 'forbidden_for_device');
 }
 
@@ -189,7 +186,7 @@ function loadVersion(db: Db, secretId: string, version: number): { sealed: Seale
   return { sealed, snapshot: JSON.parse(metaSnapshot) as MetaSnapshot };
 }
 
-function openVersion(ctx: ServiceCtx, secretId: string, version: number): { plaintext: string; snapshot: MetaSnapshot } {
+export function openVersion(ctx: ServiceCtx, secretId: string, version: number): { plaintext: string; snapshot: MetaSnapshot } {
   const { sealed, snapshot } = loadVersion(ctx.db, secretId, version);
   return { plaintext: open(ctx.kek, `${secretId}:${version}`, sealed), snapshot };
 }
@@ -262,8 +259,8 @@ export function createSecret(ctx: ServiceCtx, actor: Actor, input: CreateSecretI
   return getSecretMeta(db, actor.userId, id);
 }
 
-const SNAPSHOT_FIELDS = ['title', 'description', 'tags', 'envName'] as const;
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+export const SNAPSHOT_FIELDS = ['title', 'description', 'tags', 'envName'] as const;
+export const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 /** Writes version current+1 (unchanged value is re-sealed for the new version) and updates metadata/FTS. */
 export function applySecretChange(ctx: ServiceCtx, actor: Actor, secretId: string, change: SecretChange, info: RequestInfo = {}): SecretMeta {
@@ -318,14 +315,6 @@ export function applySecretChange(ctx: ServiceCtx, actor: Actor, secretId: strin
     });
   })();
   return getSecretMeta(db, actor.userId, secretId);
-}
-
-export function restoreVersion(ctx: ServiceCtx, actor: Actor, secretId: string, version: number, info: RequestInfo = {}): SecretMeta {
-  userOnly(actor);
-  const row = loadAccessible(ctx.db, actor.userId, secretId);
-  if (row.archived_at !== null) throw new HttpError(409, 'secret_archived');
-  const old = openVersion(ctx, secretId, version);
-  return applySecretChange(ctx, actor, secretId, { value: old.plaintext, meta: old.snapshot, restoredFrom: version }, info);
 }
 
 export function deleteSecret(ctx: ServiceCtx, actor: Actor, secretId: string, info: RequestInfo = {}): void {
@@ -406,76 +395,4 @@ export function unarchiveSecret(ctx: ServiceCtx, actor: Actor, secretId: string,
     appendAudit(db, ctx.clock, { ...auditActor(actor), event: 'secret.unarchived', secretId, vaultId: row.vault_id, ip: info.ip });
   })();
   return getSecretMeta(db, actor.userId, secretId);
-}
-
-// ---------- history ----------
-
-const NAME_OF = (alias: string, typeCol: string, idCol: string) => `
-  CASE ${typeCol} WHEN 'user' THEN (SELECT username FROM users WHERE id = ${idCol})
-                  WHEN 'device' THEN (SELECT name FROM devices WHERE id = ${idCol}) END AS ${alias}`;
-
-function actorRef(type: string, id: string | null, name: string | null): ActorRef | null {
-  if (type !== 'user' && type !== 'device') return null;
-  return { type, id: id ?? '', name: name ?? id ?? '' };
-}
-
-function metaDiff(prev: MetaSnapshot | null, next: MetaSnapshot): SecretVersionDto['metaDiff'] {
-  const diff: SecretVersionDto['metaDiff'] = {};
-  for (const f of SNAPSHOT_FIELDS) {
-    if (!prev || !same(prev[f], next[f])) diff[f] = { from: prev ? prev[f] : null, to: next[f] };
-  }
-  return diff;
-}
-
-/** Versions (newest first, never values) plus archive/unarchive events from the audit log. */
-export function listHistory(db: Db, userId: string, secretId: string): SecretHistory {
-  loadAccessible(db, userId, secretId);
-  const rows = db.$client
-    .prepare(
-      `SELECT version, meta_snapshot, changed_by_type, changed_by_id, project, reason, restored_from, created_at,
-              ${NAME_OF('changed_by_name', 'changed_by_type', 'changed_by_id')}
-         FROM secret_versions WHERE secret_id = ? ORDER BY version ASC`,
-    )
-    .all(secretId) as {
-    version: number; meta_snapshot: string; changed_by_type: string; changed_by_id: string; changed_by_name: string | null;
-    project: string | null; reason: string | null; restored_from: number | null; created_at: number;
-  }[];
-  let prev: MetaSnapshot | null = null;
-  const versions: SecretVersionDto[] = rows.map((r) => {
-    const snap = JSON.parse(r.meta_snapshot) as MetaSnapshot;
-    const dto: SecretVersionDto = {
-      version: r.version,
-      changedBy: actorRef(r.changed_by_type, r.changed_by_id, r.changed_by_name)!,
-      project: r.project,
-      reason: r.reason,
-      metaDiff: metaDiff(prev, snap),
-      restoredFrom: r.restored_from,
-      createdAt: r.created_at,
-    };
-    prev = snap;
-    return dto;
-  });
-
-  const evRows = db.$client
-    .prepare(
-      `SELECT event, ts, actor_type, actor_id, reason, project, ${NAME_OF('actor_name', 'actor_type', 'actor_id')}
-         FROM audit_log WHERE secret_id = ? AND event IN ('secret.archived', 'secret.unarchived') ORDER BY seq ASC`,
-    )
-    .all(secretId) as { event: string; ts: number; actor_type: string; actor_id: string | null; actor_name: string | null; reason: string | null; project: string | null }[];
-  const events = evRows.flatMap((e) => {
-    const by = actorRef(e.actor_type, e.actor_id, e.actor_name);
-    if (!by) return [];
-    return [{
-      type: e.event === 'secret.archived' ? ('archived' as const) : ('unarchived' as const),
-      at: e.ts,
-      by,
-      ...(e.reason !== null ? { reason: e.reason } : {}),
-      ...(e.project !== null ? { project: e.project } : {}),
-    }];
-  });
-  return { versions: versions.reverse(), events };
-}
-
-export function listVersions(db: Db, userId: string, secretId: string): SecretVersionDto[] {
-  return listHistory(db, userId, secretId).versions;
 }
