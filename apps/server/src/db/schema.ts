@@ -222,3 +222,47 @@ export const auditLog = sqliteTable('audit_log', {
   prevHash: text('prev_hash').notNull(),
   hash: text('hash').notNull(),
 });
+
+/** Web Push subscriptions (one per user and browser; endpoint is unique). */
+export const pushSubscriptions = sqliteTable(
+  'push_subscriptions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    endpoint: text('endpoint').notNull().unique(),
+    p256dh: text('p256dh').notNull(),
+    auth: text('auth').notNull(),
+    deviceName: text('device_name').notNull(),
+    createdAt: ts('created_at').notNull(),
+    lastUsedAt: ts('last_used_at'),
+  },
+  (t) => [index('push_subscriptions_user_idx').on(t.userId)],
+);
+
+/** One-time approval links sent by push (only the SHA-256 of the token is stored). */
+export const approveTokens = sqliteTable(
+  'approve_tokens',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    requestId: text('request_id').notNull().references(() => accessRequests.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    subscriptionId: text('subscription_id').references(() => pushSubscriptions.id, { onDelete: 'set null' }),
+    expiresAt: ts('expires_at').notNull(),
+    usedAt: ts('used_at'),
+    createdAt: ts('created_at').notNull(),
+  },
+  (t) => [index('approve_tokens_request_idx').on(t.requestId)],
+);
+
+/** The server's VAPID key pair (single row, id = 1); the private key is sealed with the master key. */
+export const vapidKeys = sqliteTable('vapid_keys', {
+  id: integer('id').primaryKey(),
+  publicKey: text('public_key').notNull(),
+  ciphertext: bytes('ciphertext').notNull(),
+  iv: bytes('iv').notNull(),
+  tag: bytes('tag').notNull(),
+  wrappedDek: bytes('wrapped_dek').notNull(),
+  dekIv: bytes('dek_iv').notNull(),
+  dekTag: bytes('dek_tag').notNull(),
+  createdAt: ts('created_at').notNull(),
+});

@@ -13,6 +13,7 @@ import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { appendAudit } from '../audit/audit.js';
 import type { Clock } from '../clock.js';
+import type { Db } from '../db/client.js';
 import { passkeys, users } from '../db/schema.js';
 import { HttpError } from '../errors.js';
 import { requireRecentAuth, requireUser } from './guards.js';
@@ -58,7 +59,7 @@ export const realWebAuthn: WebAuthnAdapter = {
   },
 };
 
-type Purpose = 'register' | 'login' | 'reauth';
+type Purpose = 'register' | 'login' | 'reauth' | 'approve';
 type Challenge = { challenge: string; purpose: Purpose; userId: string | null; expiresAt: number };
 
 /** In-memory, single-use challenges bound to a random id carried in a short-lived cookie. */
@@ -66,9 +67,9 @@ export class ChallengeStore {
   private readonly map = new Map<string, Challenge>();
   constructor(private readonly clock: Clock) {}
 
-  put(challenge: string, purpose: Purpose, userId: string | null): string {
+  /** `id` binds the challenge to a known key (e.g. an approval token); a new put for the same id replaces the old one. */
+  put(challenge: string, purpose: Purpose, userId: string | null, id = randomBytes(24).toString('base64url')): string {
     this.prune();
-    const id = randomBytes(24).toString('base64url');
     this.map.set(id, { challenge, purpose, userId, expiresAt: this.clock.now() + CHALLENGE_TTL_MS });
     return id;
   }
@@ -86,6 +87,35 @@ export class ChallengeStore {
     const now = this.clock.now();
     for (const [k, v] of this.map) if (v.expiresAt <= now) this.map.delete(k);
   }
+}
+
+export const toStoredCredential = (p: typeof passkeys.$inferSelect): StoredCredential => ({
+  id: p.credentialId,
+  publicKey: new Uint8Array(p.publicKey),
+  counter: p.counter,
+  ...(p.transports ? { transports: p.transports } : {}),
+});
+
+/** Verifies an assertion against the stored credential and bumps its counter; false on any failure (bad signature, counter regression). */
+export async function verifyAssertion(
+  deps: { db: Db; adapter: WebAuthnAdapter; origin: string; rpID: string },
+  response: AuthenticationResponseJSON,
+  expectedChallenge: string,
+  row: typeof passkeys.$inferSelect,
+  requireUserVerification: boolean,
+): Promise<boolean> {
+  let result;
+  try {
+    result = await deps.adapter.verifyAuthentication({
+      response, expectedChallenge, expectedOrigin: deps.origin, expectedRPID: deps.rpID, credential: toStoredCredential(row), requireUserVerification,
+    });
+  } catch {
+    return false;
+  }
+  if (!result.verified) return false;
+  if (row.counter > 0 && result.newCounter <= row.counter) return false;
+  deps.db.update(passkeys).set({ counter: result.newCounter }).where(eq(passkeys.id, row.id)).run();
+  return true;
 }
 
 const registerVerifyBody = z.object({ name: z.string().trim().min(1).max(100).optional(), response: z.record(z.string(), z.unknown()) });
@@ -115,37 +145,17 @@ export function registerPasskeyRoutes(
     return c;
   }
   const userPasskeys = (userId: string) => db.select().from(passkeys).where(eq(passkeys.userId, userId)).all();
-  const toCredential = (p: typeof passkeys.$inferSelect): StoredCredential => ({
-    id: p.credentialId,
-    publicKey: new Uint8Array(p.publicKey),
-    counter: p.counter,
-    ...(p.transports ? { transports: p.transports } : {}),
-  });
   const failLogin = (req: FastifyRequest): never => {
     appendAudit(db, clock, { actorType: 'system', actorId: 'anonymous', event: 'auth.login_failed', ip: req.ip, meta: { method: 'passkey' } });
     throw new HttpError(401, 'invalid_credentials');
   };
 
-  /** Verifies an assertion against the stored credential; false on any failure (bad signature, counter regression). */
-  async function assertionValid(
+  const assertionValid = (
     response: AuthenticationResponseJSON,
     expectedChallenge: string,
     row: typeof passkeys.$inferSelect,
     requireUserVerification: boolean,
-  ): Promise<boolean> {
-    let result;
-    try {
-      result = await adapter.verifyAuthentication({
-        response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, credential: toCredential(row), requireUserVerification,
-      });
-    } catch {
-      return false;
-    }
-    if (!result.verified) return false;
-    if (row.counter > 0 && result.newCounter <= row.counter) return false;
-    db.update(passkeys).set({ counter: result.newCounter }).where(eq(passkeys.id, row.id)).run();
-    return true;
-  }
+  ) => verifyAssertion({ db, adapter, origin, rpID }, response, expectedChallenge, row, requireUserVerification);
 
   // --- registration ---
   app.post('/api/auth/passkey/register/options', { preHandler: recent, config: userLimit }, async (req, reply) => {

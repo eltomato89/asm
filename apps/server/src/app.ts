@@ -31,6 +31,10 @@ import { registerMcpRoutes } from './mcp/server.js';
 import { registerCliRoutes } from './cli-api/routes.js';
 import { registerCliDistRoutes } from './cli-dist/routes.js';
 import { DEFAULT_WEB_DIST_DIR, registerWebStatic } from './web/static.js';
+import { installNetworkGate } from './web/network-gate.js';
+import { createPushService, type PushSender } from './push/service.js';
+import { registerPushRoutes } from './push/routes.js';
+import { loadOrCreateVapidKeys } from './push/vapid.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -52,6 +56,8 @@ export type AppDeps = {
   mcpAwaitTimeoutMs?: number;
   /** Built web UI directory (default apps/web/dist); null disables static serving. Missing folders are skipped. */
   webDistDir?: string | null;
+  /** Web Push transport (default: web-push sendNotification); tests inject a stub. */
+  pushSender?: PushSender;
 };
 
 /** Interval of the expiry sweep (requests, auto mode). */
@@ -108,6 +114,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
   const root = app as unknown as FastifyInstance;
   installErrorHandler(root);
+  if (deps.config.trustedNetworks) installNetworkGate(root, deps.config.trustedNetworks);
   root.decorate('setup', createSetupState(deps.db, root.log));
   await root.register(cookie);
   installAuthContext(root, { db: deps.db, clock: deps.clock, publicOrigin: deps.config.publicUrl.origin });
@@ -117,6 +124,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     db: deps.db, clock: deps.clock, kek: deps.config.masterKey, hooks, events: deps.events, autoModeMaxMin: deps.config.autoModeMaxMin,
     logger: root.log,
   });
+  const push = createPushService({
+    vapid: loadOrCreateVapidKeys(deps.db, deps.clock, deps.config.masterKey),
+    subject: deps.config.vapidSubject,
+    sender: deps.pushSender,
+    logger: root.log,
+  });
+  hooks.onRequestPending = (c, requestId) => void push.notifyPending(c, requestId);
   const moduleDeps: ModuleDeps = { ...deps, ctx };
   await root.register(registerAdminRoutes, moduleDeps);
   await root.register(registerVaultRoutes, moduleDeps);
@@ -124,11 +138,13 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(registerProjectRoutes, moduleDeps);
   await root.register(registerAuditRoutes, moduleDeps);
   await root.register(registerRequestRoutes, moduleDeps);
+  await root.register(registerPushRoutes, { ...moduleDeps, push });
   let sweep: NodeJS.Timeout | undefined;
   root.addHook('onReady', async () => {
     sweep = setInterval(() => {
       try {
         expireDue(ctx);
+        push.prune(ctx);
       } catch (err) {
         root.log.error({ errName: (err as Error).name }, 'expiry sweep failed');
       }

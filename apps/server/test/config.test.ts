@@ -68,3 +68,30 @@ describe('loadConfig', () => {
     });
   });
 });
+
+describe('loadConfig: push approval settings', () => {
+  it('defaults: no network gate, mailto:asm@localhost subject', () => {
+    const cfg = loadConfig(base);
+    expect(cfg.trustedNetworks).toBeNull();
+    expect(cfg.vapidSubject).toBe('mailto:asm@localhost');
+  });
+  it('parses IPv4/IPv6 CIDRs and bare addresses', () => {
+    const cfg = loadConfig({ ...base, ASM_TRUSTED_NETWORKS: '192.168.0.0/16, 100.64.0.0/10,fd00::/8,10.0.0.1' });
+    expect(cfg.trustedNetworks).toEqual([
+      { address: '192.168.0.0', prefix: 16, family: 'ipv4' },
+      { address: '100.64.0.0', prefix: 10, family: 'ipv4' },
+      { address: 'fd00::', prefix: 8, family: 'ipv6' },
+      { address: '10.0.0.1', prefix: 32, family: 'ipv4' },
+    ]);
+  });
+  it('rejects invalid CIDRs', () => {
+    for (const bad of ['192.168.0.0/33', 'fd00::/129', 'nope', '10.0.0.0/8/1', '10.0.0.0/x', '192.168.0.0/16,,']) {
+      expect(() => loadConfig({ ...base, ASM_TRUSTED_NETWORKS: bad }), bad).toThrow(/ASM_TRUSTED_NETWORKS/);
+    }
+  });
+  it('accepts mailto:/https: VAPID subjects only', () => {
+    expect(loadConfig({ ...base, ASM_VAPID_SUBJECT: 'mailto:me@example.org' }).vapidSubject).toBe('mailto:me@example.org');
+    expect(loadConfig({ ...base, ASM_VAPID_SUBJECT: 'https://asm.example.org' }).vapidSubject).toBe('https://asm.example.org');
+    expect(() => loadConfig({ ...base, ASM_VAPID_SUBJECT: 'http://x' })).toThrow(/ASM_VAPID_SUBJECT/);
+  });
+});

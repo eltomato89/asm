@@ -19,6 +19,7 @@ export async function createTestApp(
     mcpAwaitTimeoutMs?: number;
     /** Built web UI folder to serve; static serving is off by default in tests. */
     webDistDir?: string;
+    pushSender?: AppDeps['pushSender'];
   } = {},
 ): Promise<{ app: FastifyInstance; db: Db; clock: FakeClock; config: Config; ctx: ServiceCtx }> {
   const clock = opts.clock ?? new FakeClock();
@@ -30,6 +31,8 @@ export async function createTestApp(
     dataDir: ':memory:',
     port: 0,
     cliDir: null,
+    trustedNetworks: null,
+    vapidSubject: 'mailto:asm@localhost',
     ...opts.config,
   };
   const db = openDb(opts.dbPath ?? ':memory:');
@@ -39,7 +42,7 @@ export async function createTestApp(
   const hooks = { ...defaultHooks };
   const events = new RequestEvents();
   const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events, mcpAwaitTimeoutMs: opts.mcpAwaitTimeoutMs,
-    webDistDir: opts.webDistDir ?? null,
+    webDistDir: opts.webDistDir ?? null, pushSender: opts.pushSender,
   });
   const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin });
   return { app, db, clock, config, ctx };

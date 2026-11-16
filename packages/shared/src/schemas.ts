@@ -196,3 +196,49 @@ export const AutoModeInputSchema = z.strictObject({
   minutes: z.number().int().min(1).optional(),
   vaultIds: z.array(z.string().min(1).max(100)).min(1).max(100).nullable().optional(),
 });
+
+// ---------- push approval ----------
+export const PushSubscriptionDtoSchema = z.strictObject({
+  id: z.string(),
+  deviceName: z.string(),
+  createdAt: z.number(),
+  lastUsedAt: z.number().nullable(),
+});
+export type PushSubscriptionDto = z.infer<typeof PushSubscriptionDtoSchema>;
+
+const Base64UrlSchema = z.string().regex(/^[A-Za-z0-9_-]+={0,2}$/);
+
+/** Body of POST /api/push/subscriptions (`subscription` is the browser's PushSubscription.toJSON()). */
+export const PushSubscribeInputSchema = z.object({
+  subscription: z.object({
+    endpoint: z.url({ protocol: /^https$/ }).max(2048),
+    keys: z.object({ p256dh: Base64UrlSchema.min(16).max(256), auth: Base64UrlSchema.min(8).max(64) }),
+  }),
+  deviceName: z.string().trim().min(1).max(100),
+});
+export type PushSubscribeInput = z.infer<typeof PushSubscribeInputSchema>;
+
+export const VapidKeyDtoSchema = z.strictObject({ publicKey: z.string() });
+export type VapidKeyDto = z.infer<typeof VapidKeyDtoSchema>;
+
+/** Public summary of a request behind an approval link (never contains secret values). */
+export const ApproveSummaryDtoSchema = z.strictObject({
+  kind: RequestKindSchema,
+  device: z.strictObject({ name: z.string() }),
+  secret: z.strictObject({ title: z.string(), envName: z.string().nullable() }),
+  project: z.string(),
+  reason: z.string(),
+  delivery: DeliverySchema.nullable(),
+  metaDiff: z.record(z.string(), z.strictObject({ from: z.unknown(), to: z.unknown() })).optional(),
+  valueChanged: z.boolean().optional(),
+  expiresAt: z.number(),
+  status: RequestStatusSchema,
+});
+export type ApproveSummaryDto = z.infer<typeof ApproveSummaryDtoSchema>;
+
+/** Body of POST /api/approve/:token/decision; `response` (AuthenticationResponseJSON) is required to approve. */
+export const ApproveDecisionInputSchema = z.object({
+  decision: DecisionSchema,
+  response: z.object({ id: z.string().min(1).max(1024) }).passthrough().optional(),
+});
+export type ApproveDecisionInput = z.infer<typeof ApproveDecisionInputSchema>;

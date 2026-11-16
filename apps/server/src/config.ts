@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { isIPv4, isIPv6 } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import { SAFE_ORIGIN } from './cli-dist/install-script.js';
 
@@ -18,7 +19,41 @@ export type Config = {
   port: number;
   /** Directory with the CLI bundle (asm.mjs + asm.json) served under /cli; null = not available. */
   cliDir: string | null;
+  /** Clients outside these networks may only reach the public approval paths; null = no restriction. */
+  trustedNetworks: Cidr[] | null;
+  /** VAPID subject (mailto: or https: URL) sent to push services. */
+  vapidSubject: string;
 };
+
+export type Cidr = { address: string; prefix: number; family: 'ipv4' | 'ipv6' };
+
+export const DEFAULT_VAPID_SUBJECT = 'mailto:asm@localhost';
+
+/** Parses a comma-separated list of IPv4/IPv6 CIDRs (a bare address means a single host). */
+export function parseTrustedNetworks(raw: string | undefined): Cidr[] | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  return raw.split(',').map((part) => {
+    const item = part.trim();
+    const [address = '', prefixRaw, ...rest] = item.split('/');
+    const family = isIPv4(address) ? 'ipv4' : isIPv6(address) ? 'ipv6' : null;
+    const max = family === 'ipv4' ? 32 : 128;
+    if (!family || rest.length > 0 || (prefixRaw !== undefined && !/^\d{1,3}$/.test(prefixRaw))) {
+      throw new ConfigError(`ASM_TRUSTED_NETWORKS contains an invalid CIDR: ${item}`);
+    }
+    const prefix = prefixRaw === undefined ? max : Number(prefixRaw);
+    if (prefix > max) throw new ConfigError(`ASM_TRUSTED_NETWORKS contains an invalid CIDR: ${item}`);
+    return { address, prefix, family };
+  });
+}
+
+function parseVapidSubject(raw: string | undefined): string {
+  if (raw === undefined || raw.trim() === '') return DEFAULT_VAPID_SUBJECT;
+  const v = raw.trim();
+  if (!/^mailto:[^\s@]+@[^\s@]+$/.test(v) && !/^https:\/\/\S+$/.test(v)) {
+    throw new ConfigError('ASM_VAPID_SUBJECT must be a mailto: address or an https: URL');
+  }
+  return v;
+}
 
 /** CLI bundle location inside the Docker image. */
 export const IMAGE_CLI_DIR = '/app/cli';
@@ -92,5 +127,7 @@ export function loadConfig(
     dataDir: env.ASM_DATA_DIR || '/data',
     port: parseInt10(env.PORT, 8080, 'PORT'),
     cliDir: env.ASM_CLI_DIR || defaultCliDir(exists),
+    trustedNetworks: parseTrustedNetworks(env.ASM_TRUSTED_NETWORKS),
+    vapidSubject: parseVapidSubject(env.ASM_VAPID_SUBJECT),
   };
 }

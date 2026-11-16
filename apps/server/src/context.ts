@@ -12,6 +12,8 @@ export type ServiceHooks = {
   onVaultMemberRemoved: (ctx: ServiceCtx, vaultId: string, userId: string) => void;
   /** Runs inside the change transaction when allow_plaintext_to_agent goes 1 → 0 (Task 9 cancels plaintext requests/grants). */
   onPlaintextDisabled: (ctx: ServiceCtx, secretId: string) => void;
+  /** Runs after commit when a new request waits for a manual decision (push notification). Must not throw. */
+  onRequestPending: (ctx: ServiceCtx, requestId: string) => void;
 };
 
 /** Minimal logger surface used by services for background failures (never pass values). */
@@ -39,6 +41,7 @@ export const defaultHooks: ServiceHooks = {
   onSecretDeleted: () => {},
   onVaultMemberRemoved: () => {},
   onPlaintextDisabled: () => {},
+  onRequestPending: () => {},
 };
 
 export const DEFAULT_AUTO_MODE_MAX_MIN = 240;

@@ -55,7 +55,9 @@ function applyOrFail(fn: () => void): void {
 }
 
 /** pending → denied after a failed apply (cause 'apply_failed'); decidedBy = approver user id or 'system' (auto). */
-function denyApplyFailed(ctx: ServiceCtx, r: RequestRow, decidedBy: string, errorCode: string, info: RequestInfo): boolean {
+function denyApplyFailed(
+  ctx: ServiceCtx, r: RequestRow, decidedBy: string, errorCode: string, info: RequestInfo, auditMeta: Record<string, string> = {},
+): boolean {
   const res = ctx.db.$client
     .prepare(
       `UPDATE access_requests SET status = 'denied', decided_by = ?, decided_at = ?, proposed_value_sealed = NULL
@@ -67,7 +69,7 @@ function denyApplyFailed(ctx: ServiceCtx, r: RequestRow, decidedBy: string, erro
   appendAudit(ctx.db, ctx.clock, {
     actorType: system ? 'system' : 'user', actorId: system ? null : decidedBy, event: 'request.denied',
     secretId: r.secret_id, vaultId: r.vault_id, deviceId: r.device_id, project: r.project, reason: r.reason, ip: system ? undefined : info.ip,
-    meta: { requestId: r.id, kind: r.kind, cause: 'apply_failed', error: errorCode },
+    meta: { ...auditMeta, requestId: r.id, kind: r.kind, cause: 'apply_failed', error: errorCode },
   });
   return true;
 }
@@ -176,6 +178,18 @@ function emitSnapshotsAfterCommit(ctx: ServiceCtx, requestIds: string[]): void {
     const event: RequestEvent = { type: 'request.updated', data: toDto(row) };
     afterCommit(ctx, () => ctx.events.emit(row.user_id, event));
   }
+}
+
+/** Hands a still-pending new request to the onRequestPending hook (push); failures are logged, never thrown. */
+function notifyIfPending(ctx: ServiceCtx, dto: AccessRequestDto): AccessRequestDto {
+  if (dto.status === 'pending') {
+    try {
+      ctx.hooks.onRequestPending(ctx, dto.id);
+    } catch (err) {
+      ctx.logger?.error({ errName: (err as Error).name }, 'pending request hook failed');
+    }
+  }
+  return dto;
 }
 
 // ---------- sealing of proposed values ----------
@@ -312,7 +326,7 @@ export function createRequest(ctx: ServiceCtx, input: CreateRequestInput, info: 
     );
   })();
   emitRequest(ctx, 'request.created', id);
-  return getRequestDto(ctx.db, id);
+  return notifyIfPending(ctx, getRequestDto(ctx.db, id));
 }
 
 export type CreateUpdateRequestInput = {
@@ -362,7 +376,7 @@ export function createUpdateRequest(ctx: ServiceCtx, input: CreateUpdateRequestI
     );
   })();
   emitRequest(ctx, 'request.created', id);
-  return getRequestDto(ctx.db, id);
+  return notifyIfPending(ctx, getRequestDto(ctx.db, id));
 }
 
 /**
@@ -373,6 +387,8 @@ export function decideRequest(
   ctx: ServiceCtx,
   input: { requestId: string; userId: string; decision: 'approve' | 'deny' },
   info: RequestInfo = {},
+  /** Extra audit meta for the decision entry (e.g. `{ via: 'push' }`); never values. */
+  auditMeta: Record<string, string> = {},
 ): AccessRequestDto {
   const { db } = ctx;
   const decision = DecisionSchema.parse(input.decision);
@@ -400,11 +416,11 @@ export function decideRequest(
   }
 
   try {
-    decideTxn(ctx, row, decision, userId, info);
+    decideTxn(ctx, row, decision, userId, info, auditMeta);
   } catch (err) {
     if (!(err instanceof ApplyFailed)) throw err;
     // The change was rolled back; record the failed approval as a denial in a second transaction.
-    const denied = db.$client.transaction(() => denyApplyFailed(ctx, row, userId, err.errorCode, info))();
+    const denied = db.$client.transaction(() => denyApplyFailed(ctx, row, userId, err.errorCode, info, auditMeta))();
     if (denied) emitRequest(ctx, 'request.updated', requestId);
     throw new HttpError(409, 'apply_failed', undefined, { cause: err.errorCode });
   }
@@ -412,7 +428,9 @@ export function decideRequest(
   return getRequestDto(db, requestId);
 }
 
-function decideTxn(ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny', userId: string, info: RequestInfo): void {
+function decideTxn(
+  ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny', userId: string, info: RequestInfo, auditMeta: Record<string, string>,
+): void {
   const { db } = ctx;
   const requestId = row.id;
   db.$client.transaction(() => {
@@ -437,7 +455,7 @@ function decideTxn(ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: userId, event: decision === 'approve' ? 'request.approved' : 'request.denied',
       secretId: row.secret_id, vaultId: row.vault_id, deviceId: row.device_id, project: row.project, reason: row.reason, ip: info.ip,
-      meta: { requestId, kind: row.kind },
+      meta: { ...auditMeta, requestId, kind: row.kind },
     });
   })();
 }
@@ -580,7 +598,7 @@ export function cancelPlaintextForSecret(ctx: ServiceCtx, secretId: string): voi
 }
 
 /** Real hook implementations, wired by buildApp. */
-export const requestHooks: ServiceHooks = {
+export const requestHooks: Omit<ServiceHooks, 'onRequestPending'> = {
   onSecretArchived: cancelOpenForSecret,
   onSecretDeleted: cancelOpenForDeletedSecret,
   onVaultMemberRemoved: revokeForRemovedMember,
