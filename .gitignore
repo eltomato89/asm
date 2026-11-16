@@ -9,5 +9,5 @@ test-results/
 playwright-report/
 
 # Master key (never commit or copy into images)
-secrets/
+/secrets/
 asm_master_key*
