@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Bundles the CLI (incl. @asm/shared, commander, zod, …) into one ESM file: dist-bundle/asm.mjs + manifest asm.json.
 import { createHash } from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
@@ -10,6 +10,20 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'dist-bundle');
 const outFile = join(outDir, 'asm.mjs');
 const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+
+const sharedSrc = join(root, '../../packages/shared/src');
+/** @type {import('esbuild').Plugin} */
+const sharedFromSource = {
+  name: 'asm-shared-from-source',
+  setup(b) {
+    b.onResolve({ filter: /^@asm\/shared(\/[a-z-]+)?$/ }, (args) => {
+      const sub = args.path.slice('@asm/shared'.length).replace(/^\//, '') || 'index';
+      const path = join(sharedSrc, `${sub}.ts`);
+      if (!existsSync(path)) return { errors: [{ text: `unknown @asm/shared entry: ${args.path}` }] };
+      return { path };
+    });
+  },
+};
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
@@ -21,8 +35,9 @@ const result = await build({
   platform: 'node',
   format: 'esm',
   target: 'node22',
-  // Resolve workspace packages (@asm/shared) to their TypeScript sources.
-  conditions: ['development'],
+  // Resolve the workspace package @asm/shared to its TypeScript sources (no prior build needed); every other
+  // dependency resolves normally (no 'development' condition for third-party packages).
+  plugins: [sharedFromSource],
   define: { __ASM_VERSION__: JSON.stringify(version) },
   // src/index.ts already starts with the shebang (esbuild keeps it on the first line).
   // CommonJS dependencies (commander) call require() for Node built-ins; ESM output needs a real require.

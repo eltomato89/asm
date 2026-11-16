@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, closeSync, fsyncSync, openSync, realpathSync, renameSync, unlinkSync, writeSync } from 'node:fs';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 import type { Command } from 'commander';
 import { CliError, EXIT, type Runtime } from '../runtime.js';
 import { stripControl } from '../sanitize.js';
@@ -20,7 +20,7 @@ function parseManifest(raw: unknown): CliManifest {
   const m = raw as Record<string, unknown> | null;
   if (
     !m || typeof m !== 'object' ||
-    typeof m.version !== 'string' || !/^[0-9A-Za-z.+-]{1,64}$/.test(m.version) ||
+    typeof m.version !== 'string' || m.version.length > 64 || !isSemver(m.version) ||
     typeof m.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(m.sha256) ||
     typeof m.size !== 'number' || !Number.isSafeInteger(m.size) || m.size <= 0 || m.size > MAX_BUNDLE_BYTES
   ) fail('update_manifest_invalid');
@@ -28,6 +28,8 @@ function parseManifest(raw: unknown): CliManifest {
 }
 
 const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/;
+
+export const isSemver = (v: string): boolean => SEMVER.test(v);
 
 /** Semver precedence: <0 if a<b, 0 if equal, >0 if a>b; undefined if either is not a semver version. */
 export function compareVersions(a: string, b: string): number | undefined {
@@ -70,6 +72,29 @@ async function download(f: typeof fetch, url: string): Promise<Response> {
   return res;
 }
 
+/** Reads a response body of exactly `size` bytes; stops reading (and fails) as soon as it would exceed `size`. */
+async function readExactly(res: Response, size: number): Promise<Uint8Array> {
+  const declared = res.headers.get('content-length');
+  if (declared !== null && Number(declared) !== size) fail('update_size_mismatch');
+  if (!res.body) fail('update_download_failed');
+  const out = new Uint8Array(size);
+  let len = 0;
+  const reader = res.body.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (len + value.length > size) fail('update_size_mismatch');
+      out.set(value, len);
+      len += value.length;
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  if (len !== size) fail('update_size_mismatch');
+  return out;
+}
+
 /** Writes `data` next to `target` (exclusive temp file, mode 0755) and renames it over `target`; never leaves a partial file. */
 export function replaceFileAtomically(target: string, data: Uint8Array): void {
   const tmp = join(dirname(target), `.${basename(target)}.${randomBytes(8).toString('hex')}.tmp`);
@@ -110,6 +135,9 @@ export async function update(rt: Runtime, opts: { force?: boolean } = {}): Promi
   } catch {
     fail('update_target_missing');
   }
+  // The installer puts the real file at ~/.local/share/asm/asm.mjs (symlinked from ~/.local/bin/asm); the .mjs
+  // extension is what makes Node load it as ESM, so it must be kept.
+  if (extname(target) !== '.mjs') fail('update_unsupported_layout (re-run the installer: curl -fsSL <server>/cli/install.sh | sh)');
   const server = rt.server();
   const f = rt.deps.fetch ?? globalThis.fetch;
 
@@ -121,7 +149,6 @@ export async function update(rt: Runtime, opts: { force?: boolean } = {}): Promi
     fail('update_manifest_invalid');
   }
   const manifest = parseManifest(manifestRaw);
-  if (compareVersions(manifest.version, manifest.version) === undefined) fail('update_manifest_invalid');
   // An unparseable local version (e.g. a custom build) counts as older than the server's.
   const cmp = compareVersions(manifest.version, current) ?? 1;
   if (!opts.force) {
@@ -134,12 +161,11 @@ export async function update(rt: Runtime, opts: { force?: boolean } = {}): Promi
 
   let data: Uint8Array;
   try {
-    data = new Uint8Array(await (await download(f, `${server}/cli/asm.mjs`)).arrayBuffer());
+    data = await readExactly(await download(f, `${server}/cli/asm.mjs`), manifest.size);
   } catch (err) {
     if (err instanceof CliError) throw err;
     fail('update_download_failed');
   }
-  if (data.length !== manifest.size) fail('update_size_mismatch');
   if (createHash('sha256').update(data).digest('hex') !== manifest.sha256) fail('update_checksum_mismatch');
 
   try {

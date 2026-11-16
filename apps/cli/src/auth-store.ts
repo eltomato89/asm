@@ -138,12 +138,14 @@ function parseStored(raw: string): Credentials | undefined {
 
 /** Quotes an argument for the `security -i` command parser (double quotes, backslash-escaped `"` and `\`). */
 export function securityQuote(value: string): string {
-  if (/[\r\n\0]/.test(value)) throw new StoreError('value not storable in the OS keychain');
+  if (/[\r\n\0]/.test(value)) throw new StoreError('value not storable in the OS keychain (control characters)');
   return `"${value.replace(/["\\]/g, (c) => `\\${c}`)}"`;
 }
 
 /** `security` exit code for "item not found" (errSecItemNotFound). */
 const SECURITY_NOT_FOUND = 44;
+/** Maximum command line length accepted for `security -i` (its line buffer is 4096 bytes). */
+const SECURITY_MAX_LINE = 4000;
 
 /** macOS Keychain via /usr/bin/security (service `asm`, account = server host). */
 export class MacKeychainStore implements TokenStore {
@@ -162,6 +164,8 @@ export class MacKeychainStore implements TokenStore {
   async set(host: string, creds: Credentials) {
     // `security -i` reads the command from stdin, so the secret never appears in argv.
     const line = ['add-generic-password', '-U', '-s', securityQuote(KEYRING_SERVICE), '-a', securityQuote(host), '-w', securityQuote(JSON.stringify(creds))].join(' ');
+    // `security -i` reads commands into a fixed-size line buffer; longer lines would be truncated.
+    if (Buffer.byteLength(line) > SECURITY_MAX_LINE) throw new StoreError('credentials too large for the OS keychain (use --insecure-store)');
     const r = await runTool(this.run, 'security', ['-i'], `${line}\n`);
     if (r.code !== 0) throw keychainError('access failed');
   }
@@ -178,18 +182,26 @@ export class MacKeychainStore implements TokenStore {
 export class SecretToolStore implements TokenStore {
   constructor(private readonly run: CommandRunner = defaultRunner) {}
 
-  private attrs(host: string): string[] {
-    return ['service', KEYRING_SERVICE, 'account', host];
+  /**
+   * `service asm username <host>` matches the items written by @napi-rs/keyring (keyring-rs) in earlier versions;
+   * `account` is read and cleared as a legacy fallback.
+   */
+  private attrs(host: string, key: 'username' | 'account' = 'username'): string[] {
+    return ['service', KEYRING_SERVICE, key, host];
   }
 
-  async get(host: string) {
-    const r = await runTool(this.run, 'secret-tool', ['lookup', ...this.attrs(host)]);
+  private async lookup(host: string, key: 'username' | 'account'): Promise<Credentials | undefined> {
+    const r = await runTool(this.run, 'secret-tool', ['lookup', ...this.attrs(host, key)]);
     if (r.code !== 0) {
       // Not found: exit 1 without output. Anything on stderr means the Secret Service failed.
       if (r.stderr.trim() === '') return undefined;
       throw keychainError('access failed');
     }
     return parseStored(r.stdout.replace(/\n$/, ''));
+  }
+
+  async get(host: string) {
+    return (await this.lookup(host, 'username')) ?? this.lookup(host, 'account');
   }
 
   async set(host: string, creds: Credentials) {
@@ -200,8 +212,10 @@ export class SecretToolStore implements TokenStore {
   async delete(host: string) {
     // `secret-tool clear` does not report whether something was deleted.
     const existed = (await this.get(host)) !== undefined;
-    const r = await runTool(this.run, 'secret-tool', ['clear', ...this.attrs(host)]);
-    if (r.code !== 0 && r.stderr.trim() !== '') throw keychainError('access failed');
+    for (const key of ['username', 'account'] as const) {
+      const r = await runTool(this.run, 'secret-tool', ['clear', ...this.attrs(host, key)]);
+      if (r.code !== 0 && r.stderr.trim() !== '') throw keychainError('access failed');
+    }
     return existed;
   }
 }

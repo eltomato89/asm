@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { compareVersions } from '../src/commands/update.js';
+import { compareVersions, isSemver } from '../src/commands/update.js';
 import { runCli, SERVER, tmp } from './helpers.js';
 
 const NEW = '#!/usr/bin/env node\nconsole.log("asm 1.2.0");\n';
@@ -117,6 +117,49 @@ describe('asm update', () => {
     expect(compareVersions('0.1.0-rc.2', '0.1.0-rc.10')).toBe(-1);
     expect(compareVersions('0.1.0-alpha', '0.1.0-1')).toBe(1);
     expect(compareVersions('garbage', '0.1.0')).toBeUndefined();
+    expect(isSemver('0.1.0')).toBe(true);
+    expect(isSemver('0.1')).toBe(false);
+  });
+
+  it('real file without .mjs extension → update_unsupported_layout, untouched', async () => {
+    const dir = tmp('asm-bin-');
+    const real = join(dir, 'asm');
+    writeFileSync(real, OLD, { mode: 0o755 });
+    const s = server();
+    const r = await runCli(['update'], { deps: { version: '1.0.0', selfPath: real, fetch: s.fetch } });
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/^asm: update_unsupported_layout \(re-run the installer/);
+    expect(s.urls).toEqual([]);
+    expect(readFileSync(real, 'utf8')).toBe(OLD);
+  });
+
+  it('content-length above the manifest size → size mismatch without reading the body', async () => {
+    const { real, link } = install();
+    const manifest = { version: '1.2.0', sha256: createHash('sha256').update(NEW).digest('hex'), size: Buffer.byteLength(NEW) };
+    let pulled = 0;
+    const fetch = (async (url: string) => {
+      if (url.endsWith('/asm.json')) return new Response(JSON.stringify(manifest));
+      const body = new ReadableStream({ pull: (c) => void (pulled++, c.enqueue(new TextEncoder().encode(NEW))) });
+      return new Response(body, { headers: { 'content-length': String(1e9) } });
+    }) as unknown as typeof globalThis.fetch;
+    const r = await runCli(['update'], { deps: { version: '1.0.0', selfPath: link, fetch } });
+    expect(r.err).toBe('asm: update_size_mismatch\n');
+    expect(pulled).toBeLessThanOrEqual(1);
+    expect(readFileSync(real, 'utf8')).toBe(OLD);
+  });
+
+  it('endless body without content-length → stops reading past the manifest size', async () => {
+    const { real, link } = install();
+    const manifest = { version: '1.2.0', sha256: createHash('sha256').update(NEW).digest('hex'), size: Buffer.byteLength(NEW) };
+    let pulled = 0;
+    const fetch = (async (url: string) => {
+      if (url.endsWith('/asm.json')) return new Response(JSON.stringify(manifest));
+      return new Response(new ReadableStream({ pull: (c) => void (pulled++, c.enqueue(new Uint8Array(16))) }));
+    }) as unknown as typeof globalThis.fetch;
+    const r = await runCli(['update'], { deps: { version: '1.0.0', selfPath: link, fetch } });
+    expect(r.err).toBe('asm: update_size_mismatch\n');
+    expect(pulled).toBeLessThan(10);
+    expect(readFileSync(real, 'utf8')).toBe(OLD);
   });
 
   it('not running from the bundle → update_unsupported', async () => {
