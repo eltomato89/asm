@@ -46,7 +46,7 @@ describe('auth store', () => {
     await expect(new FileStore(path).get('a.test')).rejects.toThrow(StoreError);
     const r = await runCli(['logout'], { deps: { storeFor: () => new FileStore(path) } });
     expect(r.code).toBe(1);
-    expect(r.err).toBe('asm: credentials_corrupt\n');
+    expect(r.err).toBe(`asm: credentials_corrupt (delete ${path} and run asm login again)\n`);
     expect(existsSync(path)).toBe(true);
   });
 });

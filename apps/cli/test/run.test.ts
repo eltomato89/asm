@@ -89,26 +89,52 @@ describe('asm run', () => {
     expect(r.err).toBe('asm: grant_gone\n');
   });
 
-  it('forwards SIGTERM to the child; SIGINT only when stdin is not a terminal', async () => {
+  it('forwards SIGTERM to the child; on a terminal SIGINT is swallowed (child decides) and its exit code propagates', async () => {
     const signals = new EventEmitter();
-    const seen: number[] = [];
-    const origOn = signals.on.bind(signals);
-    signals.on = ((ev: string, fn: () => void) => {
-      if (ev === 'SIGINT') seen.push(1);
-      return origOn(ev, fn);
-    }) as typeof signals.on;
     const child =
-      "process.on('SIGTERM', () => process.exit(7)); process.stdout.write('ready'); setInterval(() => {}, 1000)";
+      "process.on('SIGTERM', () => process.exit(7)); process.on('SIGINT', () => {}); process.stdout.write('ready'); setInterval(() => {}, 1000)";
     const running = runWithCapture(['run', '--grant', GRANT, '--', 'node', '-e', child], fakeApi({ redeemGrant: redeemed() }), { signals, stdinIsTTY: true });
     for (let i = 0; i < 100 && signals.listenerCount('SIGTERM') === 0; i++) await new Promise((r) => setTimeout(r, 20));
-    await new Promise((r) => setTimeout(r, 300)); // child installs its handler
+    // asm keeps a SIGINT listener (so Node's default action does not kill it) but does not forward it.
+    expect(signals.listenerCount('SIGINT')).toBe(1);
+    await new Promise((r) => setTimeout(r, 300)); // child installs its handlers
+    signals.emit('SIGINT');
+    await new Promise((r) => setTimeout(r, 100));
     signals.emit('SIGTERM');
     const r = await running;
     expect(r.code).toBe(7);
-    expect(seen).toEqual([]); // SIGINT not forwarded for an interactive terminal
-    expect(signals.listenerCount('SIGTERM')).toBe(0);
-    expect(signals.listenerCount('SIGHUP')).toBe(0);
+    for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) expect(signals.listenerCount(sig)).toBe(0);
   });
+
+  it('a real SIGINT to asm on a terminal does not kill it before the child exits (child exit code propagates)', async () => {
+    const { spawn } = await import('node:child_process');
+    const { writeFileSync } = await import('node:fs');
+    const dir = tmp();
+    // Child ignores SIGINT, exits 5 after a short while.
+    const script = join(dir, 'harness.mjs');
+    const cli = new URL('../src/cli.ts', import.meta.url).pathname;
+    writeFileSync(
+      script,
+      `import { main } from ${JSON.stringify(cli)};
+const api = { redeemGrant: async () => ({ secrets: [{ secretId: 'sec_1', envName: 'X', value: 'v' }] }) };
+const code = await main(['run', '--grant', '${GRANT}', '--', 'node', '-e', "process.on('SIGINT', () => {}); process.stdout.write('ready'); setTimeout(() => process.exit(5), 700)"], {
+  env: process.env, cwd: process.cwd(), stdout: process.stdout, stderr: process.stderr, readStdin: async () => '', configDir: ${JSON.stringify(dir)},
+  hostname: 'h', stdinIsTTY: true, makeApi: () => api, storeFor: () => ({ get: async () => undefined, set: async () => {}, delete: async () => false }),
+});
+process.exitCode = code;
+`,
+    );
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ defaultServer: 'https://asm.test' }));
+    const { createRequire } = await import('node:module');
+    const { pathToFileURL } = await import('node:url');
+    const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
+    const p = spawn(process.execPath, ['--import', tsx, script], { stdio: ['ignore', 'pipe', 'inherit'], cwd: dir });
+    const exited = new Promise<number | null>((resolve) => p.on('exit', (c) => resolve(c)));
+    let out = '';
+    await Promise.race([new Promise<void>((resolve) => p.stdout.on('data', (d: Buffer) => ((out += d), out.includes('ready') && resolve()))), exited]);
+    p.kill('SIGINT'); // the asm parent receives SIGINT (as from Ctrl-C)
+    expect(await exited).toBe(5);
+  }, 15_000);
 
   it('duplicate env names → exit 2 before anything is redeemed', async () => {
     const api = fakeApi({ redeemGrant: redeemed() });

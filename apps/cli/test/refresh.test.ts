@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MemoryStore, type Credentials } from '../src/auth-store.js';
 import { runCli, SERVER, tmp } from './helpers.js';
@@ -65,4 +66,21 @@ describe('token refresh', () => {
     expect(r.code).toBe(1);
     expect(r.err).toBe('asm: token_store_failed\n');
   });
+
+  it('a hanging refresh times out (exit 1 refresh_timeout) and releases the lock', async () => {
+    const fetch = (async (url: string, init: RequestInit) => {
+      if (url.endsWith('/oauth/token')) {
+        return new Promise<Response>((_, reject) => init.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+      }
+      return new Response(JSON.stringify({ error: 'invalid_token' }), { status: 401 });
+    }) as unknown as typeof globalThis.fetch;
+    const store = new MemoryStore();
+    await store.set('asm.test', stored());
+    const configDir = tmp();
+    const r = await runCli(['search', '--project', 'p'], { deps: { fetch, storeFor: () => store, configDir, refreshTimeoutMs: 100 } });
+    expect(r.code).toBe(1);
+    expect(r.err).toBe('asm: refresh_timeout\n');
+    expect(readdirSync(configDir).filter((f) => f.endsWith('.lock'))).toEqual([]);
+  });
 });
+

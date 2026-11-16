@@ -118,7 +118,8 @@ export function createApiClient(opts: ApiClientOptions) {
     // ---------- OAuth (unauthenticated) ----------
     deviceAuthorization: (body: { client_name: string; hostname?: string }) =>
       request<DeviceAuthorization>('POST', '/oauth/device_authorization', { body, auth: false }),
-    token: (body: Record<string, string>) => request<TokenResponse>('POST', '/oauth/token', { body, auth: false }),
+    token: (body: Record<string, string>, o: { signal?: AbortSignal } = {}) =>
+      request<TokenResponse>('POST', '/oauth/token', { body, auth: false, signal: o.signal }),
     // ---------- CLI device API ----------
     redeemGrant: (grantId: string, hostname?: string) =>
       request<{ secrets: RedeemedSecret[] }>('POST', `/api/grants/${id(grantId)}/redeem`, { body: hostname ? { hostname } : {} }),

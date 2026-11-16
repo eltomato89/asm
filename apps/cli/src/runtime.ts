@@ -4,10 +4,12 @@ import { basename, join } from 'node:path';
 import type { Command } from 'commander';
 import { ApiError, createApiClient, type ApiClient, type CliRequestDto } from '@asm/shared/api-client';
 import { createDefaultStore, readConfig, type TokenStore } from './auth-store.js';
-import { acquireLock } from './lock.js';
+import { acquireLock, LOCK_STALE_MS } from './lock.js';
 
 /** Refresh proactively when the access token expires within this window. */
 export const REFRESH_AHEAD_MS = 60_000;
+/** Timeout of the refresh call; below the lock's stale age so a hanging refresh never outlives its lock. */
+export const REFRESH_TIMEOUT_MS = 20_000;
 
 export type Out = { write(chunk: string): unknown };
 
@@ -30,6 +32,8 @@ export type CliDeps = {
   childStdio?: StdioOptions;
   /** Whether stdin is a terminal (`--from-stdin` refuses; `asm run` then leaves SIGINT to the process group). */
   stdinIsTTY?: boolean;
+  /** Timeout of the token refresh call (default REFRESH_TIMEOUT_MS). */
+  refreshTimeoutMs?: number;
   /** Source of SIGINT/SIGTERM/SIGHUP for `asm run` forwarding (default: process). */
   signals?: NodeJS.EventEmitter;
 };
@@ -143,9 +147,10 @@ export class Runtime {
       if (staleAccess !== undefined && creds.accessToken !== staleAccess) return true;
       let t;
       try {
-        t = await client.token({ grant_type: 'refresh_token', refresh_token: creds.refreshToken });
+        t = await client.token({ grant_type: 'refresh_token', refresh_token: creds.refreshToken }, { signal: AbortSignal.timeout(Math.min(this.deps.refreshTimeoutMs ?? REFRESH_TIMEOUT_MS, LOCK_STALE_MS - 10_000)) });
       } catch (err) {
         if (err instanceof ApiError) return false;
+        if ((err as Error)?.name === 'TimeoutError') throw new CliError(EXIT.api, 'refresh_timeout');
         throw err;
       }
       try {

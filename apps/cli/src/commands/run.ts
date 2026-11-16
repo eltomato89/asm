@@ -6,8 +6,15 @@ import { CliError, EXIT, usage, type Runtime } from '../runtime.js';
 
 export type RunOptions = { grant: string[]; secret: string[]; project?: string; reason?: string };
 
-/** SIGINT from a terminal already reaches the child via the process group; forward it only when not interactive. */
-const forwardedSignals = (stdinIsTTY: boolean): NodeJS.Signals[] => (stdinIsTTY ? ['SIGTERM', 'SIGHUP'] : ['SIGINT', 'SIGTERM', 'SIGHUP']);
+/**
+ * Signal handlers while the child runs. SIGTERM/SIGHUP are forwarded. Ctrl-C on a terminal already reaches the child via
+ * the foreground process group, so SIGINT then only gets a no-op handler: asm must not die (default action) but wait for
+ * the child and pass on its exit code. Without a terminal, SIGINT is forwarded too.
+ */
+function signalHandlers(stdinIsTTY: boolean, kill: (sig: NodeJS.Signals) => void): [NodeJS.Signals, () => void][] {
+  const fwd = (sig: NodeJS.Signals): [NodeJS.Signals, () => void] => [sig, () => kill(sig)];
+  return [stdinIsTTY ? ['SIGINT', () => {}] : fwd('SIGINT'), fwd('SIGTERM'), fwd('SIGHUP')];
+}
 
 /** Spawns the command with the injected env vars (only in the child) and returns its exit code. */
 export async function runCommand(rt: Runtime, cmd: Command, argv: string[], opts: RunOptions): Promise<number> {
@@ -19,7 +26,7 @@ export async function runCommand(rt: Runtime, cmd: Command, argv: string[], opts
   return new Promise<number>((resolve, reject) => {
     const child = spawn(argv[0]!, argv.slice(1), { stdio: rt.deps.childStdio ?? 'inherit', env });
     const source = rt.deps.signals ?? process;
-    const forward = new Map(forwardedSignals(rt.deps.stdinIsTTY === true).map((sig) => [sig, () => void child.kill(sig)] as const));
+    const forward = signalHandlers(rt.deps.stdinIsTTY === true, (sig) => void child.kill(sig));
     for (const [sig, fn] of forward) source.on(sig, fn);
     const cleanup = () => {
       for (const [sig, fn] of forward) source.off(sig, fn);

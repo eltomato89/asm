@@ -48,9 +48,11 @@ function parseCredentials(raw: unknown): Credentials | undefined {
 export function writePrivateFile(path: string, content: string): void {
   mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  let created = false;
   let renamed = false;
   try {
     const fd = openSync(tmp, 'wx', 0o600);
+    created = true;
     try {
       writeSync(fd, content);
     } finally {
@@ -61,7 +63,7 @@ export function writePrivateFile(path: string, content: string): void {
     renamed = true;
     chmodSync(path, 0o600);
   } finally {
-    if (!renamed) {
+    if (created && !renamed) {
       try {
         unlinkSync(tmp);
       } catch {
@@ -152,10 +154,14 @@ export class FileStore implements TokenStore {
     try {
       data = JSON.parse(readFileSync(this.path, 'utf8'));
     } catch {
-      throw new StoreError('credentials_corrupt');
+      throw this.corrupt();
     }
-    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new StoreError('credentials_corrupt');
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw this.corrupt();
     return data as Record<string, unknown>;
+  }
+
+  private corrupt(): StoreError {
+    return new StoreError(`credentials_corrupt (delete ${this.path} and run asm login again)`);
   }
 
   async get(host: string) {
