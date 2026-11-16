@@ -322,6 +322,58 @@ describe('requests: archive cancels', () => {
   });
 });
 
+describe('requests: device revocation and secret deletion cancel', () => {
+  it('revoking a device denies its open requests (cause device_inactive), clears proposed values, emits after commit', async () => {
+    const { w, secret, mcp, read } = await setup();
+    const r = read();
+    const u = createUpdateRequest(w.ctx, { device: mcp, secretId: secret.id, project: 'p', reason: 'rotate', value: 'new-val' });
+    const otherDevice = read('cli', device(w, w.alice, 'mcp'));
+    const waiting = waitForRequest(w.ctx, r.id, mcp.id, 5_000);
+    const events: { type: string; data: { id: string; status: string } }[] = [];
+    w.ctx.events.subscribe(w.alice.id, (e) => events.push(e as never));
+    revokeDevice(w.ctx, mcp.id, { type: 'user', userId: w.alice.id });
+    expect((await waiting).status).toBe('denied');
+    const rows = w.db.$client.prepare('SELECT id, status, decided_by, proposed_value_sealed FROM access_requests WHERE device_id = ? ORDER BY id').all(mcp.id);
+    expect(rows).toEqual([
+      expect.objectContaining({ status: 'denied', decided_by: 'system', proposed_value_sealed: null }),
+      expect.objectContaining({ status: 'denied', decided_by: 'system', proposed_value_sealed: null }),
+    ]);
+    expect(w.db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(otherDevice.id)).toEqual({ status: 'pending' });
+    const denied = auditRows(w.db, 'request.denied');
+    expect(denied).toHaveLength(2);
+    for (const a of denied) {
+      expect(a).toMatchObject({ actor_type: 'system', secret_id: secret.id, vault_id: secret.vaultId, device_id: mcp.id });
+      expect(JSON.parse(String(a.meta))).toMatchObject({ cause: 'device_inactive' });
+    }
+    expect(events.map((e) => [e.type, e.data.id, e.data.status]).sort()).toEqual(
+      [['request.updated', r.id, 'denied'], ['request.updated', u.id, 'denied']].sort(),
+    );
+  });
+
+  it('deleting a secret denies its open requests (cause deleted) and emits request.updated before the cascade', async () => {
+    const { w, secret, mcp, read } = await setup();
+    const r = read();
+    const u = createUpdateRequest(w.ctx, { device: mcp, secretId: secret.id, project: 'p', reason: 'rotate', value: 'new-val' });
+    const waiting = waitForRequest(w.ctx, r.id, mcp.id, 5_000);
+    const events: { type: string; data: { id: string; status: string } }[] = [];
+    w.ctx.events.subscribe(w.alice.id, (e) => events.push(e as never));
+    const res = await w.req(w.alice, 'DELETE', `/api/secrets/${secret.id}`);
+    expect(res.statusCode).toBe(200);
+    expect((await waiting).status).toBe('denied');
+    expect(events.map((e) => [e.type, e.data.id, e.data.status]).sort()).toEqual(
+      [['request.updated', r.id, 'denied'], ['request.updated', u.id, 'denied']].sort(),
+    );
+    expect(w.db.$client.prepare('SELECT count(*) AS n FROM access_requests').get()).toEqual({ n: 0 });
+    const denied = auditRows(w.db, 'request.denied');
+    expect(denied).toHaveLength(2);
+    for (const a of denied) {
+      expect(a).toMatchObject({ actor_type: 'system', secret_id: secret.id, vault_id: secret.vaultId });
+      expect(JSON.parse(String(a.meta))).toMatchObject({ cause: 'deleted' });
+    }
+    expect(verifyChain(w.db)).toEqual({ ok: true });
+  });
+});
+
 describe('requests: update', () => {
   it('allowPlaintextToAgent in meta -> 400 field_not_allowed; no changes -> 400', async () => {
     const { w, secret, mcp } = await setup();

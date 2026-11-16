@@ -6,6 +6,8 @@ import { RequestEvents } from './requests/events.js';
 export type ServiceHooks = {
   /** Runs inside the archive transaction. */
   onSecretArchived: (ctx: ServiceCtx, secretId: string) => void;
+  /** Runs inside the delete transaction, before the secret row (and its requests, by cascade) is deleted. */
+  onSecretDeleted: (ctx: ServiceCtx, secretId: string) => void;
   /** Runs inside the member-removal transaction (Task 9 revokes the user's grants/requests for the vault). */
   onVaultMemberRemoved: (ctx: ServiceCtx, vaultId: string, userId: string) => void;
   /** Runs inside the change transaction when allow_plaintext_to_agent goes 1 → 0 (Task 9 cancels plaintext requests/grants). */
@@ -34,6 +36,7 @@ export type RequestInfo = { ip?: string };
 
 export const defaultHooks: ServiceHooks = {
   onSecretArchived: () => {},
+  onSecretDeleted: () => {},
   onVaultMemberRemoved: () => {},
   onPlaintextDisabled: () => {},
 };

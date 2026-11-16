@@ -370,6 +370,7 @@ export function deleteSecret(ctx: ServiceCtx, actor: Actor, secretId: string, in
     appendAudit(db, ctx.clock, {
       ...auditActor(actor), event: 'secret.deleted', secretId, vaultId: row.vault_id, ip: info.ip, meta: { title: row.title },
     });
+    ctx.hooks.onSecretDeleted(ctx, secretId);
     db.delete(secrets).where(eq(secrets.id, secretId)).run();
   })();
 }

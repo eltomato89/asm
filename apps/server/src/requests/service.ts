@@ -32,7 +32,7 @@ const LIST_LIMIT = 100;
 const SYSTEM = 'system';
 
 export type RequestStatus = AccessRequestDto['status'];
-export type SystemCause = 'archived' | 'member_removed' | 'device_inactive' | 'plaintext_disabled';
+export type SystemCause = 'archived' | 'member_removed' | 'device_inactive' | 'plaintext_disabled' | 'deleted';
 export const MAX_WAITERS_PER_DEVICE = 20;
 
 /** Raised inside a decision transaction when applying an approved update fails (carries the error code only). */
@@ -152,18 +152,30 @@ function emitRequest(ctx: ServiceCtx, type: 'request.created' | 'request.updated
   ctx.events.emit(row.user_id, event);
 }
 
-/** For hooks running inside a caller's transaction: emit once the synchronous transaction has finished. */
-function emitAfterCommit(ctx: ServiceCtx, requestIds: string[]): void {
-  if (requestIds.length === 0) return;
+/** Runs `emit` once the caller's synchronous transaction has finished; failures are logged, never thrown. */
+function afterCommit(ctx: ServiceCtx, emit: () => void): void {
   queueMicrotask(() => {
-    for (const id of requestIds) {
-      try {
-        emitRequest(ctx, 'request.updated', id);
-      } catch (err) {
-        ctx.logger?.error({ errName: (err as Error).name }, 'request event emission failed');
-      }
+    try {
+      emit();
+    } catch (err) {
+      ctx.logger?.error({ errName: (err as Error).name }, 'request event emission failed');
     }
   });
+}
+
+/** For hooks running inside a caller's transaction: emit (current state) once the transaction has finished. */
+function emitAfterCommit(ctx: ServiceCtx, requestIds: string[]): void {
+  for (const id of requestIds) afterCommit(ctx, () => emitRequest(ctx, 'request.updated', id));
+}
+
+/** Like emitAfterCommit, but snapshots the DTOs now (for rows the caller's transaction deletes, e.g. by cascade). */
+function emitSnapshotsAfterCommit(ctx: ServiceCtx, requestIds: string[]): void {
+  for (const id of requestIds) {
+    const row = loadRow(ctx.db, id);
+    if (!row) continue;
+    const event: RequestEvent = { type: 'request.updated', data: toDto(row) };
+    afterCommit(ctx, () => ctx.events.emit(row.user_id, event));
+  }
 }
 
 // ---------- sealing of proposed values ----------
@@ -467,13 +479,15 @@ export async function waitForRequest(
       if (n <= 0) waiters.delete(deviceId);
       else waiters.set(deviceId, n);
     };
-    const finish = () => {
+    /** `snapshot`: the event's DTO, used if the request row is gone meanwhile (secret deleted). */
+    const finish = (snapshot?: AccessRequestDto) => {
       if (settled) return;
       cleanup();
       try {
         resolve(getRequestDto(ctx.db, requestId));
       } catch (err) {
-        reject(err);
+        if (snapshot && err instanceof HttpError && err.code === 'not_found') resolve(snapshot);
+        else reject(err);
       }
     };
     const onAbort = () => {
@@ -484,9 +498,9 @@ export async function waitForRequest(
     signal?.addEventListener('abort', onAbort, { once: true });
     // Subscribe before checking the status so no transition is missed.
     const unsubscribe = ctx.events.subscribe(row.user_id, (e) => {
-      if (e.type !== 'automode.changed' && e.data.id === requestId && e.data.status !== 'pending') finish();
+      if (e.type !== 'automode.changed' && e.data.id === requestId && e.data.status !== 'pending') finish(e.data);
     });
-    timer = setTimeout(finish, timeout);
+    timer = setTimeout(() => finish(), timeout);
     const cur = ctx.db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(requestId) as { status: RequestStatus } | undefined;
     if (!cur || cur.status !== 'pending') finish();
   });
@@ -528,6 +542,19 @@ export function cancelOpenForSecret(ctx: ServiceCtx, secretId: string): void {
   emitAfterCommit(ctx, changed);
 }
 
+/** Secret-deletion hook (inside the delete transaction, before the cascade): deny open requests (cause 'deleted'). */
+export function cancelOpenForDeletedSecret(ctx: ServiceCtx, secretId: string): void {
+  const rows = ctx.db.$client.prepare(`${REQUEST_SELECT} WHERE r.secret_id = ? AND r.status = 'pending'`).all(secretId) as RequestRow[];
+  // The rows disappear with the secret, so the events carry a snapshot taken now.
+  emitSnapshotsAfterCommit(ctx, rows.filter((r) => systemDeny(ctx, r, 'deleted')).map((r) => r.id));
+}
+
+/** Device revocation (inside revokeDevice's transaction): deny the device's open requests (cause 'device_inactive'). */
+export function cancelOpenForDevice(ctx: ServiceCtx, deviceId: string): void {
+  const rows = ctx.db.$client.prepare(`${REQUEST_SELECT} WHERE r.device_id = ? AND r.status = 'pending'`).all(deviceId) as RequestRow[];
+  emitAfterCommit(ctx, rows.filter((r) => systemDeny(ctx, r, 'device_inactive')).map((r) => r.id));
+}
+
 /** Member-removal hook (runs inside the removal transaction): deny the user's open requests for the vault, delete their grants. */
 export function revokeForRemovedMember(ctx: ServiceCtx, vaultId: string, userId: string): void {
   const rows = ctx.db.$client
@@ -555,6 +582,7 @@ export function cancelPlaintextForSecret(ctx: ServiceCtx, secretId: string): voi
 /** Real hook implementations, wired by buildApp. */
 export const requestHooks: ServiceHooks = {
   onSecretArchived: cancelOpenForSecret,
+  onSecretDeleted: cancelOpenForDeletedSecret,
   onVaultMemberRemoved: revokeForRemovedMember,
   onPlaintextDisabled: cancelPlaintextForSecret,
 };

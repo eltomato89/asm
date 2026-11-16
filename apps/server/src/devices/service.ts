@@ -2,6 +2,7 @@ import { newId } from '@asm/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import { appendAudit } from '../audit/audit.js';
 import { deleteGrantsForDevice } from '../requests/grants.js';
+import { cancelOpenForDevice } from '../requests/service.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import type { Db } from '../db/client.js';
 import { deviceCodes, devices, oauthCodes, tokens } from '../db/schema.js';
@@ -62,7 +63,8 @@ export function renameDevice(ctx: ServiceCtx, userId: string, deviceId: string, 
 export type RevokeActor = { type: 'user'; userId: string } | { type: 'system'; cause: string };
 
 /**
- * Revokes a device: status `revoked`, all its tokens revoked, outstanding codes deleted, audit `device.revoked`.
+ * Revokes a device: status `revoked`, all its tokens revoked, outstanding codes and grants deleted, its open requests
+ * denied by the system (cause `device_inactive`, emitted after commit), audit `device.revoked`.
  * Idempotent: an already revoked device is not audited again.
  */
 export function revokeDevice(ctx: ServiceCtx, deviceId: string, actor: RevokeActor, info: RequestInfo = {}): void {
@@ -76,6 +78,7 @@ export function revokeDevice(ctx: ServiceCtx, deviceId: string, actor: RevokeAct
     db.delete(oauthCodes).where(eq(oauthCodes.deviceId, deviceId)).run();
     db.delete(deviceCodes).where(eq(deviceCodes.deviceId, deviceId)).run();
     deleteGrantsForDevice(db, deviceId);
+    cancelOpenForDevice(ctx, deviceId);
     appendAudit(db, clock, {
       ...(actor.type === 'user'
         ? { actorType: 'user', actorId: actor.userId }
