@@ -128,7 +128,7 @@ process.exitCode = code;
     const { createRequire } = await import('node:module');
     const { pathToFileURL } = await import('node:url');
     const tsx = pathToFileURL(createRequire(import.meta.url).resolve('tsx')).href;
-    const p = spawn(process.execPath, ['--import', tsx, script], { stdio: ['ignore', 'pipe', 'inherit'], cwd: dir });
+    const p = spawn(process.execPath, ['--conditions=development', '--import', tsx, script], { stdio: ['ignore', 'pipe', 'inherit'], cwd: dir });
     const exited = new Promise<number | null>((resolve) => p.on('exit', (c) => resolve(c)));
     let out = '';
     await Promise.race([new Promise<void>((resolve) => p.stdout.on('data', (d: Buffer) => ((out += d), out.includes('ready') && resolve()))), exited]);

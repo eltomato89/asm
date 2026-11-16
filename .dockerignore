@@ -1,0 +1,12 @@
+**/node_modules
+**/dist
+**/*.db
+**/*.db-*
+**/.env*
+.git
+.superpowers
+docs
+test-results
+playwright-report
+Dockerfile
+docker-compose*.yml

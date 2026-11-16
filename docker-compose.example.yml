@@ -1,0 +1,66 @@
+# ASM – Beispiel für Docker Compose.
+#
+# 1. Master-Key erzeugen (einmalig, sicher aufbewahren – ohne ihn sind alle Secrets verloren):
+#      docker run --rm asm node apps/server/dist/scripts/generate-key.js > asm_master_key
+#      chmod 600 asm_master_key && sudo chown 1000:1000 asm_master_key   # lesbar für den Container-User node (UID 1000)
+# 2. ASM_PUBLIC_URL auf die öffentliche https-Adresse setzen, Reverse Proxy konfigurieren (siehe unten).
+# 3. docker compose -f docker-compose.example.yml up -d
+# 4. Setup-Token aus dem Log holen: docker compose logs asm | grep "ASM setup token"
+
+services:
+  asm:
+    image: asm
+    # build: .
+    restart: unless-stopped
+    environment:
+      ASM_PUBLIC_URL: https://asm.example.com
+      ASM_MASTER_KEY_FILE: /run/secrets/asm_master_key
+      # Muss hinter einem Reverse Proxy true sein: sonst sieht ASM als Client-IP nur die IP des Proxys,
+      # und die Rate-Limits pro IP (Login, Setup, OAuth) treffen alle Nutzer gemeinsam. Nur setzen, wenn
+      # der Port ausschließlich über den Proxy erreichbar ist (X-Forwarded-For wird sonst fälschbar).
+      ASM_TRUST_PROXY: "true"
+      # ASM_AUTO_MODE_MAX_MIN: "240"
+    secrets:
+      - asm_master_key
+    volumes:
+      - asm-data:/data
+    # Nur für den Proxy erreichbar; ohne Proxy-Netzwerk z. B. an localhost binden:
+    ports:
+      - "127.0.0.1:8080:8080"
+    # --- Traefik (v2/v3) ---------------------------------------------------------------------------
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.asm.rule=Host(`asm.example.com`)
+    #   - traefik.http.routers.asm.entrypoints=websecure
+    #   - traefik.http.routers.asm.tls.certresolver=letsencrypt
+    #   - traefik.http.services.asm.loadbalancer.server.port=8080
+    # networks: [proxy]
+
+  # --- Caddy (alternativ) ----------------------------------------------------------------------------
+  # caddy:
+  #   image: caddy:2
+  #   restart: unless-stopped
+  #   ports: ["80:80", "443:443"]
+  #   volumes:
+  #     - ./Caddyfile:/etc/caddy/Caddyfile:ro
+  #     - caddy-data:/data
+  #
+  # Caddyfile:
+  #   asm.example.com {
+  #     reverse_proxy asm:8080 {
+  #       # SSE (Live-Anfragen) und MCP-Long-Polls nicht puffern
+  #       flush_interval -1
+  #     }
+  #   }
+
+secrets:
+  asm_master_key:
+    file: ./asm_master_key
+
+volumes:
+  asm-data:
+  # caddy-data:
+
+# networks:
+#   proxy:
+#     external: true
