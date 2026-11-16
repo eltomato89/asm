@@ -26,9 +26,12 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   noch ändern; offene Anfragen dazu werden verweigert. Ein Mensch kann sie reaktivieren.
 - **Versionen.** Jede Änderung erzeugt eine neue Version mit Akteur, Projekt und Grund. Alte Werte bleiben
   einsehbar und lassen sich wiederherstellen.
-- **Audit-Log** mit Hash-Kette: Jeder Eintrag enthält den Hash des vorigen, Manipulationen fallen auf.
+- **Audit-Log** mit Hash-Kette: Jeder Eintrag enthält den Hash des vorigen, Manipulationen fallen auf
+  (Grenzen siehe unten).
 - **Geräte.** Jede Kopplung (Claude Code, CLI) ist ein eigenes Gerät, das du im Browser freigibst und
   jederzeit widerrufen kannst. Refresh-Tokens rotieren; Wiederverwendung sperrt das Gerät.
+- **Konten deaktivieren.** Admins können Konten in den Einstellungen deaktivieren (Offboarding): Die Person wird
+  abgemeldet, kann sich nicht mehr anmelden, und alle ihre Geräte werden widerrufen.
 - **Verschlüsselung.** AES-256-GCM, pro Secret ein eigener Schlüssel, der mit dem Master-Key verschlüsselt ist.
   Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus) verlangen eine Anmeldung, die höchstens
   10 Minuten alt ist. Anmeldung mit Passwort oder Passkey.
@@ -110,7 +113,8 @@ asm search github                           # nur Metadaten
 asm run --grant grt_… -- npm run deploy     # Wert nur für diesen Prozess als ENV-Variable
 asm run --secret sec_… --reason "Deploy" -- ./deploy.sh   # anfragen, auf Freigabe warten, ausführen
 asm write --grant grt_… .env                # in eine dotenv-Datei schreiben (0600, zusammengeführt)
-asm set --new --title "Stripe Key" --env STRIPE_KEY --reason "neues Projekt" --from-env STRIPE_KEY
+asm set --new --title "Stripe Key" --description "Stripe Live-API (Zahlungen)" --env STRIPE_KEY \
+  --reason "neues Projekt" --from-env STRIPE_KEY
 asm set sec_… --reason "Key rotiert" --from-stdin --wait   # Änderung vorschlagen (braucht Freigabe)
 asm archive sec_… --reason "ersetzt durch sec_…"
 ```
@@ -159,5 +163,13 @@ Web-UI mit Vite: `pnpm --filter @asm/web dev` (Port 5173). Vite leitet `/api`, `
 
 - **Nur eine Instanz.** Live-Events (SSE), laufende OAuth-Autorisierungen und WebAuthn-Challenges liegen im
   Speicher; kein horizontales Skalieren, ein Neustart bricht laufende Kopplungen ab.
+- **Projekte sind global.** Projektnamen (Slugs) gelten für alle Nutzer der Instanz gemeinsam. Wer zwei Projekte
+  zusammenführt, ändert damit die Zuordnung für alle: Der alte Name zeigt danach auf das Zielprojekt, auch für
+  Agenten anderer Nutzer, die denselben Namen verwenden. Zusammenführen ist nur möglich, wenn du alle betroffenen
+  Nutzungen sehen kannst.
+- **Hash-Kette mit Lücke am Ende.** Die Hash-Kette erkennt geänderte oder gelöschte Einträge in der Mitte des
+  Logs, aber nicht das Löschen der *letzten* Einträge: Wer Schreibzugriff auf die Datenbank hat, kann das Ende
+  abschneiden, ohne dass die Kettenprüfung im Audit-Log anschlägt. Für Revisionssicherheit das Log regelmäßig exportieren
+  (CSV) oder den letzten Hash extern festhalten.
 - **Keine Push-Benachrichtigungen.** Web Push (VAPID) und Freigeben direkt aus der Benachrichtigung kommen in
   Phase 2. Bis dahin: Tab offen lassen (Browser-Benachrichtigungen lassen sich in der UI aktivieren).
