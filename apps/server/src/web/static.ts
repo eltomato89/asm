@@ -11,7 +11,7 @@ export const WEB_CSP =
   "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /** Path prefixes owned by the server; unknown paths below them stay JSON 404s instead of the SPA. */
-const SERVER_PREFIXES = ['/api', '/oauth', '/.well-known', '/mcp', '/healthz'];
+const SERVER_PREFIXES = ['/api', '/oauth', '/.well-known', '/mcp', '/healthz', '/cli'];
 
 const isServerPath = (path: string) => SERVER_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
 

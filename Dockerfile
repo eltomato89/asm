@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# --- build: compile native deps (better-sqlite3, argon2) for musl, build shared/server/web, deploy prod deps ---
+# --- build: compile native deps (better-sqlite3, argon2) for musl, build shared/server/web + CLI bundle, deploy prod deps ---
 FROM node:22-alpine AS build
 RUN apk add --no-cache python3 make g++ \
  && npm install -g pnpm@11.7.0
@@ -13,19 +13,23 @@ COPY apps/cli/package.json apps/cli/
 RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm --filter @asm/shared build \
+ && pnpm --filter @asm/cli bundle \
  && pnpm --filter @asm/server build \
  && pnpm --filter @asm/web build \
  && pnpm --filter @asm/server deploy --prod --legacy /out
 
-# --- runtime: server + production node_modules + web UI only (no CLI, no build toolchain) ---
+# --- runtime: server + production node_modules + web UI + CLI bundle (served under /cli), no build toolchain ---
 FROM node:22-alpine
 ENV NODE_ENV=production \
     ASM_DATA_DIR=/data \
-    PORT=8080
+    PORT=8080 \
+    ASM_CLI_DIR=/app/cli
 WORKDIR /app
 # The server serves the web UI from apps/web/dist (resolved relative to apps/server/dist/web/static.js).
 COPY --from=build /out apps/server
 COPY --from=build /src/apps/web/dist apps/web/dist
+# Single-file CLI bundle + manifest for /cli/install.sh, /cli/asm.mjs, /cli/asm.json (read-only for the node user).
+COPY --from=build /src/apps/cli/dist-bundle/asm.mjs /src/apps/cli/dist-bundle/asm.json /app/cli/
 RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 8080
