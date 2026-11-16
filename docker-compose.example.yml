@@ -15,6 +15,8 @@ services:
     image: asm
     # build: .
     restart: unless-stopped
+    # Kleiner Init-Prozess als PID 1: leitet SIGTERM an Node weiter (sauberes Herunterfahren) und räumt Zombies ab.
+    init: true
     environment:
       ASM_PUBLIC_URL: https://asm.example.com
       ASM_MASTER_KEY_FILE: /run/secrets/asm_master_key
