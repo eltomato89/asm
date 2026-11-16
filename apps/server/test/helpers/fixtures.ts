@@ -51,8 +51,10 @@ export function pairDevice(
 }
 
 /** Two users (alice admin, bob) with sessions. `beforeReady` may add routes before the first inject. */
-export async function world(opts: { beforeReady?: (t: Awaited<ReturnType<typeof createTestApp>>) => void } = {}) {
-  const t = await createTestApp();
+export async function world(
+  opts: { beforeReady?: (t: Awaited<ReturnType<typeof createTestApp>>) => void; app?: Parameters<typeof createTestApp>[0] } = {},
+) {
+  const t = await createTestApp(opts.app);
   opts.beforeReady?.(t);
   const alice = await addUser(t, 'alice', true);
   const bob = await addUser(t, 'bob');

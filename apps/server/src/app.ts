@@ -26,6 +26,7 @@ import { expireDue, requestHooks } from './requests/service.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
+import { registerMcpRoutes } from './mcp/server.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -43,6 +44,8 @@ export type AppDeps = {
   hooks?: ServiceHooks;
   /** Live event bus; pass one to share it with a test ServiceCtx. */
   events?: RequestEvents;
+  /** Long-poll timeout of the MCP await_request tool (default MCP_AWAIT_TIMEOUT_MS; tests shorten it). */
+  mcpAwaitTimeoutMs?: number;
 };
 
 /** Interval of the expiry sweep (requests, auto mode). */
@@ -54,7 +57,7 @@ export type ModuleDeps = AppDeps & { ctx: ServiceCtx };
 /** Deps of the OAuth modules: in-memory pending authorizations and device-code poll state. */
 export type OAuthDeps = ModuleDeps & { pending: PendingAuthorizations; polls: PollTracker };
 
-const rateLimitOpts = { global: false, errorResponseBuilder: () => new HttpError(429, 'rate_limited') };
+export const rateLimitOpts = { global: false, errorResponseBuilder: () => new HttpError(429, 'rate_limited') };
 
 /** OAuth 2.1 authorization server endpoints (form-encoded bodies accepted only here). */
 async function registerOAuthServer(app: FastifyInstance, deps: OAuthDeps): Promise<void> {
@@ -129,6 +132,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const oauthDeps: OAuthDeps = { ...moduleDeps, pending: new PendingAuthorizations(deps.clock), polls: new PollTracker() };
   await root.register(registerOAuthServer, oauthDeps);
   await root.register(registerDeviceApi, oauthDeps);
+  await root.register(registerMcpRoutes, moduleDeps);
   root.get('/healthz', async () => ({ status: 'ok' }));
   return root;
 }

@@ -10,7 +10,14 @@ import { RequestEvents } from '../../src/requests/events.js';
 export const TEST_KEY = Buffer.alloc(32, 7);
 
 export async function createTestApp(
-  opts: { dbPath?: string; config?: Partial<Config>; clock?: FakeClock; logger?: AppDeps['logger']; webauthn?: AppDeps['webauthn'] } = {},
+  opts: {
+    dbPath?: string;
+    config?: Partial<Config>;
+    clock?: FakeClock;
+    logger?: AppDeps['logger'];
+    webauthn?: AppDeps['webauthn'];
+    mcpAwaitTimeoutMs?: number;
+  } = {},
 ): Promise<{ app: FastifyInstance; db: Db; clock: FakeClock; config: Config; ctx: ServiceCtx }> {
   const clock = opts.clock ?? new FakeClock();
   const config: Config = {
@@ -28,7 +35,7 @@ export async function createTestApp(
   // services called on ctx behave like the app's routes and emit to its SSE streams.
   const hooks = { ...defaultHooks };
   const events = new RequestEvents();
-  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events });
+  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events, mcpAwaitTimeoutMs: opts.mcpAwaitTimeoutMs });
   const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin });
   return { app, db, clock, config, ctx };
 }
