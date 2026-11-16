@@ -18,9 +18,9 @@
 - Fristen: Anfrage verfällt nach **5 min**; `await_request` Long-Poll max **60 s**; Grant gültig **15 min**, Default 1 Nutzung; Access-Token **1 h**, Refresh-Token rotierend; Re-Auth nötig, wenn letzte Auth > **10 min**; Auto-Modus Default **30 min**.
 - Session-Cookie: `httpOnly`, `Secure`, `SameSite=Strict`; mutierende Requests mit Origin-Prüfung gegen `ASM_PUBLIC_URL`.
 - `delivery: "plaintext"` nur, wenn `secrets.allow_plaintext_to_agent = true` (Default `false`).
-- `project` und `reason` sind bei jeder Anfrage Pflicht (nicht leer, max 200 bzw. 1000 Zeichen).
+- `project` und `reason` sind bei jeder Anfrage Pflicht (nicht leer, max 200 bzw. 1000 Zeichen). `project` ist zusätzlich bei **allen MCP-Tools außer `await_request`** Pflicht und wird per `projectSlug()` normalisiert; jede Nutzung aktualisiert `projects.last_seen`.
 - UI-Sprache Deutsch; Code/Identifier Englisch. Design-Tokens laut Spec-Abschnitt „Visuelles Design“ (Stone-Neutrals, einzige Signalfarbe Bernstein, Geist Sans/Mono, Radius 6 px, Haarlinien).
-- IDs: Präfix + ULID (`usr_`, `vlt_`, `sec_`, `dev_`, `req_`, `grt_`, `aud_`).
+- IDs: Präfix + ULID (`usr_`, `vlt_`, `sec_`, `dev_`, `req_`, `grt_`, `aud_`, `prj_`).
 - Agenten (Bearer-Geräte) dürfen Secrets **anlegen ohne Freigabe**, **ändern nur über eine Freigabe** (Anfrage-Art `update`, gleicher Ablauf wie Abrufe inkl. Auto-Modus), **archivieren ohne Freigabe** (mit Pflicht-`reason` und `project`), **nie löschen**, **nie reaktivieren** und **nie** `allow_plaintext_to_agent` setzen oder ändern.
 - Archivierte Secrets: in Suchen nur mit `includeArchived`; Abruf, Änderung und Grant-Einlösung → `409 secret_archived`; beim Archivieren werden offene Anfragen zum Secret auf `denied` (`decided_by = 'system'`, `meta.cause = 'archived'`) gesetzt und Grants gelöscht.
 - Jede Wertänderung oder Metadaten-Änderung erzeugt eine neue Zeile in `secret_versions`; Versionen werden nie gelöscht oder überschrieben (außer beim Löschen des ganzen Secrets durch einen Menschen). AAD einer Version = `${secretId}:${version}`.
@@ -80,7 +80,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 - Produces:
   - `type Config = { publicUrl: URL; masterKey: Buffer; trustProxy: boolean; autoModeMaxMin: number; dataDir: string; port: number }`
   - `loadConfig(env: NodeJS.ProcessEnv, readFile?: (p: string) => string): Config` (wirft `ConfigError`)
-  - `newId(prefix: 'usr'|'vlt'|'sec'|'dev'|'req'|'grt'|'aud'|'ses'|'cli'): string`
+  - `newId(prefix: 'usr'|'vlt'|'sec'|'dev'|'req'|'grt'|'aud'|'ses'|'cli'|'prj'): string`
   - `buildApp(deps: AppDeps): Promise<FastifyInstance>`; `AppDeps = { config: Config; db: Db; clock: Clock; logger?: pino.Logger }`
   - `createTestApp(opts?): Promise<{ app; db; clock: FakeClock; config }>`
 
@@ -139,6 +139,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   `tokens(id, device_id, kind 'access'|'refresh', token_hash unique, expires_at, revoked_at)`,
   `access_requests(id, kind 'read'|'update', secret_id, device_id, user_id, project, reason, delivery 'cli'|'plaintext' null, proposed_meta json null, proposed_value_sealed json null, status 'pending'|'approved'|'denied'|'expired', decided_by null, auto, created_at, decided_at, expires_at)`,
   `grants(id, request_id, user_id, secret_id, uses_left, expires_at, created_at)`,
+  `projects(id 'prj_', slug unique, display_name, merged_into null, first_seen, last_seen)`, `project_usage(project_id, secret_id, device_id, last_used_at, PK(project_id, secret_id, device_id))`,
   `auto_mode(user_id PK, enabled_until null, default_duration_min, vault_ids json null)`,
   `audit_log(seq integer PK autoincrement, id, ts, actor_type 'user'|'device'|'system', actor_id, event, secret_id, vault_id, device_id, project, reason, ip, meta json, prev_hash, hash)`
 
@@ -204,12 +205,16 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 ### Task 7: Tresore und Secrets
 
 **Files:**
-- Create: `apps/server/src/vaults/{service,routes}.ts`, `apps/server/src/secrets/{service,routes}.ts`, `apps/server/src/audit/routes.ts`, `packages/shared/src/schemas.ts` (SecretMeta, SecretInput, VaultDto)
-- Test: `apps/server/test/vaults.test.ts`, `apps/server/test/secrets.test.ts`
+- Create: `apps/server/src/projects/{slug,service,routes}.ts`, `apps/server/src/vaults/{service,routes}.ts`, `apps/server/src/secrets/{service,routes}.ts`, `apps/server/src/audit/routes.ts`, `packages/shared/src/schemas.ts` (SecretMeta, SecretInput, VaultDto)
+- Test: `apps/server/test/vaults.test.ts`, `apps/server/test/secrets.test.ts`, `apps/server/test/projects.test.ts`
 
 **Interfaces:**
 - Consumes: `seal`/`open`, `appendAudit`, Guards
 - Produces:
+  - `projectSlug(name: string): string` – CamelCase trennen, Kleinbuchstaben, alles außer `[a-z0-9]` → `-`, Mehrfach-/Rand-Bindestriche entfernen, max 100 Zeichen; leeres Ergebnis → wirft `ValidationError`
+  - `touchProject(ctx, name): Project` (anlegen oder `last_seen` setzen, folgt `merged_into`), `recordUsage(ctx, projectId, secretId, deviceId)`
+  - `listProjects(db, userId)`, `getProject(db, userId, id): { project; secrets: {secret, lastUsedAt}[]; devices: {device, lastUsedAt}[] }` (nur Secrets aus zugänglichen Tresoren), `mergeProjects(ctx, userId, fromId, intoId)` (setzt `merged_into`, verschiebt `project_usage`), `projectsForSecret(db, userId, secretId)`
+  - Routes: `GET /api/projects`, `GET /api/projects/:id`, `POST /api/projects/:id/merge {into}` (requireRecentAuth), `GET /api/secrets/:id/projects`
   - `canAccessVault(db, userId, vaultId): boolean`; `listVaultsForUser(db, userId)`
   - `type SecretMeta = { id; vaultId; vaultName; title; description; tags: string[]; envName: string|null; allowPlaintextToAgent: boolean; updatedAt }`
   - `SecretMeta` zusätzlich: `archived: null | { at; by: { type; id; name }; reason; project }`
@@ -228,6 +233,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - Validierung: `envName` matcht `/^[A-Z_][A-Z0-9_]*$/`; `value` max 64 KiB
 - [ ] **Step 1: Tests**: Nutzer B sieht Secrets aus A's persönlichem Tresor weder in Suche noch per ID (404); nach Hinzufügen zu geteiltem Tresor sichtbar; Suche „git“ findet „GitHub Token“ via Beschreibung; GET-Antworten enthalten nie `value`/Ciphertext-Felder; Reveal ohne Re-Auth → 401 `reauth_required`; Reveal liefert Klartext und schreibt Audit; Löschen des letzten Owners eines geteilten Tresors → 409; ungültiger `envName` → 400.
   - Versionen: Anlegen → Version 1; zwei Updates → Versionen 1–3, `revealSecret(…, 1)` liefert den ursprünglichen Wert, Liste enthält keine Werte; reines Metadaten-Update erzeugt ebenfalls eine Version mit `metaDiff`; Restore von Version 1 → Version 4 mit altem Wert und `restoredFrom: 1`; Chiffrat von Version 2 mit AAD von Version 3 → `DecryptError`.
+  - Projekte: `projectSlug('AgentSecretsManager') === 'agent-secrets-manager'`, `projectSlug('  My_App v2 ') === 'my-app-v2'`, `projectSlug('---')` wirft; `touchProject('Foo')` und `touchProject('foo')` ergeben dasselbe Projekt; nach `mergeProjects(a→b)` liefert `touchProject(a.slug)` Projekt b und `getProject(b)` enthält die Nutzungen von a; Audit-Einträge bleiben unverändert; `getProject` zeigt Nutzer B keine Secrets aus A's Tresor.
   - Archiv: Device-Actor archiviert mit Grund → `archived.reason` gesetzt, Suche ohne `includeArchived` findet es nicht, mit `status:'archived'` schon; ohne `reason` → 400; zweites Archivieren → 409 `already_archived`; `applySecretChange` auf archiviertes Secret → 409 `secret_archived`; `unarchiveSecret` durch Device-Actor ist nicht aufrufbar (Route nur mit Session) und durch Nutzer → wieder aktiv; Versionen bleiben unverändert.
   - Device-Actor: `createSecret` ohne `project` → 400; mit `allowPlaintextToAgent: true` → 400 `field_not_allowed` und kein Secret angelegt (Review Focus 5); `generate: {length: 32}` erzeugt 32 Zeichen, die in keiner Antwort vorkommen; Tresor ohne Mitgliedschaft des Gerätebesitzers → 404.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
@@ -269,6 +275,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - `createRequest(ctx, { device, secretId, project, reason, delivery }): AccessRequestDto` – prüft Zugriff (404 sonst), Plaintext-Flag (`403 plaintext_not_allowed`), `expires_at = now + 5 min`; bei aktivem Auto-Modus für den Tresor sofort `approved`, `auto=true`, Audit `request.auto_approved`, sonst Audit `request.created` + Event
   - `decideRequest(ctx, { requestId, userId, decision: 'approve'|'deny' }): AccessRequestDto` – nur Besitzer des Geräts; prüft Tresorzugriff erneut; atomar `UPDATE … WHERE status='pending'`, sonst `409 already_decided`; bei Ablauf `410 expired`
   - `createUpdateRequest(ctx, { device, secretId, project, reason, meta?, value?, generate? }): AccessRequestDto` – `kind:'update'`; `allowPlaintextToAgent` in `meta` → 400 `field_not_allowed`; vorgeschlagener Wert wird sofort mit `seal` (AAD `req:${requestId}`) gespeichert bzw. bei `generate` serverseitig erzeugt; Auto-Modus wirkt wie bei `read`; bei Freigabe ruft `decideRequest` `applySecretChange` mit Device-Actor, Projekt und Grund auf und löscht `proposed_value_sealed`
+  - `createRequest`, `createUpdateRequest`, `createSecret` (Device), `archiveSecret` rufen `touchProject`; `recordUsage` bei Freigabe (read und update), Anlegen und Archivieren
   - `createRequest`/`createUpdateRequest` auf archiviertes Secret → `409 secret_archived`; `cancelOpenForSecret(ctx, secretId)` setzt `pending` → `denied` (system, `meta.cause:'archived'`), löscht Grants, emittiert `request.updated`; als `onArchived`-Hook in `archiveSecret` verdrahtet
   - `AccessRequestDto` enthält `kind` und bei `update` `metaDiff` + `valueChanged: boolean` (nie den Wert)
   - `waitForRequest(ctx, requestId, deviceId, timeoutMs ≤ 60_000): Promise<AccessRequestDto>` – resolved bei Statuswechsel oder Timeout
@@ -301,8 +308,8 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 
 **Interfaces:**
 - Consumes: `bearerAuth`, `searchSecrets`, `createRequest`, `waitForRequest`, `listVaultsForUser`, `open`
-- Produces: `POST/GET/DELETE /mcp` (Streamable HTTP, stateless pro Request, Device aus Bearer). Tools (zod-Inputs):
-  - `search_secrets { query: string; vault_id?: string; include_archived?: boolean }` (archivierte Treffer mit `archived.reason`) → Liste `SecretMeta` (Audit `secret.searched` mit `meta.query`)
+- Produces: `POST/GET/DELETE /mcp` (Streamable HTTP, stateless pro Request, Device aus Bearer). Tools (zod-Inputs; **jedes Tool außer `await_request` hat Pflichtfeld `project: string`**, Beschreibung: „Name des Git-Repos bzw. Arbeitsordners“, Server ruft `touchProject`):
+  - `search_secrets { query: string; project; vault_id?: string; include_archived?: boolean }` (archivierte Treffer mit `archived.reason`; Secrets mit `project_usage` für dieses Projekt zuerst, Feld `used_by_this_project: true`; Audit mit Projekt) → Liste `SecretMeta` (Audit `secret.searched` mit `meta.query`)
   - `request_secret { secret_id; project; reason; delivery?: 'cli'|'plaintext' = 'cli' }` → `{ request_id, status, expires_at }` (+ Ergebnis wie unten, falls sofort approved)
   - `await_request { request_id }` → wartet ≤ 60 s; Ergebnis je Status:
     - `approved` + `cli`: `{ status, grant_id, env_name, expires_at, instructions: "Run: asm run --grant <id> -- <command>  |  asm write --grant <id> <file>" }`
@@ -312,9 +319,9 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - `update_secret { secret_id; project; reason; title?; description?; tags?; env_name?; value?; generate? }` → `{ request_id, status, expires_at }`; Ergebnis über `await_request` (`approved` → `{ status, version }`)
   - Beschreibungen von `create_secret`/`update_secret`: `value` landet im Transkript; `generate` oder `asm set --from-env/--from-stdin` bevorzugen, wenn der Wert nicht ohnehin schon im Kontext ist
   - `archive_secret { secret_id; reason; project }` → `{ secret_id, archived_at }` (sofort, ohne Freigabe; Beschreibung nennt Beispiele für Gründe: ersetzt durch anderes Secret, Service entfernt, Token widerrufen)
-  - `list_vaults {}`, `whoami {}` → Gerät, Nutzer, Auto-Modus-Status
+  - `list_vaults { project }`, `whoami { project }` → Gerät, Nutzer, Auto-Modus-Status
   - Tool-Beschreibungen (Englisch, für den Agenten) sagen ausdrücklich: Begründung + Projekt angeben, `cli`-Delivery bevorzugen, Werte nie ausgeben/committen.
-- [ ] **Step 1: Tests**: ohne Token → 401 mit `WWW-Authenticate`; `tools/list` enthält genau die 8 Tools (`search_secrets`, `request_secret`, `await_request`, `create_secret`, `update_secret`, `archive_secret`, `list_vaults`, `whoami`); `archive_secret` ohne `reason` → Fehler; `request_secret` auf archiviertes Secret → Fehler `secret_archived`; kein Tool zum Reaktivieren oder Löschen; `create_secret` mit `allow_plaintext_to_agent` im Input → Fehler `field_not_allowed` (Review Focus 5); `update_secret` → `pending`, nach Freigabe liefert `await_request` die neue Versionsnummer; Suche liefert keine Werte; Request → `pending`; nach `decideRequest` liefert `await_request` `grant_id` und **kein** `value`; Plaintext-Secret mit Flag liefert `value` und Audit-Eintrag; widerrufenes Gerät mitten in der Session → 401.
+- [ ] **Step 1: Tests**: ohne Token → 401 mit `WWW-Authenticate`; `tools/list` enthält genau die 8 Tools (`search_secrets`, `request_secret`, `await_request`, `create_secret`, `update_secret`, `archive_secret`, `list_vaults`, `whoami`); `archive_secret` ohne `reason` → Fehler; jedes Tool außer `await_request` ohne `project` → Validierungsfehler; `search_secrets` mit `project:'Foo'` nach freigegebenem Abruf von Secret X in Projekt `foo` listet X zuerst mit `used_by_this_project: true`; `request_secret` auf archiviertes Secret → Fehler `secret_archived`; kein Tool zum Reaktivieren oder Löschen; `create_secret` mit `allow_plaintext_to_agent` im Input → Fehler `field_not_allowed` (Review Focus 5); `update_secret` → `pending`, nach Freigabe liefert `await_request` die neue Versionsnummer; Suche liefert keine Werte; Request → `pending`; nach `decideRequest` liefert `await_request` `grant_id` und **kein** `value`; Plaintext-Secret mit Flag liefert `value` und Audit-Eintrag; widerrufenes Gerät mitten in der Session → 401.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
 - [ ] **Step 5:** Commit `feat(server): mcp endpoint with secret tools`
 
@@ -341,10 +348,11 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - `asm write --grant <id> <file>` → schreibt/merged `ENV=value`-Zeilen, Dateimodus 0600, Warnung auf stderr, falls `git check-ignore <file>` nicht greift
   - `asm set --new --title T --description D [--tags a,b] [--env NAME] [--vault ID] --project P --reason R (--from-stdin | --from-env VAR | --from-file F | --generate [LEN])` bzw. `asm set <secretId> --project P --reason R [Meta-Flags] [Wertquelle] [--wait]`; gibt nur ID/Version bzw. Anfrage-ID aus, nie den Wert
   - `asm archive <secretId> --reason R --project P`; `asm search --archived`
+  - `--project` ist bei allen Befehlen optional mit Default `basename(git rev-parse --show-toplevel)`, sonst `basename(cwd)`
   - `asm mcp-config` → druckt `claude mcp add --transport http asm <url>/mcp`
   - automatischer Token-Refresh bei 401
 - [ ] **Step 1: Tests (Server)**: Einlösung durch CLI-Gerät desselben Nutzers → Wert; **durch Gerät eines anderen Nutzers → 403 ohne Wert; zweite Einlösung → 410; nach 16 min → 410; nach Entzug der Tresormitgliedschaft → 403** (Review Focus 1, 4); MCP-Gerät (kind `mcp`) → 403.
-- [ ] **Step 2: Tests (CLI)** mit gemocktem API-Client: `run` setzt `GITHUB_TOKEN` im Kind (`node -e "process.stdout.write(process.env.GITHUB_TOKEN)"`) und nicht in `process.env` des Elternprozesses; Exit-Code 3 des Kinds → CLI-Exit 3; `write` erzeugt Datei mit Modus `0o600`, ersetzt bestehende Zeile gleichen Namens, Warnung wenn nicht ignoriert; `set --new --from-env FOO` sendet den Wert von `FOO` und druckt ihn nicht auf stdout/stderr; `set` ohne Wertquelle und ohne Meta-Flags → Exit 2 mit Usage.
+- [ ] **Step 2: Tests (CLI)** mit gemocktem API-Client: `run` setzt `GITHUB_TOKEN` im Kind (`node -e "process.stdout.write(process.env.GITHUB_TOKEN)"`) und nicht in `process.env` des Elternprozesses; Exit-Code 3 des Kinds → CLI-Exit 3; `write` erzeugt Datei mit Modus `0o600`, ersetzt bestehende Zeile gleichen Namens, Warnung wenn nicht ignoriert; `set --new --from-env FOO` sendet den Wert von `FOO` und druckt ihn nicht auf stdout/stderr; `set` ohne Wertquelle und ohne Meta-Flags → Exit 2 mit Usage; ohne `--project` in einem Git-Repo `foo-bar` wird `project: 'foo-bar'` gesendet.
 - [ ] **Step 3:** FAIL → **Step 4:** implementieren → **Step 5:** PASS
 - [ ] **Step 6:** Commit `feat: grant redemption and asm cli`
 
@@ -359,7 +367,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 
 **Interfaces:**
 - Consumes: alle `/api/*`-Routen, `packages/shared` Schemas/Client
-- Produces: `AppShell` mit Sidebar (Übersicht, Anfragen [Badge], Secrets, Tresore, Geräte, Audit-Log, Einstellungen), Tresor-Umschalter oben links, `AutoModePill` (Bernstein, Countdown `mm:ss`), ⌘K-Palette, `useShortcut(key, handler)`, `useEvents()` (SSE mit Reconnect), Hell/Dunkel per `prefers-color-scheme` + Umschalter.
+- Produces: `AppShell` mit Sidebar (Übersicht, Anfragen [Badge], Secrets, Projekte, Tresore, Geräte, Audit-Log, Einstellungen), Tresor-Umschalter oben links, `AutoModePill` (Bernstein, Countdown `mm:ss`), ⌘K-Palette, `useShortcut(key, handler)`, `useEvents()` (SSE mit Reconnect), Hell/Dunkel per `prefers-color-scheme` + Umschalter.
 
 - [ ] **Step 0: Design-Freigabe (vor jedem UI-Code).** Skill `frontend-design` laden. 2–3 statische, klickbare HTML-Mockups (Anfragen-Dashboard, Audit-Log, Kopplungs-/Consent-Seite) in Hell und Dunkel nach Spec-Abschnitt „Visuelles Design“ bauen, dem Nutzer im Browser zeigen und Freigabe bzw. Änderungen einholen. Ergebnis (finale Tokens) in `tokens.css` übernehmen.
 - [ ] **Step 1: Tests**: `AutoModePill` zeigt `29:59` eine Sekunde nach Aktivierung von 30 min und verschwindet bei 0; `CommandPalette` öffnet mit Meta+K und filtert; Login-Seite zeigt „Mit Passkey anmelden“ und Passwortformular; bei `needsSetup` leitet die App auf `/setup` um.
@@ -371,7 +379,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 ### Task 13: Web-UI-Seiten
 
 **Files:**
-- Create: `apps/web/src/routes/{requests,secrets,vaults,devices,audit,settings,connect,activate}.tsx` + zugehörige Komponenten (`RequestCard`, `SecretPanel`, `AuditRow`, `ReauthDialog`)
+- Create: `apps/web/src/routes/{requests,secrets,projects,vaults,devices,audit,settings,connect,activate}.tsx` + zugehörige Komponenten (`RequestCard`, `SecretPanel`, `AuditRow`, `ReauthDialog`)
 - Test: entsprechende `*.test.tsx`
 
 **Interfaces:**
@@ -380,13 +388,14 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - **Anfragen**: `RequestCard` mit Satz „**{device}** möchte `{ENV|Titel}` für **{project}**“, Begründung kursiv, Zeitbalken bis `expires_at`, Buttons Verweigern (`D`) / Freigeben (`A`) für die fokussierte Karte; Live-Update per SSE; Browser-`Notification` bei neuer Anfrage, wenn Tab im Hintergrund und erlaubt; Auto-Modus-Steuerung (Dauer wählbar 15/30/60/120 min oder frei bis Maximum, optional Tresore)
   - **Anfragen** zeigen auch Änderungsanfragen: „**{device}** möchte `{ENV}` ändern“ mit Metadaten-Diff und Hinweis „Wert wird geändert“; neu von Agenten angelegte Secrets erscheinen im Aktivitäts-Feed
   - **Secrets**: Filter-Segment Aktiv / Archiviert / Alle (Default Aktiv); archivierte Einträge gedämpft mit Badge „Archiviert“ und Grund als Tooltip, Panel zeigt Archiv-Hinweis (wer, wann, Projekt, Grund) und Button „Reaktivieren“ (Re-Auth); „Archivieren“-Aktion mit Pflichtfeld Grund auch für Menschen; Liste mit Suche, Badge „von Agent“ bei agenten-angelegten Secrets, rechtes Panel zum Anlegen/Bearbeiten (Titel, Beschreibung, Tags, ENV-Name, Schalter „Klartext an Agenten erlauben“ mit Warnhinweis), „Anzeigen/Kopieren“ über `ReauthDialog`; Reiter **Verlauf** (`VersionTimeline`): Version, Zeit, Akteur, Projekt, Grund, Metadaten-Diff, „Wert anzeigen“ (Re-Auth) und „Wiederherstellen“ mit Bestätigung
+  - **Projekte**: Tabelle (Name, zuletzt gesehen, Anzahl Secrets/Geräte), Detail mit genutzten Secrets, Geräten und letzten Audit-Einträgen (Filter Projekt), Aktion „Zusammenführen mit …“; im Secret-Panel Abschnitt „Genutzt von“ (Projekte + letzter Zugriff)
   - **Tresore**: anlegen, Mitglieder hinzufügen/entfernen
   - **Geräte**: Tabelle (Name, Typ, Host, zuletzt genutzt, Status), umbenennen, widerrufen
   - **Audit-Log**: Filterleiste (Gerät, Secret, Projekt, Ereignis, Zeitraum), Zeilen als Satz + Mono-Event-Code + IP + Zeit, aufklappbar mit Details (Projekt, Grund, Meta), CSV-Export (clientseitig aus geladenen Seiten oder `GET /api/audit.csv`), Badge „Kette intakt“ via `GET /api/audit/verify`
   - **Connect** (`/connect?req=`): Consent-Seite für MCP-Kopplung (Client-Name, Redirect-Ziel, Rechte-Liste, Gerätename editierbar, Freigeben/Verweigern)
   - **Activate** (`/activate`): Eingabe des `user_code` für CLI-Kopplung
   - **Einstellungen**: Passkeys verwalten, Passwort ändern, Nutzerverwaltung (Admin)
-- [ ] **Step 1: Tests**: `RequestCard` ruft bei Taste `A` `decision:'approve'` auf; Zeitbalken-Breite proportional zur Restzeit; 409 vom Server zeigt Toast „Bereits entschieden“; Audit-Zeile zeigt Projekt und Grund; Reveal ohne Re-Auth öffnet `ReauthDialog`; Consent-Seite sendet `deny` bei „Verweigern“; Update-Karte zeigt Diff `Titel: alt → neu` und „Wert wird geändert“; Filter „Archiviert“ zeigt nur archivierte Secrets mit Grund; Archivieren-Dialog ohne Grund ist nicht absendbar; `VersionTimeline` zeigt Archiv-/Reaktivierungs-Ereignisse zwischen den Versionen und listet Versionen absteigend und ruft beim Wiederherstellen `restore` mit der gewählten Version auf.
+- [ ] **Step 1: Tests**: `RequestCard` ruft bei Taste `A` `decision:'approve'` auf; Zeitbalken-Breite proportional zur Restzeit; 409 vom Server zeigt Toast „Bereits entschieden“; Audit-Zeile zeigt Projekt und Grund; Reveal ohne Re-Auth öffnet `ReauthDialog`; Consent-Seite sendet `deny` bei „Verweigern“; Update-Karte zeigt Diff `Titel: alt → neu` und „Wert wird geändert“; Projekt-Detail listet Secrets mit letztem Zugriff, „Zusammenführen“ ruft `merge` mit Ziel-ID auf; Secret-Panel zeigt „Genutzt von“; Filter „Archiviert“ zeigt nur archivierte Secrets mit Grund; Archivieren-Dialog ohne Grund ist nicht absendbar; `VersionTimeline` zeigt Archiv-/Reaktivierungs-Ereignisse zwischen den Versionen und listet Versionen absteigend und ruft beim Wiederherstellen `restore` mit der gewählten Version auf.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
 - [ ] **Step 5:** Commit `feat(web): requests, secrets, vaults, devices, audit, settings`
 

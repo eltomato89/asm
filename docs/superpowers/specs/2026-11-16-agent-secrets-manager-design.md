@@ -79,6 +79,15 @@ docs/superpowers/specs/2026-11-16-agent-secrets-manager-design.md  (dieses Desig
 - `asm run` setzt die Variable nur im Kindprozess.
 - `asm write` legt Dateien mit Rechten 0600 an und warnt, wenn die Datei nicht in `.gitignore` steht.
 
+## Projekte
+- **Pflichtfeld `project` bei allen MCP-Tools** außer `await_request` (das erbt das Projekt der Anfrage). Die Tool-Beschreibungen weisen an, den Namen des Git-Repos bzw. des Arbeitsordners zu verwenden. Das CLI setzt `--project` standardmäßig auf den Namen des Git-Repos bzw. des aktuellen Ordners.
+- **Normalisierung:** Der Server macht aus dem Namen einen Slug (Kleinbuchstaben, Bindestriche, z.B. `AgentSecretsManager` → `agent-secrets-manager`; CamelCase wird getrennt) und legt ein Projekt beim ersten Auftauchen automatisch an (`first_seen`, `last_seen`).
+- **Zusammenführen:** In der Web-Oberfläche lassen sich zwei Projekte zusammenführen. Das Audit-Log bleibt unverändert, die Zuordnung wird über `merged_into` aufgelöst.
+- **Ansichten:**
+  - Seite „Projekte“: je Projekt die genutzten Secrets, Geräte und letzten Zugriffe
+  - im Secret-Panel „Genutzt von“: Projekte mit letztem Zugriff
+- **Suche:** Secrets, die das anfragende Projekt bereits genutzt hat, stehen weiter oben.
+
 ## Agent-Schreibzugriff und Versionshistorie
 - **Anlegen ohne Rückfrage:** `create_secret` (MCP) bzw. `asm set --new` (CLI) mit Titel, Beschreibung (wofür das Secret ist), Tags, ENV-Name, optional Tresor (Standard: persönlicher Tresor des Gerätebesitzers, sonst muss der Besitzer Mitglied sein), `project` und `reason` als Pflichtfelder. Audit-Eintrag; das Dashboard zeigt „Neu von Agent angelegt“ live an.
 - **Ändern mit Freigabe:** `update_secret` erzeugt eine Anfrage der Art `update` mit der vorgeschlagenen Änderung, verschlüsselt gespeichert. Sie läuft über denselben Weg wie Abrufe: Karte im Dashboard mit Metadaten-Diff und dem Hinweis „Wert wird geändert“, oder automatisch im Auto-Modus. Erst nach Freigabe entsteht die neue Version.
@@ -99,6 +108,7 @@ docs/superpowers/specs/2026-11-16-agent-secrets-manager-design.md  (dieses Desig
 - **Auto-Modus:** Schalter mit Restlaufzeit-Countdown und einstellbarer Dauer (Standard 30 min, Maximum vom Admin festgelegt).
 - **Secrets:** Liste und Suche, Anlegen und Bearbeiten (Titel, Beschreibung, Tags, ENV-Name, Klartext-Erlaubnis), Wert anzeigen und kopieren nach erneuter Authentifizierung, Reiter „Verlauf“ mit allen Versionen und Wiederherstellen. Kennzeichnung „von Agent angelegt“.
 - **Tresore:** Mitglieder verwalten.
+- **Projekte:** Liste mit letztem Zugriff, Detailseite mit Secrets und Geräten, Zusammenführen.
 - **Geräte:** offene Kopplungen freigeben oder verweigern, Geräte umbenennen und widerrufen.
 - **Audit-Log:** Filter nach Agent bzw. Gerät, Secret, Projekt, Zeitraum und Ergebnis. Anzeige von Projekt und Grund. CSV-Export und Prüfung der Hash-Kette.
 - **Einstellungen:** Passkeys verwalten, Passwort ändern. Für Admins zusätzlich die Nutzerverwaltung.
