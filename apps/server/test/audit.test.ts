@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import { openDb, type Db } from '../src/db/client.js';
 import { FakeClock } from '../src/clock.js';
-import { appendAudit, AuditMetaError, queryAudit, verifyChain } from '../src/audit/audit.js';
+import { appendAudit, AuditCursorError, AuditMetaError, queryAudit, verifyChain } from '../src/audit/audit.js';
 
 const ZERO = '0'.repeat(64);
 
@@ -69,6 +69,19 @@ describe('audit log', () => {
     expect(db.$client.prepare('SELECT count(*) c FROM audit_log').get()).toEqual({ c: 0 });
   });
 
+  it('normalizes non-JSON-roundtrip meta so the chain still verifies', () => {
+    const db = openDb(':memory:');
+    const r = appendAudit(db, new FakeClock(), { actorType: 'system', actorId: null, event: 'auth.login', meta: { a: undefined, d: new Date(0) } });
+    expect(r.meta).toEqual({ d: '1970-01-01T00:00:00.000Z' });
+    expect(verifyChain(db)).toEqual({ ok: true });
+  });
+
+  it('rejects forbidden keys smuggled via toJSON', () => {
+    const db = openDb(':memory:');
+    const meta = { x: { toJSON: () => ({ value: 'leak' }) } };
+    expect(() => appendAudit(db, new FakeClock(), { actorType: 'system', actorId: null, event: 'auth.login', meta })).toThrow(AuditMetaError);
+  });
+
   it('works nested in an outer transaction and rolls back with it', () => {
     const db = openDb(':memory:');
     const clock = new FakeClock();
@@ -114,6 +127,11 @@ describe('audit log', () => {
       expect(queryAudit(db, { userId: 'usr_1', deviceId: 'dev_1' }).items.map((i) => i.id)).toEqual([dev.id]);
       expect(queryAudit(db, { userId: 'usr_1', event: 'auth.login' }).items.map((i) => i.id)).toEqual([own.id]);
       expect(queryAudit(db, { userId: 'usr_1', from: own.ts, to: own.ts }).items.map((i) => i.id)).toEqual([own.id]);
+    });
+
+    it('rejects a non-numeric cursor', () => {
+      const { db } = setup();
+      expect(() => queryAudit(db, { userId: 'usr_1', cursor: 'abc' })).toThrow(AuditCursorError);
     });
 
     it('paginates with cursor', () => {

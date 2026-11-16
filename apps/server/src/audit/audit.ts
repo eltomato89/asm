@@ -48,6 +48,13 @@ export interface AuditEntry {
   meta?: Record<string, unknown> | null;
 }
 
+export class AuditCursorError extends Error {
+  constructor() {
+    super('invalid audit cursor');
+    this.name = 'AuditCursorError';
+  }
+}
+
 export class AuditMetaError extends Error {
   constructor(key: string) {
     super(`audit meta must not contain key "${key}"`);
@@ -104,7 +111,9 @@ function toRow(r: RawRow): AuditRow {
 }
 
 export function appendAudit(db: Db, clock: Clock, entry: AuditEntry): AuditRow {
-  const meta = entry.meta ?? null;
+  // Normalize first so the hashed value is exactly what is stored and re-parsed.
+  const meta: Record<string, unknown> | null =
+    entry.meta == null ? null : (JSON.parse(JSON.stringify(entry.meta)) as Record<string, unknown>);
   assertSafeMeta(meta);
   const raw = db.$client;
   // Nests as a savepoint when called inside an outer better-sqlite3 transaction.
@@ -187,7 +196,8 @@ export function queryAudit(db: Db, filter: AuditFilter): { items: AuditRow[]; ne
   add('ts <= @to', 'to', filter.to);
   if (filter.cursor !== undefined) {
     const c = Number(filter.cursor);
-    if (Number.isFinite(c)) add('seq < @cursor', 'cursor', c);
+    if (!/^\d+$/.test(filter.cursor) || !Number.isSafeInteger(c)) throw new AuditCursorError();
+    add('seq < @cursor', 'cursor', c);
   }
   const rows = db.$client
     .prepare(`SELECT * FROM audit_log WHERE ${where.join(' AND ')} ORDER BY seq DESC LIMIT @limit`)
