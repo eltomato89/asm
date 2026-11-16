@@ -3,9 +3,8 @@ description: Install pnpm + Node 22 (with pnpm store cache) and install workspac
 runs:
   using: composite
   steps:
+    # pnpm version comes from "packageManager" in the root package.json.
     - uses: pnpm/action-setup@v4
-      with:
-        version: 11.7.0
     - uses: actions/setup-node@v4
       with:
         node-version: 22

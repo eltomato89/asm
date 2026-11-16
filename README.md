@@ -264,12 +264,14 @@ GitHub Actions (`.github/workflows/`):
   GitHub Container Registry:
   - nach erfolgreicher CI auf `main` → `edge` und `sha-<kurz>`
   - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
-  - manuell über „Run workflow“ (`workflow_dispatch`)
+  - manuell über „Run workflow“ (`workflow_dispatch`) – nur von `main` oder einem `v*`-Tag aus
+  - Prerelease-Tags (`v1.0.0-rc.1`) bekommen nur `1.0.0-rc.1`, kein `X.Y`/`latest`
 - **Dependabot** – wöchentliche Updates für Actions und npm (Minor/Patch gruppiert).
 
 Keine zusätzlichen Secrets nötig: Der Push nutzt das automatische `GITHUB_TOKEN` (`packages: write`).
 
-Das Package ist standardmäßig privat (erbt die Sichtbarkeit des Repos). Der Server muss sich daher vor dem
+Neue GHCR-Packages sind standardmäßig privat. Das Label `org.opencontainers.image.source` verknüpft das Package
+mit dem Repo (Zugriffsrechte werden vom Repo übernommen, die Sichtbarkeit nicht). Der Server muss sich daher vor dem
 Pull anmelden – mit einem Personal Access Token (classic) mit Scope `read:packages`:
 
 ```sh

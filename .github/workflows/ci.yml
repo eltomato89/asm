@@ -26,7 +26,7 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
       - name: Run e2e
-        run: pnpm e2e
+        run: pnpm e2e --reporter=line,html
       - name: Upload Playwright report and traces
         if: failure()
         uses: actions/upload-artifact@v4
