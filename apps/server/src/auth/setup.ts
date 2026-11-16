@@ -5,7 +5,7 @@ import type { Logger } from 'pino';
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/client.js';
 import { users, vaultMembers, vaults } from '../db/schema.js';
-import { HttpError } from '../errors.js';
+import { HttpError, ValidationError } from '../errors.js';
 import { hashPassword } from './password.js';
 
 export const USERNAME_RE = /^[a-z0-9._-]+$/i;
@@ -15,6 +15,7 @@ export interface SetupState {
   getToken(): string | undefined;
   verify(candidate: string): boolean;
   clear(): void;
+  restore(token: string | undefined): void;
 }
 
 export function countUsers(db: Db): number {
@@ -36,6 +37,9 @@ export function createSetupState(db: Db, logger: Pick<Logger, 'warn'>): SetupSta
     clear: () => {
       token = undefined;
     },
+    restore: (t) => {
+      token = t;
+    },
   };
 }
 
@@ -46,7 +50,14 @@ export async function createUser(
   db: Db,
   clock: Clock,
   input: { username: string; password?: string; isAdmin: boolean },
+  opts: { onlyIfNoUsers?: boolean } = {},
 ): Promise<CreatedUser> {
+  if (input.username.length < 3 || input.username.length > 64 || !USERNAME_RE.test(input.username)) {
+    throw new ValidationError('invalid_username');
+  }
+  if (input.password !== undefined && (input.password.length < MIN_PASSWORD_LENGTH || input.password.length > 1024)) {
+    throw new ValidationError('invalid_password');
+  }
   const username = input.username.toLowerCase();
   const passwordHash = input.password === undefined ? null : await hashPassword(input.password);
   const now = clock.now();
@@ -54,11 +65,13 @@ export async function createUser(
   const vaultId = newId('vlt');
   try {
     db.$client.transaction(() => {
+      if (opts.onlyIfNoUsers && countUsers(db) > 0) throw new HttpError(409, 'already_setup');
       db.insert(users).values({ id, username, passwordHash, isAdmin: input.isAdmin, createdAt: now }).run();
       db.insert(vaults).values({ id: vaultId, name: 'Persönlich', personalOfUserId: id, createdAt: now }).run();
       db.insert(vaultMembers).values({ vaultId, userId: id, role: 'owner' }).run();
     })();
   } catch (e) {
+    if (e instanceof HttpError) throw e;
     if ((e as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') throw new HttpError(409, 'username_taken');
     throw e;
   }

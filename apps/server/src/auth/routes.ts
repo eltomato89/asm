@@ -24,7 +24,7 @@ const adminCreateBody = z.object({ username, password: newPassword.optional(), i
 const dummyHash = hashPassword('asm-dummy-password-for-timing');
 
 export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
-  const { db, clock } = deps;
+  const { db, clock, config } = deps;
 
   await app.register(rateLimit, {
     global: false,
@@ -43,28 +43,40 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
     return typeof v === 'string' ? v : '';
   };
 
+  const COOKIE_ATTRS = { httpOnly: true, secure: true, sameSite: 'strict', path: '/' } as const;
+  // Login CSRF: browsers always send Origin on cross-site POSTs.
+  const checkOrigin = (req: FastifyRequest) => {
+    if (req.headers.origin !== undefined && req.headers.origin !== config.publicUrl.origin) {
+      throw new HttpError(403, 'bad_origin');
+    }
+  };
+
   function setSessionCookie(reply: FastifyReply, token: string): void {
-    reply.setCookie(SESSION_COOKIE, token, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'strict',
-      path: '/',
-      maxAge: SESSION_TTL_MS / 1000,
-    });
+    reply.setCookie(SESSION_COOKIE, token, { ...COOKIE_ATTRS, maxAge: SESSION_TTL_MS / 1000 });
   }
 
   app.get('/api/setup/status', async () => ({ needsSetup: countUsers(db) === 0 }));
 
   app.post('/api/setup', { config: limited(bodyField('username')) }, async (req, reply) => {
+    checkOrigin(req);
     const body = setupBody.parse(req.body);
     if (countUsers(db) > 0) throw new HttpError(409, 'already_setup');
     if (!app.setup.verify(body.token)) throw new HttpError(403, 'invalid_setup_token');
-    const user = await createUser(db, clock, { username: body.username, password: body.password, isAdmin: true });
+    // Consume the token synchronously (before any await) so concurrent requests cannot reuse it.
+    const consumed = app.setup.getToken();
     app.setup.clear();
+    let user;
+    try {
+      user = await createUser(db, clock, { username: body.username, password: body.password, isAdmin: true }, { onlyIfNoUsers: true });
+    } catch (e) {
+      if (!(e instanceof HttpError && e.code === 'already_setup')) app.setup.restore(consumed);
+      throw e;
+    }
     return reply.status(201).send({ id: user.id, username: user.username, isAdmin: true });
   });
 
   app.post('/api/auth/login', { config: limited(bodyField('username')) }, async (req, reply) => {
+    checkOrigin(req);
     const body = loginBody.parse(req.body);
     const name = body.username.toLowerCase();
     const row = db.select().from(users).where(eq(users.username, name)).get();
@@ -81,6 +93,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
       });
       throw new HttpError(401, 'invalid_credentials');
     }
+    if (req.session) deleteSession(db, req.session.id);
     const { token } = createSession(db, clock, row.id);
     appendAudit(db, clock, { actorType: 'user', actorId: row.id, event: 'auth.login', ip: req.ip });
     setSessionCookie(reply, token);
@@ -89,7 +102,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
 
   app.post('/api/auth/logout', { preHandler: requireUser }, async (req, reply) => {
     deleteSession(db, req.session!.id);
-    reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    reply.clearCookie(SESSION_COOKIE, COOKIE_ATTRS);
     return { ok: true };
   });
 

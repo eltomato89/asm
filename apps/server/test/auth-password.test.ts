@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { requireRecentAuth, requireUser } from '../src/auth/guards.js';
 import { hashPassword, verifyPassword } from '../src/auth/password.js';
+import { ValidationError } from '../src/errors.js';
 import { createUser } from '../src/auth/setup.js';
 import { verifyChain } from '../src/audit/audit.js';
 import type { Db } from '../src/db/client.js';
@@ -64,6 +65,17 @@ describe('setup', () => {
     const again = await app.inject({ method: 'POST', url: '/api/setup', payload: { token: 'anything', username: 'other', password: PW } });
     expect(again.statusCode).toBe(409);
     expect(app.setup.getToken()).toBeUndefined();
+    await app.close();
+  });
+
+  it('concurrent setups create exactly one admin', async () => {
+    const { app, db } = await boot();
+    const token = app.setup.getToken();
+    const go = (u: string) => app.inject({ method: 'POST', url: '/api/setup', payload: { token, username: u, password: PW } });
+    const res = await Promise.all([go('admin1'), go('admin2')]);
+    expect(res.filter((r) => r.statusCode === 201)).toHaveLength(1);
+    expect(res.filter((r) => [403, 409].includes(r.statusCode))).toHaveLength(1);
+    expect((db.$client.prepare('SELECT count(*) AS n FROM users').get() as { n: number }).n).toBe(1);
     await app.close();
   });
 
@@ -171,6 +183,51 @@ describe('origin check', () => {
     }
     const ok = await app.inject({ method: 'POST', url: '/api/auth/logout', headers: { cookie, origin: ORIGIN } });
     expect(ok.statusCode).toBe(200);
+    await app.close();
+  });
+});
+
+describe('origin hardening', () => {
+  it('percent-encoded path cannot bypass the Origin check', async () => {
+    const { app } = await boot();
+    await setupAdmin(app);
+    const cookie = cookieOf(await login(app, 'admin', PW));
+    const res = await app.inject({ method: 'POST', url: '/%61pi/auth/logout', headers: { cookie } });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'bad_origin' });
+    await app.close();
+  });
+
+  it('login and setup reject a foreign Origin header', async () => {
+    const { app } = await boot();
+    const evil = { origin: 'https://evil.test' };
+    const s = await app.inject({ method: 'POST', url: '/api/setup', headers: evil, payload: { token: app.setup.getToken(), username: 'admin', password: PW } });
+    expect(s.statusCode).toBe(403);
+    expect(s.json()).toEqual({ error: 'bad_origin' });
+    await setupAdmin(app);
+    const l = await app.inject({ method: 'POST', url: '/api/auth/login', headers: evil, payload: { username: 'admin', password: PW } });
+    expect(l.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('login drops the session presented in the cookie', async () => {
+    const { app, db } = await boot();
+    await setupAdmin(app);
+    const first = cookieOf(await login(app, 'admin', PW));
+    const res = await app.inject({ method: 'POST', url: '/api/auth/login', headers: { cookie: first, origin: ORIGIN }, payload: { username: 'admin', password: PW } });
+    expect(res.statusCode).toBe(200);
+    expect((db.$client.prepare('SELECT count(*) AS n FROM sessions').get() as { n: number }).n).toBe(1);
+    await app.close();
+  });
+});
+
+describe('createUser validation', () => {
+  it('rejects bad usernames and short passwords itself', async () => {
+    const { db, clock, app } = await boot();
+    await expect(createUser(db, clock, { username: 'ab', password: PW, isAdmin: false })).rejects.toThrow(ValidationError);
+    await expect(createUser(db, clock, { username: 'a b c', password: PW, isAdmin: false })).rejects.toThrow(ValidationError);
+    await expect(createUser(db, clock, { username: 'x'.repeat(65), password: PW, isAdmin: false })).rejects.toThrow(ValidationError);
+    await expect(createUser(db, clock, { username: 'valid', password: 'short', isAdmin: false })).rejects.toThrow(ValidationError);
     await app.close();
   });
 });
