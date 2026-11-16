@@ -1,8 +1,8 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { renderWithProviders } from '../../test/utils';
-import { CommandPalette, type Command } from './CommandPalette';
+import { CommandPalette, SEARCH_DEBOUNCE_MS, type Command } from './CommandPalette';
 
 function commands(run = vi.fn()): Command[] {
   return [
@@ -46,19 +46,27 @@ describe('CommandPalette', () => {
     expect(screen.getByText(/Nichts gefunden/)).toBeInTheDocument();
   });
 
-  it('adds async search results (debounced) and runs them', async () => {
+  it('adds async search results (debounced: exactly one search per pause) and runs them', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const pick = vi.fn();
     const search = vi.fn(async (q: string): Promise<Command[]> => [
       { id: 'sec_1', group: 'Secrets', title: 'GITHUB_TOKEN', hint: 'Persönlich', mono: true, run: () => pick(q) },
     ]);
-    const user = userEvent.setup();
     renderWithProviders(<CommandPalette commands={commands()} search={search} />);
-    await user.keyboard('{Meta>}k{/Meta}');
-    await user.keyboard('github');
-    expect(await screen.findByRole('option', { name: /GITHUB_TOKEN/ })).toBeInTheDocument();
-    expect(search).toHaveBeenLastCalledWith('github', expect.any(AbortSignal));
-    expect(search.mock.calls.length).toBeLessThan(6); // debounced, not per keystroke
-    await user.keyboard('{Enter}');
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    const input = screen.getByRole('combobox');
+    for (const q of ['g', 'gi', 'git', 'gith', 'githu', 'github']) {
+      fireEvent.change(input, { target: { value: q } });
+      act(() => vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS - 50));
+    }
+    expect(search).not.toHaveBeenCalled();
+    await act(async () => {
+      vi.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
+    });
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith('github', expect.any(AbortSignal));
+    expect(screen.getByRole('option', { name: /GITHUB_TOKEN/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: /GITHUB_TOKEN/ }));
     expect(pick).toHaveBeenCalledWith('github');
   });
 

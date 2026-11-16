@@ -5,14 +5,23 @@ import {
   createRouter,
   Outlet,
   redirect,
+  type ErrorComponentProps,
   type RouterHistory,
 } from '@tanstack/react-router';
+import { Button } from '../components/ui/Button';
 import { AppShell } from '../layout/AppShell';
-import { NAV_ITEMS, type NavPath } from '../layout/nav';
 import { api, isApiError, queryKeys } from '../lib/api';
+import { ActivatePage } from './activate';
+import { AuditPage, validateAuditSearch } from './audit';
+import { ConnectPage } from './connect';
+import { DevicesPage } from './devices';
 import { LoginPage } from './login';
-import { PlaceholderPage } from './placeholder';
+import { ProjectsPage } from './projects';
+import { RequestsPage } from './requests';
+import { SecretsPage } from './secrets';
+import { SettingsPage } from './settings';
 import { SetupPage } from './setup';
+import { VaultsPage } from './vaults';
 
 type RouterContext = { queryClient: QueryClient };
 
@@ -29,6 +38,37 @@ async function currentUser(qc: QueryClient) {
   }
 }
 
+/** Only same-origin paths are accepted as post-login targets (no `//host` or `/\host`). */
+export function safeRedirect(target: unknown): string | undefined {
+  return typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\') ? target : undefined;
+}
+
+/** Shared guard: setup first, then a session; remembers the target for after the login. */
+async function requireSession(qc: QueryClient, href: string) {
+  if (await needsSetup(qc)) throw redirect({ to: '/setup' });
+  if (!(await currentUser(qc))) throw redirect({ to: '/login', search: href && href !== '/' ? { redirect: href } : {} });
+}
+
+/** Router-level error state (German), e.g. when a page throws while rendering. */
+export function RouteError({ error }: Partial<ErrorComponentProps>) {
+  return (
+    <div className="consent-page">
+      <div className="consent">
+        <div className="consent-result">
+          <h2>Etwas ist schiefgelaufen</h2>
+          <p>Diese Ansicht konnte nicht angezeigt werden. Lade die Seite neu. Bleibt der Fehler, prüfe die Verbindung zum Server.</p>
+          {error instanceof Error && error.message ? <p className="mono faint">{error.message}</p> : null}
+          <p style={{ marginTop: 16 }}>
+            <Button variant="primary" onClick={() => window.location.reload()}>
+              Neu laden
+            </Button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const rootRoute = createRootRouteWithContext<RouterContext>()({ component: Outlet });
 
 const setupRoute = createRoute({
@@ -43,40 +83,82 @@ const setupRoute = createRoute({
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/login',
-  beforeLoad: async ({ context }) => {
-    if (await needsSetup(context.queryClient)) throw redirect({ to: '/setup' });
-    if (await currentUser(context.queryClient)) throw redirect({ to: '/' });
+  validateSearch: (search: Record<string, unknown>): { redirect?: string } => {
+    const r = safeRedirect(search.redirect);
+    return r ? { redirect: r } : {};
   },
-  component: LoginPage,
+  beforeLoad: async ({ context, search }) => {
+    if (await needsSetup(context.queryClient)) throw redirect({ to: '/setup' });
+    if (await currentUser(context.queryClient)) throw redirect({ href: search.redirect ?? '/' });
+  },
+  component: () => <LoginPage redirectTo={loginRoute.useSearch().redirect} />,
+});
+
+/** Signed-in pages without the app shell (pairing flows opened from a terminal). */
+const bareRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  id: 'bare',
+  beforeLoad: ({ context, location }) => requireSession(context.queryClient, location.href),
+  component: Outlet,
+});
+
+const connectRoute = createRoute({
+  getParentRoute: () => bareRoute,
+  path: '/connect',
+  validateSearch: (search: Record<string, unknown>): { req?: string } => (typeof search.req === 'string' && search.req ? { req: search.req } : {}),
+  component: () => <ConnectPage req={connectRoute.useSearch().req} />,
+});
+
+const activateRoute = createRoute({
+  getParentRoute: () => bareRoute,
+  path: '/activate',
+  validateSearch: (search: Record<string, unknown>): { code?: string } => (typeof search.code === 'string' && search.code ? { code: search.code } : {}),
+  component: () => <ActivatePage initialCode={activateRoute.useSearch().code} />,
 });
 
 /** Guard for the authenticated app: setup first, then a session. */
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: 'app',
-  beforeLoad: async ({ context }) => {
-    if (await needsSetup(context.queryClient)) throw redirect({ to: '/setup' });
-    if (!(await currentUser(context.queryClient))) throw redirect({ to: '/login' });
-  },
+  beforeLoad: ({ context, location }) => requireSession(context.queryClient, location.href),
   component: AppShell,
 });
 
-const titleOf = (to: NavPath) => NAV_ITEMS.find((n) => n.to === to)!.label;
+const selectedSearch = (search: Record<string, unknown>): { selected?: string } =>
+  typeof search.selected === 'string' && search.selected ? { selected: search.selected } : {};
 
-const pageRoutes = NAV_ITEMS.filter((n) => n.to !== '/secrets').map((n) =>
-  createRoute({ getParentRoute: () => appRoute, path: n.to, component: () => <PlaceholderPage title={titleOf(n.to)} /> }),
-);
+const overviewRoute = createRoute({ getParentRoute: () => appRoute, path: '/', component: () => <RequestsPage variant="overview" /> });
+const requestsRoute = createRoute({ getParentRoute: () => appRoute, path: '/requests', component: () => <RequestsPage variant="requests" /> });
 
-/** /secrets?selected=<id> — the command palette deep-links secrets here (detail view: Task 13). */
+/** /secrets?selected=<id> — the command palette deep-links secrets here. */
 const secretsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: '/secrets',
-  validateSearch: (search: Record<string, unknown>): { selected?: string } =>
-    typeof search.selected === 'string' && search.selected ? { selected: search.selected } : {},
-  component: () => <PlaceholderPage title={titleOf('/secrets')} />,
+  validateSearch: selectedSearch,
+  component: () => <SecretsPage selected={secretsRoute.useSearch().selected} />,
 });
+const projectsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/projects',
+  validateSearch: selectedSearch,
+  component: () => <ProjectsPage selected={projectsRoute.useSearch().selected} />,
+});
+const vaultsRoute = createRoute({ getParentRoute: () => appRoute, path: '/vaults', component: VaultsPage });
+const devicesRoute = createRoute({ getParentRoute: () => appRoute, path: '/devices', component: DevicesPage });
+const auditRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: '/audit',
+  validateSearch: validateAuditSearch,
+  component: () => <AuditPage search={auditRoute.useSearch()} />,
+});
+const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: '/settings', component: SettingsPage });
 
-const routeTree = rootRoute.addChildren([setupRoute, loginRoute, appRoute.addChildren([...pageRoutes, secretsRoute])]);
+const routeTree = rootRoute.addChildren([
+  setupRoute,
+  loginRoute,
+  bareRoute.addChildren([connectRoute, activateRoute]),
+  appRoute.addChildren([overviewRoute, requestsRoute, secretsRoute, projectsRoute, vaultsRoute, devicesRoute, auditRoute, settingsRoute]),
+]);
 
 export function createAppRouter(opts: { queryClient: QueryClient; history?: RouterHistory }) {
   return createRouter({
@@ -84,6 +166,7 @@ export function createAppRouter(opts: { queryClient: QueryClient; history?: Rout
     context: { queryClient: opts.queryClient },
     ...(opts.history ? { history: opts.history } : {}),
     defaultPreload: false,
+    defaultErrorComponent: RouteError,
   });
 }
 

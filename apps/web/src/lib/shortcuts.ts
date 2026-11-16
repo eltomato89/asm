@@ -16,19 +16,28 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.closest('input, textarea, select') !== null;
 }
 
+/** An open modal/popover (Radix renders role=dialog / alertdialog only while open). */
+export function dialogOpen(target: EventTarget | null): boolean {
+  if (target instanceof Element && target.closest('[role="dialog"], [role="alertdialog"]')) return true;
+  return document.querySelector('[role="dialog"], [role="alertdialog"]') !== null;
+}
+
 /** Whether `e` matches `key` under `opts` (see useShortcut). */
 export function matchesShortcut(e: KeyboardEvent, key: string, opts: ShortcutOptions = {}): boolean {
+  if (e.repeat) return false;
   if (e.key.toLowerCase() !== key.toLowerCase()) return false;
   if (e.altKey) return false;
   const modHeld = e.metaKey || e.ctrlKey;
   if (opts.mod ? !modHeld : modHeld) return false;
   if (!opts.allowInInputs && isEditableTarget(e.target)) return false;
+  // Plain-key shortcuts (A/D/J/K) must not act behind an open dialog or popover.
+  if (!opts.mod && dialogOpen(e.target)) return false;
   return true;
 }
 
 /**
- * Global keyboard shortcut. Ignores typing in form fields and any held modifier,
- * unless explicitly requested via `mod` / `allowInInputs`.
+ * Global keyboard shortcut. Ignores typing in form fields, held modifiers and key repeat;
+ * plain-key shortcuts are also ignored while a dialog or popover is open.
  */
 export function useShortcut(key: string, handler: (e: KeyboardEvent) => void, opts: ShortcutOptions = {}): void {
   const ref = useRef(handler);

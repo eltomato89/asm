@@ -2,7 +2,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { act, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryKeys } from './api';
-import { subscribeEvents, useEvents } from './sse';
+import { eventListenerCount, eventSubscribeCount, subscribeEvents, useEventSubscription, useEvents, type ServerEvent } from './sse';
 import { makeQueryClient } from '../test/utils';
 
 class FakeEventSource {
@@ -123,5 +123,34 @@ describe('useEvents', () => {
     act(() => vi.advanceTimersByTime(1000));
     act(() => last().onopen?.());
     expect(qc.getQueryState(queryKeys.automode)?.isInvalidated).toBe(true);
+  });
+
+  it('useEventSubscription subscribes once and always calls the latest handler', () => {
+    const qc = makeQueryClient();
+    const seen: string[] = [];
+    function Sub({ tag }: { tag: string }) {
+      useEventSubscription((e: ServerEvent) => seen.push(`${tag}:${e.type}`));
+      return null;
+    }
+    const base = eventListenerCount();
+    const { rerender, unmount } = render(
+      <QueryClientProvider client={qc}>
+        <Probe />
+        <Sub tag="a" />
+      </QueryClientProvider>,
+    );
+    expect(eventListenerCount()).toBe(base + 1);
+    const subscribes = eventSubscribeCount();
+    rerender(
+      <QueryClientProvider client={qc}>
+        <Probe />
+        <Sub tag="b" />
+      </QueryClientProvider>,
+    );
+    expect(eventSubscribeCount()).toBe(subscribes);
+    act(() => last().emit('request.created', { id: 'req_1' }));
+    expect(seen).toEqual(['b:request.created']);
+    unmount();
+    expect(eventListenerCount()).toBe(base);
   });
 });

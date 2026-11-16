@@ -1,6 +1,8 @@
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { makeRequest } from '../test/fixtures';
+import { safeRedirect } from './router';
 import { renderApp } from '../test/renderApp';
 import { mockFetch, type FetchCall } from '../test/utils';
 
@@ -56,11 +58,88 @@ describe('route guard', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Tresor wechseln/ })).toHaveTextContent('Persönlich'));
   });
 
-  it('renders an empty-state placeholder for pages of later tasks', async () => {
+  it('renders every page of the app shell', async () => {
     server({ loggedIn: true });
-    renderApp('/audit');
-    expect(await screen.findByRole('heading', { level: 1, name: 'Audit-Log' })).toBeInTheDocument();
-    expect(screen.getByText(/noch nicht verfügbar/)).toBeInTheDocument();
+    for (const [path, heading] of [
+      ['/', 'Anfragen'],
+      ['/requests', 'Anfragen'],
+      ['/secrets', 'Secrets'],
+      ['/projects', 'Projekte'],
+      ['/vaults', 'Tresore'],
+      ['/devices', 'Geräte'],
+      ['/audit', 'Audit-Log'],
+      ['/settings', 'Einstellungen'],
+    ] as const) {
+      const { unmount } = renderApp(path);
+      expect(await screen.findByRole('heading', { level: 1, name: heading })).toBeInTheDocument();
+      expect(screen.queryByText(/noch nicht verfügbar/)).toBeNull();
+      unmount();
+    }
+  });
+
+  it('a mutation failing with 401 unauthenticated redirects to /login and keeps the page as target', async () => {
+    const state = { loggedIn: true };
+    server(state, (c) => {
+      if (c.path === '/api/requests' && state.loggedIn) {
+        return { body: { items: [makeRequest()] } };
+      }
+      if (c.path.endsWith('/decision')) {
+        state.loggedIn = false;
+        return { status: 401, body: { error: 'unauthenticated' } };
+      }
+      return undefined;
+    });
+    const user = userEvent.setup();
+    const { router } = renderApp('/requests');
+    await user.click(await screen.findByRole('button', { name: /Freigeben/ }));
+    await waitFor(() => expect(router.state.location.pathname).toBe('/login'));
+    expect(router.state.location.search).toEqual({ redirect: '/requests' });
+  });
+
+  it('shows the German error state with „Neu laden“ when a page fails to render', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    server({ loggedIn: true }, (c) => (c.path === '/api/secrets/sec_x' ? { body: { id: 'sec_x' } } : undefined));
+    renderApp('/secrets?selected=sec_x');
+    expect(await screen.findByRole('heading', { name: 'Etwas ist schiefgelaufen' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Neu laden' })).toBeInTheDocument();
+    spy.mockRestore();
+    warn.mockRestore();
+  });
+});
+
+describe('login redirect target', () => {
+  it('sends /connect?req=… through the login and back', async () => {
+    const state = { loggedIn: false };
+    server(state, (c) => {
+      if (c.path === '/api/auth/login') {
+        state.loggedIn = true;
+        return { body: ME };
+      }
+      if (c.path === '/api/oauth/consent/abc') return { body: { clientName: 'Claude Code', redirectHost: '127.0.0.1:5000', requestedAt: 0 } };
+      return undefined;
+    });
+    const user = userEvent.setup();
+    const { router } = renderApp('/connect?req=abc');
+    await screen.findByRole('heading', { name: 'Anmelden' });
+    expect(router.state.location.search).toEqual({ redirect: '/connect?req=abc' });
+    await user.type(screen.getByLabelText('Benutzername'), 'jana');
+    await user.type(screen.getByLabelText('Passwort'), 'richtig-langes-pw');
+    await user.click(screen.getByRole('button', { name: 'Anmelden' }));
+    expect(await screen.findByRole('heading', { name: 'Claude Code möchte sich mit ASM verbinden' })).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/connect');
+    expect(router.state.location.search).toEqual({ req: 'abc' });
+  });
+
+  it('keeps /activate as target and ignores foreign redirect targets', async () => {
+    server({});
+    const { router } = renderApp('/activate');
+    await screen.findByRole('heading', { name: 'Anmelden' });
+    expect(router.state.location.search).toEqual({ redirect: '/activate' });
+    expect(safeRedirect('//evil.example/x')).toBeUndefined();
+    expect(safeRedirect('https://evil.example')).toBeUndefined();
+    expect(safeRedirect('/\\evil')).toBeUndefined();
+    expect(safeRedirect('/connect?req=1')).toBe('/connect?req=1');
   });
 });
 

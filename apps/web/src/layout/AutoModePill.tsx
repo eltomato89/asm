@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Timer } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Button, IconButton } from '../components/ui/Button';
+import { Skeleton } from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
 import { api, isApiError, queryKeys, type AutoModeInput } from '../lib/api';
 import { formatCountdown, useCountdown } from '../lib/time';
@@ -91,7 +92,11 @@ function AutoModeForm({ data, on, left, time, close }: { data: AutoModeDto | und
   const vaults: VaultDto[] = vaultsQuery.data?.items ?? [];
   const { start, stop } = useAutoModeActions();
   const initial = data?.defaultDurationMin ?? 30;
-  const [minutes, setMinutes] = useState<number>((AUTO_MODE_PRESETS as readonly number[]).includes(initial) ? initial : 30);
+  const [preset, setPreset] = useState<number>((AUTO_MODE_PRESETS as readonly number[]).includes(initial) ? initial : 30);
+  /** Free duration in minutes (up to the server maximum); overrides the preset while filled in. */
+  const [custom, setCustom] = useState('');
+  const customMin = /^\d{1,4}$/.test(custom) && Number(custom) >= 1 ? Number(custom) : null;
+  const minutes = customMin ?? preset;
   /** null = all vaults (also the server's representation). */
   const [selected, setSelected] = useState<Set<string> | null>(() => (data?.vaultIds ? new Set(data.vaultIds) : null));
 
@@ -113,6 +118,8 @@ function AutoModeForm({ data, on, left, time, close }: { data: AutoModeDto | und
   const vaultIds = (): string[] | null => (selected === null || allChecked ? null : vaults.filter((v) => selected.has(v.id)).map((v) => v.id));
 
   const busy = start.isPending || stop.isPending;
+  const vaultsReady = vaultsQuery.isSuccess;
+  const customInvalid = custom !== '' && customMin === null;
   const submit = (extend: boolean) => {
     const total = extend ? Math.ceil(left / 60) + minutes : minutes;
     start.mutate({ minutes: total, vaultIds: vaultIds(), extend }, { onSuccess: close });
@@ -126,12 +133,46 @@ function AutoModeForm({ data, on, left, time, close }: { data: AutoModeDto | und
       <p>Anfragen in diesen Tresoren werden ohne Rückfrage freigegeben und im Audit-Log vermerkt.</p>
       <div className="seg" role="group" aria-label="Dauer" style={{ marginBottom: 12 }}>
         {AUTO_MODE_PRESETS.map((m) => (
-          <button key={m} type="button" aria-pressed={minutes === m} onClick={() => setMinutes(m)}>
+          <button
+            key={m}
+            type="button"
+            aria-pressed={customMin === null && preset === m}
+            onClick={() => {
+              setPreset(m);
+              setCustom('');
+            }}
+          >
             {m} min
           </button>
         ))}
       </div>
-      <fieldset className="vaults">
+      <label className="auto-custom">
+        <span>Eigene Dauer</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          aria-label="Eigene Dauer in Minuten"
+          aria-invalid={customInvalid || undefined}
+          placeholder="min"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value.replace(/[^0-9]/g, '').slice(0, 4))}
+        />
+        <span className="faint">min</span>
+      </label>
+      {vaultsQuery.isError ? (
+        <div className="vaults vaults-error" role="alert">
+          <span>Tresore konnten nicht geladen werden.</span>
+          <Button variant="ghost" onClick={() => void vaultsQuery.refetch()} disabled={vaultsQuery.isFetching}>
+            Erneut versuchen
+          </Button>
+        </div>
+      ) : !vaultsReady ? (
+        <div className="vaults" aria-busy="true" aria-label="Tresore werden geladen">
+          <Skeleton width="60%" />
+          <Skeleton width="40%" />
+        </div>
+      ) : (
+        <fieldset className="vaults">
         <legend className="visually-hidden">Gilt für Tresore</legend>
         <label>
           <input ref={allRef} type="checkbox" checked={allChecked} onChange={() => setSelected(allChecked ? new Set() : null)} /> Alle Tresore
@@ -142,21 +183,26 @@ function AutoModeForm({ data, on, left, time, close }: { data: AutoModeDto | und
           </label>
         ))}
       </fieldset>
+      )}
       {noneChecked && vaults.length > 0 ? <p className="faint">Wähle mindestens einen Tresor.</p> : null}
       <div className="row">
         {on ? (
           <>
-            <Button onClick={() => submit(true)} disabled={busy || noneChecked}>
-              Verlängern
-            </Button>
+            {vaultsReady ? (
+              <Button onClick={() => submit(true)} disabled={busy || noneChecked || customInvalid}>
+                Verlängern
+              </Button>
+            ) : null}
             <Button onClick={() => stop.mutate(undefined, { onSuccess: close })} disabled={busy}>
               Beenden
             </Button>
           </>
         ) : (
-          <Button variant="primary" onClick={() => submit(false)} disabled={busy || noneChecked}>
-            Starten
-          </Button>
+          vaultsReady ? (
+            <Button variant="primary" onClick={() => submit(false)} disabled={busy || noneChecked || customInvalid}>
+              Starten
+            </Button>
+          ) : null
         )}
       </div>
     </div>

@@ -11,5 +11,16 @@ export default defineConfig({
     port: 5173,
     proxy: Object.fromEntries(proxied.map((p) => [p, { target: server, changeOrigin: false }])),
   },
-  build: { outDir: 'dist', emptyOutDir: true, sourcemap: false },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Long-lived vendor chunk: app updates do not invalidate the framework code in caches.
+        // One vendor chunk (splitting React from libraries that import it causes init-order cycles).
+        manualChunks: (id) => (id.includes('node_modules') ? 'vendor' : undefined),
+      },
+    },
+  },
 });

@@ -20,9 +20,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const remove = useCallback((id: number) => {
     clearTimeout(timers.current.get(id));
-    timers.current.delete(id);
     setItems((list) => list.map((t) => (t.id === id ? { ...t, leaving: true } : t)));
-    setTimeout(() => setItems((list) => list.filter((t) => t.id !== id)), 200);
+    // Exit animation, then drop the item; tracked so unmount clears it too.
+    timers.current.set(
+      id,
+      setTimeout(() => {
+        timers.current.delete(id);
+        setItems((list) => list.filter((t) => t.id !== id));
+      }, 200),
+    );
   }, []);
 
   const toast = useCallback<ToastFn>(

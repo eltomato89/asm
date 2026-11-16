@@ -22,7 +22,8 @@ function passkeyError(e: unknown): string {
   return 'Anmeldung mit Passkey fehlgeschlagen.';
 }
 
-export function LoginPage() {
+/** `redirectTo`: validated same-origin target to return to (e.g. /connect?req=…). */
+export function LoginPage({ redirectTo }: { redirectTo?: string }) {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
@@ -33,7 +34,7 @@ export function LoginPage() {
 
   const done = async (me: Me) => {
     qc.setQueryData(queryKeys.me, me);
-    await navigate({ to: '/' });
+    await navigate({ href: redirectTo ?? '/' });
   };
 
   const withPasskey = async () => {

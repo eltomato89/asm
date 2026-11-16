@@ -55,4 +55,35 @@ describe('useShortcut', () => {
     fireEvent.keyDown(document.body, { key: 'a' });
     expect(fn).not.toHaveBeenCalled();
   });
+
+  it('ignores auto-repeated keydowns (key held)', () => {
+    const fn = vi.fn();
+    render(<Probe k="a" fn={fn} />);
+    fireEvent.keyDown(document.body, { key: 'a', repeat: true });
+    expect(fn).not.toHaveBeenCalled();
+  });
+
+  it('does not fire plain-key shortcuts while a dialog is open, but mod shortcuts still work', () => {
+    const plain = vi.fn();
+    const mod = vi.fn();
+    render(
+      <>
+        <Probe k="a" fn={plain} />
+        <Probe k="k" fn={mod} opts={{ mod: true, allowInInputs: true }} />
+      </>,
+    );
+    const dialog = document.createElement('div');
+    dialog.setAttribute('role', 'dialog');
+    const inner = document.createElement('button');
+    dialog.appendChild(inner);
+    document.body.appendChild(dialog);
+    fireEvent.keyDown(document.body, { key: 'a' });
+    fireEvent.keyDown(inner, { key: 'a' });
+    fireEvent.keyDown(document.body, { key: 'k', metaKey: true });
+    expect(plain).not.toHaveBeenCalled();
+    expect(mod).toHaveBeenCalledTimes(1);
+    dialog.remove();
+    fireEvent.keyDown(document.body, { key: 'a' });
+    expect(plain).toHaveBeenCalledTimes(1);
+  });
 });

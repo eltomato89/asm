@@ -38,7 +38,12 @@ export function ReauthDialog() {
           setOpen(true);
         }),
     );
-    return () => reauth.setHandler(null);
+    return () => {
+      reauth.setHandler(null);
+      // Unmounted while a prompt is pending: fail that request instead of leaving it hanging.
+      resolver.current?.(false);
+      resolver.current = null;
+    };
   }, []);
 
   const finish = (ok: boolean) => {

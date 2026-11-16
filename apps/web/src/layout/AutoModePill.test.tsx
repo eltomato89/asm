@@ -92,4 +92,39 @@ describe('AutoModePill', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /Auto-Modus aktiv/ })).toBeNull());
     expect(calls.some((c) => c.method === 'DELETE' && c.path === '/api/automode')).toBe(true);
   });
+
+  it('shows an error with retry instead of a silently disabled Start when vaults fail to load', async () => {
+    let fail = true;
+    mockFetch(({ path }) => {
+      if (path === '/api/automode') return { body: inactive };
+      if (path === '/api/vaults') return fail ? { status: 500, body: { error: 'internal' } } : { body: vaults };
+      return undefined;
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<AutoModePill />);
+    await user.click(await screen.findByRole('button', { name: 'Auto-Modus starten' }));
+    expect(await screen.findByText('Tresore konnten nicht geladen werden.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Starten' })).toBeNull();
+    fail = false;
+    await user.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
+    expect(await screen.findByRole('checkbox', { name: 'Arbeit' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Starten' })).toBeEnabled();
+  });
+
+  it('accepts a custom duration', async () => {
+    const { calls } = mockFetch(({ method, path, body }) => {
+      if (path === '/api/vaults') return { body: vaults };
+      if (path === '/api/automode' && method === 'GET') return { body: inactive };
+      if (path === '/api/automode' && method === 'PUT') return { body: active(Date.now() + (body as { minutes: number }).minutes * 60_000) };
+      return undefined;
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<AutoModePill />);
+    await user.click(await screen.findByRole('button', { name: 'Auto-Modus starten' }));
+    await screen.findByRole('checkbox', { name: 'Arbeit' });
+    const custom = screen.getByLabelText('Eigene Dauer in Minuten');
+    await user.type(custom, '45');
+    await user.click(screen.getByRole('button', { name: 'Starten' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ minutes: 45, vaultIds: null }));
+  });
 });

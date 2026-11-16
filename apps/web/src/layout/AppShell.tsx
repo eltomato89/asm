@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { Outlet, useNavigate } from '@tanstack/react-router';
+import { Outlet, useNavigate, useRouter } from '@tanstack/react-router';
 import { KeyRound, Moon, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CommandPalette, type Command } from '../components/ui/CommandPalette';
@@ -15,22 +15,33 @@ import { Topbar } from './Topbar';
 export function AppShell() {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const router = useRouter();
   const [navOpen, setNavOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { start } = useAutoModeActions();
   useEvents();
 
-  // Session expired mid-use: any query failing with 401 unauthenticated sends the user to the login.
-  useEffect(
-    () =>
-      qc.getQueryCache().subscribe((event) => {
-        if (event.type === 'updated' && event.action.type === 'error' && isApiError(event.action.error, 'unauthenticated')) {
-          qc.removeQueries({ queryKey: queryKeys.me });
-          void navigate({ to: '/login' });
-        }
-      }),
-    [qc, navigate],
-  );
+  // Session expired mid-use: any query or mutation failing with 401 unauthenticated sends the user to the login,
+  // remembering the current page.
+  useEffect(() => {
+    const toLogin = (error: unknown) => {
+      if (!isApiError(error, 'unauthenticated')) return;
+      const { pathname, href } = router.state.location;
+      if (pathname === '/login' || router.state.status === 'pending') return; // already on the way
+      qc.removeQueries({ queryKey: queryKeys.me });
+      void navigate({ to: '/login', search: href && href !== '/' ? { redirect: href } : {} });
+    };
+    const offQueries = qc.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'error') toLogin(event.action.error);
+    });
+    const offMutations = qc.getMutationCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'error') toLogin(event.action.error);
+    });
+    return () => {
+      offQueries();
+      offMutations();
+    };
+  }, [qc, navigate, router]);
 
   useEffect(() => {
     if (!navOpen) return;

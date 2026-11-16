@@ -1,6 +1,6 @@
 import type { AccessRequestDto, AutoModeDto } from '@asm/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { queryKeys } from './api';
 
 export type ServerEvent =
@@ -13,18 +13,27 @@ const EVENT_TYPES = ['request.created', 'request.updated', 'automode.changed'] a
 export const SSE_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 
 const listeners = new Set<Listener>();
+let subscribeCalls = 0;
 
 /** Subscribe to live server events (requires useEvents() mounted once, e.g. in the AppShell). */
 export function subscribeEvents(fn: Listener): () => void {
+  subscribeCalls += 1;
   listeners.add(fn);
   return () => {
     listeners.delete(fn);
   };
 }
 
-/** Hook form of subscribeEvents; the latest handler is always used. */
+/** Number of active subscribers (diagnostics/tests). */
+export const eventListenerCount = (): number => listeners.size;
+/** Total subscribe calls so far (diagnostics/tests: detects resubscribe churn). */
+export const eventSubscribeCount = (): number => subscribeCalls;
+
+/** Hook form of subscribeEvents: subscribes once per mount; the latest handler is always used. */
 export function useEventSubscription(fn: Listener): void {
-  useEffect(() => subscribeEvents(fn), [fn]);
+  const ref = useRef(fn);
+  ref.current = fn;
+  useEffect(() => subscribeEvents((e) => ref.current(e)), []);
 }
 
 /**
