@@ -9,6 +9,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
+import type { ApproveSummaryDto, PushSubscriptionDto, PushSubscriptionInput } from './push-types';
 
 export { ApiError };
 
@@ -226,6 +227,18 @@ export const api = {
   consent: (body: { req: string; decision: 'approve' | 'deny'; deviceName?: string }) => post<{ redirectTo: string }>('/api/oauth/consent', body),
   activationInfo: (userCode: string) => get<ActivationInfo>('/api/devices/activate', { user_code: userCode }),
   activate: (body: { user_code: string; decision: 'approve' | 'deny' }) => post<{ deviceId: string; status: 'approved' | 'denied' }>('/api/devices/activate', body),
+
+  pushVapidKey: () => get<{ publicKey: string }>('/api/push/vapid-key'),
+  pushSubscriptions: () => get<{ items: PushSubscriptionDto[] }>('/api/push/subscriptions'),
+  addPushSubscription: (body: PushSubscriptionInput) => post<PushSubscriptionDto>('/api/push/subscriptions', body),
+  deletePushSubscription: (subId: string) => sendMaybeEmpty<void>('DELETE', `/api/push/subscriptions/${id(subId)}`),
+  pushTest: () => post<{ sent: number }>('/api/push/test'),
+
+  // Public approve page (token in the URL is the only credential; no session needed).
+  approveSummary: (token: string) => get<ApproveSummaryDto>(`/api/approve/${id(token)}`),
+  approveOptions: (token: string) => post<PublicKeyCredentialRequestOptionsJSON>(`/api/approve/${id(token)}/options`),
+  approveDecision: (token: string, body: { decision: 'approve' | 'deny'; response?: AuthenticationResponseJSON }) =>
+    post<ApproveSummaryDto>(`/api/approve/${id(token)}/decision`, body),
 };
 
 /** URL of the CSV export for the given filters (same-origin link; cookies authenticate the download). */
@@ -256,6 +269,8 @@ export const queryKeys = {
   audit: (filter: AuditFilter) => ['audit', filter] as const,
   auditVerify: ['audit-verify'] as const,
   passkeys: ['passkeys'] as const,
+  pushSubscriptions: ['push-subscriptions'] as const,
+  approve: (token: string) => ['approve', token] as const,
 };
 
 export const isApiError = (e: unknown, code?: string): e is ApiError => e instanceof ApiError && (code === undefined || e.code === code);

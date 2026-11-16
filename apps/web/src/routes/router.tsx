@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { AppShell } from '../layout/AppShell';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { ActivatePage } from './activate';
+import { ApprovePage } from './approve';
 import { AuditPage, validateAuditSearch } from './audit';
 import { ConnectPage } from './connect';
 import { DevicesPage } from './devices';
@@ -109,6 +110,16 @@ const loginRoute = createRoute({
   component: () => <LoginPage redirectTo={loginRoute.useSearch().redirect} />,
 });
 
+/**
+ * Public approve page opened from a push notification: no guard at all (no setup/session lookups),
+ * the token in the URL is the only credential. Reachable from outside the home network.
+ */
+const approveRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/approve/$token',
+  component: () => <ApprovePage token={approveRoute.useParams().token} />,
+});
+
 /** Signed-in pages without the app shell (pairing flows opened from a terminal). */
 const bareRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -171,6 +182,7 @@ const settingsRoute = createRoute({ getParentRoute: () => appRoute, path: '/sett
 const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
+  approveRoute,
   bareRoute.addChildren([connectRoute, activateRoute]),
   appRoute.addChildren([overviewRoute, requestsRoute, secretsRoute, projectsRoute, vaultsRoute, devicesRoute, auditRoute, settingsRoute]),
 ]);
