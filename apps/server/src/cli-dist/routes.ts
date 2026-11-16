@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { HttpError } from '../errors.js';
@@ -52,7 +52,7 @@ function matchesEtag(req: FastifyRequest, etag: string): boolean {
  */
 export async function registerCliDistRoutes(app: FastifyInstance, opts: CliDistOpts): Promise<void> {
   const { cliDir } = opts;
-  // Validated once at startup; a bad origin fails fast instead of producing a broken script.
+  // loadConfig already validated the origin (SAFE_ORIGIN); renderInstallScript re-checks as defense in depth.
   const script = renderInstallScript(opts.origin);
 
   app.get('/cli/install.sh', async (_req, reply) => {
@@ -76,8 +76,13 @@ export async function registerCliDistRoutes(app: FastifyInstance, opts: CliDistO
       .header('etag', etag)
       .header('cache-control', 'no-cache')
       .header('x-content-type-options', 'nosniff');
-    if (matchesEtag(req, etag)) return reply.status(304).send();
-    const body = await readFile(join(cliDir as string, 'asm.mjs')).catch(() => null);
+    const bundlePath = join(cliDir as string, 'asm.mjs');
+    if (matchesEtag(req, etag)) {
+      // Only confirm the client's copy if we could actually serve the bundle.
+      if (!(await access(bundlePath).then(() => true, () => false))) throw notAvailable();
+      return reply.status(304).send();
+    }
+    const body = await readFile(bundlePath).catch(() => null);
     if (!body) throw notAvailable();
     return reply.type('text/javascript; charset=utf-8').send(body);
   });

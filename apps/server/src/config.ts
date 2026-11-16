@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { SAFE_ORIGIN } from './cli-dist/install-script.js';
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -76,6 +77,8 @@ export function loadConfig(
     throw new ConfigError('ASM_PUBLIC_URL must use http: or https:');
   }
   if (!publicUrl.hostname) throw new ConfigError('ASM_PUBLIC_URL must have a hostname');
+  // The origin is embedded into /cli/install.sh; refuse anything beyond plain URL characters.
+  if (!SAFE_ORIGIN.test(publicUrl.origin)) throw new ConfigError('ASM_PUBLIC_URL contains unsupported characters in its host');
   const isLocal = publicUrl.hostname === 'localhost' || publicUrl.hostname === '127.0.0.1';
   if (publicUrl.protocol === 'http:' && !isLocal) {
     throw new ConfigError('ASM_PUBLIC_URL must use https: (http: is only allowed for localhost/127.0.0.1)');

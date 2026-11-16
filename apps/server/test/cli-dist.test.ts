@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { loadConfig } from '../src/config.js';
+import { ConfigError, loadConfig } from '../src/config.js';
 import { renderInstallScript } from '../src/cli-dist/install-script.js';
 import { createTestApp } from './helpers/testApp.js';
 
@@ -45,6 +45,15 @@ describe('CLI distribution routes', () => {
     expect(hit.headers.etag).toBe(`"${SHA}"`);
     const miss = await app.inject({ method: 'GET', url: '/cli/asm.mjs', headers: { 'if-none-match': '"nope"' } });
     expect(miss.statusCode).toBe(200);
+  });
+
+  it('does not answer 304 when asm.mjs is missing', async () => {
+    const dir = makeCliDir();
+    rmSync(join(dir, 'asm.mjs'));
+    ({ app } = await createTestApp({ config: { cliDir: dir } }));
+    const res = await app.inject({ method: 'GET', url: '/cli/asm.mjs', headers: { 'if-none-match': `"${SHA}"` } });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'cli_not_available' });
   });
 
   it('serves the manifest', async () => {
@@ -99,6 +108,14 @@ describe('install script rendering', () => {
       expect(() => renderInstallScript(bad), bad).toThrow();
     }
     expect(() => renderInstallScript('http://[::1]:8080')).not.toThrow();
+  });
+
+  it('is validated by loadConfig (underscores allowed)', () => {
+    const key = Buffer.alloc(32, 1).toString('base64');
+    expect(() => loadConfig({ ASM_PUBLIC_URL: "https://a'b.example", ASM_MASTER_KEY: key })).toThrow(ConfigError);
+    expect(() => loadConfig({ ASM_PUBLIC_URL: "https://a'b.example", ASM_MASTER_KEY: key })).toThrow(/ASM_PUBLIC_URL/);
+    expect(loadConfig({ ASM_PUBLIC_URL: 'https://asm_host.example', ASM_MASTER_KEY: key }).publicUrl.origin).toBe('https://asm_host.example');
+    expect(() => renderInstallScript('https://asm_host.example')).not.toThrow();
   });
 });
 
@@ -183,6 +200,30 @@ describe('install.sh end to end', () => {
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain('SHA-256 mismatch');
     expect(existsSync(join(target, 'asm'))).toBe(false);
+  });
+
+  it('aborts on a size mismatch and installs nothing', async () => {
+    const { script } = await serve(makeCliDir({ version: '1.2.3', sha256: SHA, size: Buffer.byteLength(BUNDLE) + 1 }));
+    const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
+    const target = join(home, 'bin');
+    const r = await runSh(script, { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: target });
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toContain('size mismatch');
+    expect(existsSync(join(target, 'asm'))).toBe(false);
+  });
+
+  it('executes nothing from a truncated download', async () => {
+    const { script } = await serve(makeCliDir());
+    // Cut mid-byte-stream and right before the final `main` call: nothing may run.
+    const lines = script.split('\n');
+    const cuts = [script.slice(0, Math.floor(script.length / 2)), `${lines.slice(0, lines.length - 2).join('\n')}\n`];
+    for (const [cut, truncated] of cuts.entries()) {
+      const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
+      const target = join(home, 'bin');
+      const r = await runSh(truncated, { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: target });
+      expect(existsSync(target), `cut at line ${cut}: ${r.stdout}`).toBe(false);
+      expect(r.stdout, `cut at line ${cut}`).toBe('');
+    }
   });
 
   it('refuses Node.js older than 22', async () => {

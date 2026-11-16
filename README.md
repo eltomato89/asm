@@ -100,12 +100,14 @@ kein GitHub- oder npm-Zugang nötig):
 
 ```sh
 curl -fsSL https://asm.example.com/cli/install.sh | sh
+# ohne curl:  wget -qO- https://asm.example.com/cli/install.sh | sh
 asm login https://asm.example.com
 ```
 
 Das Skript lädt das CLI-Bundle (`/cli/asm.mjs`), prüft SHA-256 und Größe gegen `/cli/asm.json` und installiert
-es nach `~/.local/bin/asm` (anderes Ziel: `ASM_INSTALL_DIR=/pfad sh`). Liegt das Verzeichnis nicht im `PATH`,
-gibt es einen Hinweis aus. Die CLI-Version passt so immer zur Server-Version; `asm update` holt später das
+es nach `~/.local/bin/asm` (anderes Ziel: `ASM_INSTALL_DIR=/pfad sh`). Für die Prüfung wird `sha256sum`,
+`shasum` oder `openssl` benötigt. Liegt das Verzeichnis nicht im `PATH`, gibt es einen Hinweis aus. Ein
+vorhandenes `asm` – auch ein Symlink auf einen Repo-Build – wird durch eine normale Datei ersetzt. Die CLI-Version passt so immer zur Server-Version; `asm update` holt später das
 aktuelle Bundle vom Server (ebenfalls mit Hash-Prüfung), `asm --version` zeigt die installierte Version.
 
 Tokens speichert die CLI im OS-Schlüsselbund: unter macOS in der Keychain (`security`), unter Linux über
