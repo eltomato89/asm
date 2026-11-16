@@ -106,6 +106,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const hooks = Object.assign(deps.hooks ?? { ...defaultHooks }, requestHooks);
   const ctx = createServiceCtx({
     db: deps.db, clock: deps.clock, kek: deps.config.masterKey, hooks, events: deps.events, autoModeMaxMin: deps.config.autoModeMaxMin,
+    logger: root.log,
   });
   const moduleDeps: ModuleDeps = { ...deps, ctx };
   await root.register(registerVaultRoutes, moduleDeps);

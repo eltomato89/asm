@@ -16,6 +16,7 @@ import {
 import { applySecretChange, archiveSecret, createSecret, getSecretMeta, openVersion } from '../src/secrets/service.js';
 import { listVersions } from '../src/secrets/versions.js';
 import { addMember, createVault, removeMember } from '../src/vaults/service.js';
+import { revokeDevice } from '../src/devices/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, allKeys, auditRows, pairDevice, world, type TestUser } from './helpers/fixtures.js';
 
 const MIN = 60_000;
@@ -229,7 +230,41 @@ describe('grants: redemption', () => {
     const grantId = grantIdForRequest(w.db, dto.id, mcp.id)!;
     w.clock.advance(15 * MIN);
     await rejects(() => redeemGrant(w.ctx, { grantId, device: cli }, {}), 410, 'grant_gone');
-    await rejects(() => redeemGrant(w.ctx, { grantId: 'grt_nope', device: cli }, {}), 410, 'grant_gone');
+    const before = auditRows(w.db, 'grant.redeem_denied').length;
+    await rejects(() => redeemGrant(w.ctx, { grantId: 'grt_nope', device: cli }, {}), 404, 'grant_not_found');
+    expect(auditRows(w.db, 'grant.redeem_denied')).toHaveLength(before);
+    await rejects(() => redeemGrant(w.ctx, { grantId: 'grt_01ARZ3NDEKTSV4RRFFQ69G5FAV', device: cli }, {}), 410, 'grant_gone');
+  });
+
+  it('expireDue deletes expired and used-up grants', async () => {
+    const { w, mcp, cli, read } = await setup();
+    const a = read();
+    decideRequest(w.ctx, { requestId: a.id, userId: w.alice.id, decision: 'approve' });
+    redeemGrant(w.ctx, { grantId: grantIdForRequest(w.db, a.id, mcp.id)!, device: cli }, {});
+    const b = read();
+    decideRequest(w.ctx, { requestId: b.id, userId: w.alice.id, decision: 'approve' });
+    w.clock.advance(1000);
+    const c = read();
+    decideRequest(w.ctx, { requestId: c.id, userId: w.alice.id, decision: 'approve' });
+    w.clock.advance(15 * MIN - 500);
+    expireDue(w.ctx);
+    expect((w.db.$client.prepare('SELECT request_id FROM grants').all() as { request_id: string }[]).map((g) => g.request_id)).toEqual([c.id]);
+  });
+
+  it('requesting device revoked -> its grants unusable (403) and deleted by revokeDevice', async () => {
+    const { w, mcp, cli, read } = await setup();
+    const a = read();
+    decideRequest(w.ctx, { requestId: a.id, userId: w.alice.id, decision: 'approve' });
+    const ga = grantIdForRequest(w.db, a.id, mcp.id)!;
+    w.db.$client.prepare("UPDATE devices SET status = 'revoked' WHERE id = ?").run(mcp.id);
+    await rejects(() => redeemGrant(w.ctx, { grantId: ga, device: cli }, {}), 403, 'forbidden');
+    const denied = auditRows(w.db, 'grant.redeem_denied').at(-1)!;
+    expect(JSON.parse(String(denied.meta))).toMatchObject({ cause: 'device_inactive' });
+
+    w.db.$client.prepare("UPDATE devices SET status = 'approved' WHERE id = ?").run(mcp.id);
+    revokeDevice(w.ctx, mcp.id, { type: 'user', userId: w.alice.id });
+    expect(w.db.$client.prepare('SELECT * FROM grants').all()).toEqual([]);
+    await rejects(() => redeemGrant(w.ctx, { grantId: ga, device: cli }, {}), 410, 'grant_gone');
   });
 
   it('lost vault access -> 403 forbidden; archived secret -> 409 secret_archived', async () => {
@@ -331,16 +366,16 @@ describe('requests: update', () => {
     expect(w.db.$client.prepare('SELECT status, proposed_value_sealed AS s FROM access_requests').get()).toEqual({ status: 'denied', s: null });
   });
 
-  it('apply failure on approval -> 409 apply_failed {cause}, request denied by approver, value cleared, event emitted', async () => {
+  it('stale proposal (secret changed since request) -> 409 apply_failed {cause: stale}, denied by approver, value cleared, event', async () => {
     const { w, secret, mcp } = await setup();
     const dto = createUpdateRequest(w.ctx, { device: mcp, secretId: secret.id, project: 'p', reason: 'r', meta: { title: 'Renamed' } });
-    // A human makes the same change first: applying the request now yields no_changes.
-    applySecretChange(w.ctx, w.alice.actor, secret.id, { meta: { title: 'Renamed' } });
+    // A human changes the secret first (version 2): the proposal is based on version 1.
+    applySecretChange(w.ctx, w.alice.actor, secret.id, { meta: { description: 'edited' } });
     const events: unknown[] = [];
     w.ctx.events.subscribe(w.alice.id, (e) => events.push(e));
     const res = await w.req(w.alice, 'POST', `/api/requests/${dto.id}/decision`, { decision: 'approve' });
     expect(res.statusCode).toBe(409);
-    expect(res.json()).toEqual({ error: 'apply_failed', cause: 'no_changes' });
+    expect(res.json()).toEqual({ error: 'apply_failed', cause: 'stale' });
     expect(w.db.$client.prepare('SELECT status, decided_by, proposed_value_sealed AS s FROM access_requests').get()).toEqual({
       status: 'denied', decided_by: w.alice.id, s: null,
     });
@@ -348,8 +383,9 @@ describe('requests: update', () => {
     const denied = auditRows(w.db, 'request.denied');
     expect(denied).toHaveLength(1);
     expect(denied[0]).toMatchObject({ actor_type: 'user', actor_id: w.alice.id, vault_id: secret.vaultId, secret_id: secret.id });
-    expect(JSON.parse(String(denied[0]!.meta))).toMatchObject({ cause: 'apply_failed', error: 'no_changes' });
+    expect(JSON.parse(String(denied[0]!.meta))).toMatchObject({ cause: 'apply_failed', error: 'stale' });
     expect(auditRows(w.db, 'request.approved')).toHaveLength(0);
+    expect(getSecretMeta(w.db, w.alice.id, secret.id).title).toBe('Stripe Key');
     expect(events).toEqual([{ type: 'request.updated', data: expect.objectContaining({ id: dto.id, status: 'denied' }) }]);
 
     // With a value proposal and an archived secret (hook bypassed): cause secret_archived, value cleared.
@@ -380,7 +416,65 @@ describe('requests: update', () => {
   });
 });
 
+describe('requests: plaintext flag', () => {
+  it('flag 1 -> 0: open plaintext requests denied (cause plaintext_disabled), plaintext grants deleted, cli untouched', async () => {
+    const { w, secret, mcp, cli, read } = await setup({ plaintext: true });
+    const issued = read('plaintext');
+    decideRequest(w.ctx, { requestId: issued.id, userId: w.alice.id, decision: 'approve' });
+    const pg = grantIdForRequest(w.db, issued.id, mcp.id)!;
+    const cliReq = read('cli');
+    decideRequest(w.ctx, { requestId: cliReq.id, userId: w.alice.id, decision: 'approve' });
+    const cg = grantIdForRequest(w.db, cliReq.id, mcp.id)!;
+    const open = read('plaintext');
+    const openCli = read('cli');
+    applySecretChange(w.ctx, w.alice.actor, secret.id, { meta: { allowPlaintextToAgent: false } });
+    expect(w.db.$client.prepare('SELECT status, decided_by FROM access_requests WHERE id = ?').get(open.id)).toEqual({ status: 'denied', decided_by: 'system' });
+    expect(w.db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(openCli.id)).toEqual({ status: 'pending' });
+    const denied = auditRows(w.db, 'request.denied');
+    expect(denied).toHaveLength(1);
+    expect(denied[0]).toMatchObject({ actor_type: 'system', vault_id: secret.vaultId, secret_id: secret.id });
+    expect(JSON.parse(String(denied[0]!.meta))).toMatchObject({ cause: 'plaintext_disabled' });
+    await rejects(() => redeemGrant(w.ctx, { grantId: pg, device: mcp }, {}), 410);
+    expect(redeemGrant(w.ctx, { grantId: cg, device: cli }, {}).value).toBe('sk_live_TOPSECRET');
+  });
+
+  it('flag off without the hook: approval 403 plaintext_not_allowed + system deny; redemption 403 (audit plaintext_disabled)', async () => {
+    const { w, secret, mcp, read } = await setup({ plaintext: true });
+    const issued = read('plaintext');
+    decideRequest(w.ctx, { requestId: issued.id, userId: w.alice.id, decision: 'approve' });
+    const pg = grantIdForRequest(w.db, issued.id, mcp.id)!;
+    const pending = read('plaintext');
+    w.db.$client.prepare('UPDATE secrets SET allow_plaintext_to_agent = 0 WHERE id = ?').run(secret.id);
+    await rejects(() => decideRequest(w.ctx, { requestId: pending.id, userId: w.alice.id, decision: 'approve' }), 403, 'plaintext_not_allowed');
+    expect(w.db.$client.prepare('SELECT status, decided_by FROM access_requests WHERE id = ?').get(pending.id)).toEqual({ status: 'denied', decided_by: 'system' });
+    expect(grantIdForRequest(w.db, pending.id, mcp.id)).toBeNull();
+    await rejects(() => redeemGrant(w.ctx, { grantId: pg, device: mcp }, {}), 403, 'plaintext_not_allowed');
+    expect(JSON.parse(String(auditRows(w.db, 'grant.redeem_denied').at(-1)!.meta))).toMatchObject({ cause: 'plaintext_disabled' });
+    expect(auditRows(w.db, 'secret.plaintext_delivered')).toHaveLength(0);
+  });
+});
+
 describe('requests: waitForRequest', () => {
+  it('AbortSignal cleans up and rejects with AbortError; max 20 waiters per device -> 429', async () => {
+    const { w, mcp, read } = await setup();
+    const dto = read();
+    const ac = new AbortController();
+    const p = waitForRequest(w.ctx, dto.id, mcp.id, 10_000, ac.signal);
+    ac.abort();
+    await expect(p).rejects.toMatchObject({ name: 'AbortError' });
+    const pre = new AbortController();
+    pre.abort();
+    await expect(waitForRequest(w.ctx, dto.id, mcp.id, 10_000, pre.signal)).rejects.toMatchObject({ name: 'AbortError' });
+
+    const acs = Array.from({ length: 20 }, () => new AbortController());
+    const ps = acs.map((a) => waitForRequest(w.ctx, dto.id, mcp.id, 10_000, a.signal));
+    await rejects(() => waitForRequest(w.ctx, dto.id, mcp.id, 10, undefined), 429, 'too_many_waiters');
+    decideRequest(w.ctx, { requestId: dto.id, userId: w.alice.id, decision: 'deny' });
+    expect((await Promise.all(ps)).every((r) => r.status === 'denied')).toBe(true);
+    // Slots are released after settling.
+    expect((await waitForRequest(w.ctx, dto.id, mcp.id, 10)).status).toBe('denied');
+  });
+
   it('resolves right after decideRequest; immediately if already decided; timeout returns pending; foreign device 404', async () => {
     const { w, mcp, cli, read } = await setup();
     const dto = read();

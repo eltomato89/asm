@@ -32,7 +32,8 @@ const LIST_LIMIT = 100;
 const SYSTEM = 'system';
 
 export type RequestStatus = AccessRequestDto['status'];
-export type SystemCause = 'archived' | 'member_removed' | 'device_inactive';
+export type SystemCause = 'archived' | 'member_removed' | 'device_inactive' | 'plaintext_disabled';
+export const MAX_WAITERS_PER_DEVICE = 20;
 
 /** Raised inside a decision transaction when applying an approved update fails (carries the error code only). */
 class ApplyFailed extends Error {
@@ -72,7 +73,7 @@ function denyApplyFailed(ctx: ServiceCtx, r: RequestRow, decidedBy: string, erro
 }
 
 /** Stored in access_requests.proposed_meta for update requests (no values). */
-type ProposedMeta = { diff: RequestMetaDiff; valueChanged: boolean };
+type ProposedMeta = { diff: RequestMetaDiff; valueChanged: boolean; baseVersion?: number };
 
 // ---------- rows & DTO ----------
 
@@ -82,10 +83,11 @@ type RequestRow = {
   decided_by: string | null; auto: number; created_at: number; decided_at: number | null; expires_at: number;
   title: string; env_name: string | null; vault_id: string; vault_name: string;
   device_name: string; device_kind: 'mcp' | 'cli'; device_status: string; decided_by_name: string | null;
+  allow_plaintext_to_agent: number; current_version: number;
 };
 
 const REQUEST_SELECT = `
-  SELECT r.*, s.title, s.env_name, s.vault_id, v.name AS vault_name,
+  SELECT r.*, s.title, s.env_name, s.vault_id, v.name AS vault_name, s.allow_plaintext_to_agent, s.current_version,
          d.name AS device_name, d.kind AS device_kind, d.status AS device_status, u.username AS decided_by_name
     FROM access_requests r
     JOIN secrets s ON s.id = r.secret_id
@@ -154,7 +156,13 @@ function emitRequest(ctx: ServiceCtx, type: 'request.created' | 'request.updated
 function emitAfterCommit(ctx: ServiceCtx, requestIds: string[]): void {
   if (requestIds.length === 0) return;
   queueMicrotask(() => {
-    for (const id of requestIds) emitRequest(ctx, 'request.updated', id);
+    for (const id of requestIds) {
+      try {
+        emitRequest(ctx, 'request.updated', id);
+      } catch (err) {
+        ctx.logger?.error({ errName: (err as Error).name }, 'request event emission failed');
+      }
+    }
   });
 }
 
@@ -180,13 +188,21 @@ const deviceActor = (r: { device_id: string; user_id: string }): Actor => ({ typ
 
 /** Side effects of an approval: read → grant + usage; update → apply the change as the device. */
 function applyApproval(ctx: ServiceCtx, r: RequestRow): void {
+  // Fresh state inside the transaction (the row may have been loaded before it began).
+  const cur = ctx.db.$client.prepare('SELECT allow_plaintext_to_agent AS flag, current_version AS version FROM secrets WHERE id = ?').get(r.secret_id) as
+    | { flag: number; version: number }
+    | undefined;
+  if (!cur) throw new HttpError(404, 'not_found');
   if (r.kind === 'read') {
+    if (r.delivery === 'plaintext' && cur.flag !== 1) throw new HttpError(403, 'plaintext_not_allowed');
     const project = touchProject(ctx, r.project);
     recordUsage(ctx, project.id, r.secret_id, r.device_id);
     issueGrant(ctx, { id: r.id, userId: r.user_id, secretId: r.secret_id });
     return;
   }
   const pm = r.proposed_meta ? (JSON.parse(r.proposed_meta) as ProposedMeta) : { diff: {}, valueChanged: false };
+  // The proposal was made against baseVersion; any change since then makes it stale.
+  if (pm.baseVersion !== undefined && pm.baseVersion !== cur.version) throw new HttpError(409, 'stale');
   const meta = Object.fromEntries(Object.entries(pm.diff).map(([k, d]) => [k, d.to])) as Partial<SecretInput>;
   const value = r.proposed_value_sealed ? openProposed(ctx, r.id, r.proposed_value_sealed) : undefined;
   // touchProject + recordUsage + secret.updated audit happen inside applySecretChange (device actor).
@@ -327,7 +343,7 @@ export function createUpdateRequest(ctx: ServiceCtx, input: CreateUpdateRequestI
       ctx,
       {
         id, kind: 'update', secretId, vaultId: secret.vault_id, device, project: project.slug, reason, delivery: null,
-        proposedMeta: { diff, valueChanged: newValue !== undefined },
+        proposedMeta: { diff, valueChanged: newValue !== undefined, baseVersion: secret.current_version },
         proposedValueSealed: newValue === undefined ? null : sealProposed(ctx, id, newValue),
       },
       info,
@@ -354,11 +370,20 @@ export function decideRequest(
   if (row.user_id !== userId) throw new HttpError(403, 'forbidden');
   if (!canAccessVault(db, userId, row.vault_id)) throw new HttpError(403, 'forbidden');
 
-  if (decision === 'approve' && row.device_status !== 'approved') {
-    const denied = db.$client.transaction(() => row.expires_at > ctx.clock.now() && systemDeny(ctx, row, 'device_inactive'))();
+  // Preconditions whose failure denies the request on behalf of the system.
+  const blocked: [SystemCause, HttpError] | null =
+    decision !== 'approve'
+      ? null
+      : row.device_status !== 'approved'
+        ? ['device_inactive', new HttpError(409, 'device_inactive')]
+        : row.kind === 'read' && row.delivery === 'plaintext' && row.allow_plaintext_to_agent !== 1
+          ? ['plaintext_disabled', new HttpError(403, 'plaintext_not_allowed')]
+          : null;
+  if (blocked) {
+    const denied = db.$client.transaction(() => row.expires_at > ctx.clock.now() && systemDeny(ctx, row, blocked[0]))();
     if (denied) {
       emitRequest(ctx, 'request.updated', requestId);
-      throw new HttpError(409, 'device_inactive');
+      throw blocked[1];
     }
   }
 
@@ -409,27 +434,54 @@ function decideTxn(ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny
  * Long-poll for a decision. Only the requesting device may wait (else 404). Resolves immediately if no longer pending,
  * on the status change event, or after `timeoutMs` (clamped to 0…60 000) with the current state.
  */
-export async function waitForRequest(ctx: ServiceCtx, requestId: string, deviceId: string, timeoutMs: number): Promise<AccessRequestDto> {
+const waiters = new Map<string, number>();
+
+const abortError = () => new DOMException('The operation was aborted', 'AbortError');
+
+export async function waitForRequest(
+  ctx: ServiceCtx,
+  requestId: string,
+  deviceId: string,
+  timeoutMs: number,
+  signal?: AbortSignal,
+): Promise<AccessRequestDto> {
   const row = ctx.db.$client.prepare('SELECT device_id, user_id FROM access_requests WHERE id = ?').get(requestId) as
     | { device_id: string; user_id: string }
     | undefined;
   if (!row || row.device_id !== deviceId) throw new HttpError(404, 'not_found');
   const timeout = Math.min(Math.max(Number.isFinite(timeoutMs) ? timeoutMs : 0, 0), MAX_WAIT_MS);
+  if (signal?.aborted) throw abortError();
+  const active = waiters.get(deviceId) ?? 0;
+  if (active >= MAX_WAITERS_PER_DEVICE) throw new HttpError(429, 'too_many_waiters');
+  waiters.set(deviceId, active + 1);
 
   return new Promise<AccessRequestDto>((resolve, reject) => {
     let settled = false;
     let timer: NodeJS.Timeout | undefined;
-    const finish = () => {
-      if (settled) return;
+    const cleanup = () => {
       settled = true;
       unsubscribe();
       if (timer) clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      const n = (waiters.get(deviceId) ?? 1) - 1;
+      if (n <= 0) waiters.delete(deviceId);
+      else waiters.set(deviceId, n);
+    };
+    const finish = () => {
+      if (settled) return;
+      cleanup();
       try {
         resolve(getRequestDto(ctx.db, requestId));
       } catch (err) {
         reject(err);
       }
     };
+    const onAbort = () => {
+      if (settled) return;
+      cleanup();
+      reject(abortError());
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     // Subscribe before checking the status so no transition is missed.
     const unsubscribe = ctx.events.subscribe(row.user_id, (e) => {
       if (e.type !== 'automode.changed' && e.data.id === requestId && e.data.status !== 'pending') finish();
@@ -462,6 +514,8 @@ export function expireDue(ctx: ServiceCtx): void {
       expired.push(r.id);
     }
   })();
+  // Dead grants carry no capability; keep the table small.
+  db.$client.prepare('DELETE FROM grants WHERE expires_at <= ? OR uses_left <= 0').run(now);
   for (const id of expired) emitRequest(ctx, 'request.updated', id);
   expireAutoModes(ctx);
 }
@@ -486,8 +540,21 @@ export function revokeForRemovedMember(ctx: ServiceCtx, vaultId: string, userId:
   emitAfterCommit(ctx, changed);
 }
 
+/** Plaintext-flag hook (runs inside the change transaction, flag 1 → 0): deny open plaintext requests, delete their grants. */
+export function cancelPlaintextForSecret(ctx: ServiceCtx, secretId: string): void {
+  const rows = ctx.db.$client
+    .prepare(`${REQUEST_SELECT} WHERE r.secret_id = ? AND r.delivery = 'plaintext' AND r.status = 'pending'`)
+    .all(secretId) as RequestRow[];
+  const changed = rows.filter((r) => systemDeny(ctx, r, 'plaintext_disabled')).map((r) => r.id);
+  ctx.db.$client
+    .prepare(`DELETE FROM grants WHERE secret_id = ? AND request_id IN (SELECT id FROM access_requests WHERE delivery = 'plaintext')`)
+    .run(secretId);
+  emitAfterCommit(ctx, changed);
+}
+
 /** Real hook implementations, wired by buildApp. */
 export const requestHooks: ServiceHooks = {
   onSecretArchived: cancelOpenForSecret,
   onVaultMemberRemoved: revokeForRemovedMember,
+  onPlaintextDisabled: cancelPlaintextForSecret,
 };

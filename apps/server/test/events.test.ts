@@ -4,12 +4,13 @@ import { RequestEvents } from '../src/requests/events.js';
 import { createSecret } from '../src/secrets/service.js';
 import { pairDevice, world } from './helpers/fixtures.js';
 
-type Stream = { text: () => string; close: () => void; status: number; contentType: string | null };
+type Stream = { text: () => string; ended: () => boolean; close: () => void; status: number; contentType: string | null };
 
 async function openStream(base: string, cookie: string): Promise<Stream> {
   const ac = new AbortController();
   const res = await fetch(`${base}/api/events`, { headers: { cookie }, signal: ac.signal });
   let buf = '';
+  let ended = false;
   if (res.body) {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -23,9 +24,10 @@ async function openStream(base: string, cookie: string): Promise<Stream> {
       } catch {
         /* aborted */
       }
+      ended = true;
     })();
   }
-  return { text: () => buf, close: () => ac.abort(), status: res.status, contentType: res.headers.get('content-type') };
+  return { text: () => buf, ended: () => ended, close: () => ac.abort(), status: res.status, contentType: res.headers.get('content-type') };
 }
 
 async function until(cond: () => boolean, ms = 2_000) {
@@ -50,6 +52,26 @@ describe('RequestEvents', () => {
 });
 
 describe('SSE /api/events', () => {
+  it('stream ends once its session is gone (logout) and delivers nothing further', async () => {
+    const w = await world();
+    await w.app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = w.app.server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    const a = await openStream(base, w.alice.cookie);
+    try {
+      expect(a.status).toBe(200);
+      expect((await w.req(w.alice, 'POST', '/api/auth/logout')).statusCode).toBeLessThan(300);
+      const secret = createSecret(w.ctx, w.alice.actor, { title: 'After logout', value: 'v' });
+      const { deviceId } = pairDevice(w.ctx, { userId: w.alice.id, kind: 'mcp', name: 'agent' });
+      createRequest(w.ctx, { device: { id: deviceId, userId: w.alice.id, kind: 'mcp', name: 'agent' }, secretId: secret.id, project: 'p', reason: 'r', delivery: 'cli' });
+      await until(() => a.ended());
+      expect(a.text()).not.toContain('request.created');
+    } finally {
+      a.close();
+      await w.app.close();
+    }
+  });
+
   it('streams request.created to the owner only; requires a session; max 10 streams per user', async () => {
     const w = await world();
     await w.app.listen({ port: 0, host: '127.0.0.1' });

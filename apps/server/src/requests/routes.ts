@@ -15,6 +15,7 @@ const decisionBody = z.strictObject({ decision: DecisionSchema });
 
 export const SSE_HEARTBEAT_MS = 25_000;
 export const MAX_STREAMS_PER_USER = 10;
+const MAX_TIMER_MS = 2_147_483_647;
 
 const sseFrame = (e: RequestEvent) => `event: ${e.type}\ndata: ${JSON.stringify(e.data)}\n\n`;
 
@@ -55,6 +56,7 @@ export async function registerRequestRoutes(app: FastifyInstance, deps: ModuleDe
 
   app.get('/api/events', { preHandler: requireUser }, async (req, reply) => {
     const userId = req.user!.id;
+    const sessionId = req.session!.id;
     const count = streamsPerUser.get(userId) ?? 0;
     if (count >= MAX_STREAMS_PER_USER) throw new HttpError(429, 'too_many_streams');
     streamsPerUser.set(userId, count + 1);
@@ -69,11 +71,18 @@ export async function registerRequestRoutes(app: FastifyInstance, deps: ModuleDe
     });
     res.write(': connected\n\n');
 
-    const unsubscribe = ctx.events.subscribe(userId, (e) => {
-      res.write(sseFrame(e));
-    });
-    const heartbeat = setInterval(() => res.write(': heartbeat\n\n'), SSE_HEARTBEAT_MS);
+    // The stream lives only as long as its session: re-validated before every write, capped at session expiry.
+    const sessionValid = () =>
+      ctx.db.$client.prepare('SELECT 1 FROM sessions WHERE id = ? AND user_id = ? AND expires_at > ?').get(sessionId, userId, clock.now()) !== undefined;
+    const send = (chunk: string) => {
+      if (!sessionValid()) close();
+      else res.write(chunk);
+    };
+    const unsubscribe = ctx.events.subscribe(userId, (e) => send(sseFrame(e)));
+    const heartbeat = setInterval(() => send(': heartbeat\n\n'), SSE_HEARTBEAT_MS);
     heartbeat.unref();
+    const lifetime = setTimeout(() => close(), Math.min(Math.max(req.session!.expiresAt - clock.now(), 0), MAX_TIMER_MS));
+    lifetime.unref();
 
     let closed = false;
     const close = () => {
@@ -81,6 +90,7 @@ export async function registerRequestRoutes(app: FastifyInstance, deps: ModuleDe
       closed = true;
       unsubscribe();
       clearInterval(heartbeat);
+      clearTimeout(lifetime);
       openStreams.delete(close);
       const n = (streamsPerUser.get(userId) ?? 1) - 1;
       if (n <= 0) streamsPerUser.delete(userId);

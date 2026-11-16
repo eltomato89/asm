@@ -1,6 +1,7 @@
 import { newId } from '@asm/shared';
 import { and, eq, isNull } from 'drizzle-orm';
 import { appendAudit } from '../audit/audit.js';
+import { deleteGrantsForDevice } from '../requests/grants.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import type { Db } from '../db/client.js';
 import { deviceCodes, devices, oauthCodes, tokens } from '../db/schema.js';
@@ -74,6 +75,7 @@ export function revokeDevice(ctx: ServiceCtx, deviceId: string, actor: RevokeAct
     db.update(tokens).set({ revokedAt: now }).where(and(eq(tokens.deviceId, deviceId), isNull(tokens.revokedAt))).run();
     db.delete(oauthCodes).where(eq(oauthCodes.deviceId, deviceId)).run();
     db.delete(deviceCodes).where(eq(deviceCodes.deviceId, deviceId)).run();
+    deleteGrantsForDevice(db, deviceId);
     appendAudit(db, clock, {
       ...(actor.type === 'user'
         ? { actorType: 'user', actorId: actor.userId }

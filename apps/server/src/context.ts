@@ -8,7 +8,12 @@ export type ServiceHooks = {
   onSecretArchived: (ctx: ServiceCtx, secretId: string) => void;
   /** Runs inside the member-removal transaction (Task 9 revokes the user's grants/requests for the vault). */
   onVaultMemberRemoved: (ctx: ServiceCtx, vaultId: string, userId: string) => void;
+  /** Runs inside the change transaction when allow_plaintext_to_agent goes 1 → 0 (Task 9 cancels plaintext requests/grants). */
+  onPlaintextDisabled: (ctx: ServiceCtx, secretId: string) => void;
 };
+
+/** Minimal logger surface used by services for background failures (never pass values). */
+export type ServiceLogger = { error: (obj: Record<string, unknown>, msg: string) => void };
 
 export type ServiceCtx = {
   db: Db;
@@ -19,6 +24,7 @@ export type ServiceCtx = {
   events: RequestEvents;
   /** Upper bound for auto mode duration in minutes (ASM_AUTO_MODE_MAX_MIN). */
   autoModeMaxMin: number;
+  logger?: ServiceLogger;
 };
 
 export type Actor = { type: 'user'; userId: string } | { type: 'device'; deviceId: string; userId: string };
@@ -29,6 +35,7 @@ export type RequestInfo = { ip?: string };
 export const defaultHooks: ServiceHooks = {
   onSecretArchived: () => {},
   onVaultMemberRemoved: () => {},
+  onPlaintextDisabled: () => {},
 };
 
 export const DEFAULT_AUTO_MODE_MAX_MIN = 240;
@@ -40,6 +47,7 @@ export function createServiceCtx(deps: {
   hooks?: ServiceHooks;
   events?: RequestEvents;
   autoModeMaxMin?: number;
+  logger?: ServiceLogger;
 }): ServiceCtx {
   return {
     db: deps.db,
@@ -48,6 +56,7 @@ export function createServiceCtx(deps: {
     hooks: deps.hooks ?? { ...defaultHooks },
     events: deps.events ?? new RequestEvents(),
     autoModeMaxMin: deps.autoModeMaxMin ?? DEFAULT_AUTO_MODE_MAX_MIN,
+    logger: deps.logger,
   };
 }
 

@@ -301,6 +301,7 @@ export function applySecretChange(ctx: ServiceCtx, actor: Actor, secretId: strin
       .where(eq(secrets.id, secretId))
       .run();
     noteUsage(ctx, actor, project, secretId);
+    if (row.allow_plaintext_to_agent === 1 && !allowPlaintextToAgent) ctx.hooks.onPlaintextDisabled(ctx, secretId);
     const restored = change.restoredFrom !== undefined;
     appendAudit(db, ctx.clock, {
       ...auditActor(actor),
