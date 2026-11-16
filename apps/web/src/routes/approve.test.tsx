@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../lib/api';
-import type { ApproveSummaryDto } from '../lib/push-types';
+import type { ApproveSummaryDto } from '@asm/shared';
 import { approveErrorText } from './approve';
 import { renderApp } from '../test/renderApp';
 import { mockFetch, type FetchCall } from '../test/utils';
@@ -85,6 +85,22 @@ describe('approve page', () => {
     expect(title).toHaveTextContent('GitHub CI');
     expect(screen.getByLabelText('Wert')).toHaveTextContent('Wert wird geändert');
     expect(screen.getByText('agent-secrets-manager')).toBeInTheDocument();
+  });
+
+  it('renders redacted diff fields without values', async () => {
+    server(() => ({
+      body: summary({
+        kind: 'update',
+        delivery: null,
+        metaDiff: { title: { from: 'GitHub', to: 'GitHub CI' }, description: { from: null, to: null, redacted: true }, tags: { from: null, to: null, redacted: true } },
+      }),
+    }));
+    renderApp(`/approve/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.getByLabelText('Beschreibung')).toHaveTextContent('Beschreibung wird geändert');
+    expect(screen.getByLabelText('Tags')).toHaveTextContent('Tags wird geändert');
+    expect(screen.getByLabelText('Beschreibung')).not.toHaveTextContent('→');
+    expect(screen.getByLabelText('Titel')).toHaveTextContent('GitHub CI');
   });
 
   it('approves with a passkey assertion (options → startAuthentication → decision)', async () => {

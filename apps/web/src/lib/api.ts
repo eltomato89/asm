@@ -9,7 +9,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
-import type { ApproveSummaryDto, PushSubscriptionDto, PushSubscriptionInput } from './push-types';
+import type { ApproveSummaryDto, PushSubscriptionDto, PushSubscribeInput } from '@asm/shared';
 
 export { ApiError };
 
@@ -230,7 +230,7 @@ export const api = {
 
   pushVapidKey: () => get<{ publicKey: string }>('/api/push/vapid-key'),
   pushSubscriptions: () => get<{ items: PushSubscriptionDto[] }>('/api/push/subscriptions'),
-  addPushSubscription: (body: PushSubscriptionInput) => post<PushSubscriptionDto>('/api/push/subscriptions', body),
+  addPushSubscription: (body: PushSubscribeInput) => post<PushSubscriptionDto>('/api/push/subscriptions', body),
   deletePushSubscription: (subId: string) => sendMaybeEmpty<void>('DELETE', `/api/push/subscriptions/${id(subId)}`),
   pushTest: () => post<{ sent: number }>('/api/push/test'),
 

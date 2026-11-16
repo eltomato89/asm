@@ -13,7 +13,7 @@ import {
   unsubscribeBrowser,
   type LocalSubscription,
 } from '../../lib/push';
-import type { PushSubscriptionDto } from '../../lib/push-types';
+import type { PushSubscriptionDto } from '@asm/shared';
 import { RelativeTime } from '../RelativeTime';
 import { Button, IconButton } from '../ui/Button';
 import { Input } from '../ui/Input';

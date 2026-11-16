@@ -1,5 +1,5 @@
 import { FileText, FolderClosed, Terminal } from 'lucide-react';
-import type { ApproveSummaryDto } from '../../lib/push-types';
+import type { ApproveSummaryDto } from '@asm/shared';
 import { formatCountdown } from '../../lib/time';
 import { diffValue } from '../requests/RequestCard';
 
@@ -40,15 +40,25 @@ export function ApproveDetails({ summary: s }: { summary: ApproveSummaryDto }) {
       </p>
       {isUpdate && (diff.length > 0 || s.valueChanged) ? (
         <dl className="req-diff">
-          {diff.map(([field, d]) => (
-            <DiffRow key={field} label={FIELD_LABELS[field] ?? field}>
-              <del>{diffValue(d.from)}</del>
-              <span className="arrow" aria-label="wird zu">
-                →
-              </span>
-              <ins>{diffValue(d.to)}</ins>
-            </DiffRow>
-          ))}
+          {diff.map(([field, d]) => {
+            const label = FIELD_LABELS[field] ?? field;
+            if (d.redacted) {
+              return (
+                <DiffRow key={field} label={label}>
+                  {label} wird geändert
+                </DiffRow>
+              );
+            }
+            return (
+              <DiffRow key={field} label={label}>
+                <del>{diffValue(d.from)}</del>
+                <span className="arrow" aria-label="wird zu">
+                  →
+                </span>
+                <ins>{diffValue(d.to)}</ins>
+              </DiffRow>
+            );
+          })}
           {s.valueChanged ? (
             <DiffRow label="Wert">
               <span className="masked" aria-hidden="true">

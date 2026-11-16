@@ -9,7 +9,7 @@ import { useToast } from '../components/ui/Toast';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { decisionErrorText } from '../lib/errors';
 import { isIOS } from '../lib/push';
-import type { ApproveSummaryDto } from '../lib/push-types';
+import type { ApproveSummaryDto } from '@asm/shared';
 import { useNow } from '../lib/time';
 import { PairingFrame } from './connect';
 
