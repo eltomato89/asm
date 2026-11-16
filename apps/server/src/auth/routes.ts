@@ -81,7 +81,8 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
         actorId: 'anonymous',
         event: 'auth.login_failed',
         ip: req.ip,
-        meta: { username: name.slice(0, 64) },
+        // Only a known username is recorded: unknown input may be a password typed into the wrong field.
+        meta: row ? { username: row.username } : null,
       });
       throw new HttpError(401, 'invalid_credentials');
     }

@@ -40,6 +40,8 @@ export interface WebAuthnAdapter {
     expectedOrigin: string;
     expectedRPID: string;
     credential: StoredCredential;
+    /** True for re-authentication (UV flag must be set); login only needs user presence. */
+    requireUserVerification: boolean;
   }): Promise<{ verified: boolean; newCounter: number }>;
 }
 
@@ -51,7 +53,7 @@ export const realWebAuthn: WebAuthnAdapter = {
     return r.verified ? { verified: true, credential: r.registrationInfo.credential } : { verified: false };
   },
   async verifyAuthentication(o) {
-    const r = await verifyAuthenticationResponse({ ...o, requireUserVerification: false });
+    const r = await verifyAuthenticationResponse(o);
     return { verified: r.verified, newCounter: r.authenticationInfo.newCounter };
   },
 };
@@ -125,10 +127,17 @@ export function registerPasskeyRoutes(
   };
 
   /** Verifies an assertion against the stored credential; false on any failure (bad signature, counter regression). */
-  async function assertionValid(response: AuthenticationResponseJSON, expectedChallenge: string, row: typeof passkeys.$inferSelect): Promise<boolean> {
+  async function assertionValid(
+    response: AuthenticationResponseJSON,
+    expectedChallenge: string,
+    row: typeof passkeys.$inferSelect,
+    requireUserVerification: boolean,
+  ): Promise<boolean> {
     let result;
     try {
-      result = await adapter.verifyAuthentication({ response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, credential: toCredential(row) });
+      result = await adapter.verifyAuthentication({
+        response, expectedChallenge, expectedOrigin: origin, expectedRPID: rpID, credential: toCredential(row), requireUserVerification,
+      });
     } catch {
       return false;
     }
@@ -206,7 +215,7 @@ export function registerPasskeyRoutes(
     if (!expectedChallenge) return failLogin(req);
     const row = db.select().from(passkeys).where(eq(passkeys.credentialId, body.response.id)).get();
     if (!row) return failLogin(req);
-    if (!(await assertionValid(body.response as unknown as AuthenticationResponseJSON, expectedChallenge, row))) return failLogin(req);
+    if (!(await assertionValid(body.response as unknown as AuthenticationResponseJSON, expectedChallenge, row, false))) return failLogin(req);
     const user = db.select().from(users).where(eq(users.id, row.userId)).get();
     if (!user || user.disabledAt !== null) return failLogin(req);
     if (req.session) deleteSession(db, req.session.id);
@@ -224,7 +233,7 @@ export function registerPasskeyRoutes(
     if (mine.length === 0) throw new HttpError(409, 'no_passkey');
     const options = await adapter.generateAuthenticationOptions({
       rpID,
-      userVerification: 'preferred',
+      userVerification: 'required',
       allowCredentials: mine.map((p) => ({ id: p.credentialId, ...(p.transports ? { transports: p.transports } : {}) })),
     });
     issueChallenge(reply, options.challenge, 'reauth', user.id);
@@ -241,7 +250,7 @@ export function registerPasskeyRoutes(
       .from(passkeys)
       .where(and(eq(passkeys.credentialId, body.response.id), eq(passkeys.userId, user.id)))
       .get();
-    if (!expectedChallenge || !row || !(await assertionValid(body.response as unknown as AuthenticationResponseJSON, expectedChallenge, row))) {
+    if (!expectedChallenge || !row || !(await assertionValid(body.response as unknown as AuthenticationResponseJSON, expectedChallenge, row, true))) {
       throw new HttpError(401, 'invalid_credentials');
     }
     touchReauth(db, clock, req.session!.id);

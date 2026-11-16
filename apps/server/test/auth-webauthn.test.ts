@@ -177,7 +177,7 @@ describe('passkey login', () => {
     expect(db.select().from(passkeys).get()!.counter).toBe(1);
     expect(auditEvents(db, 'auth.login')).toContainEqual({ method: 'passkey' });
     const arg = webauthn.verifyAuthentication.mock.calls[0]![0] as Record<string, any>;
-    expect(arg).toMatchObject({ expectedChallenge: 'chal-auth', expectedOrigin: ORIGIN, expectedRPID: 'asm.test' });
+    expect(arg).toMatchObject({ expectedChallenge: 'chal-auth', expectedOrigin: ORIGIN, expectedRPID: 'asm.test', requireUserVerification: false });
     expect(arg.credential).toMatchObject({ id: 'cred-1', counter: 0 });
     const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie: `asm_session=${sc.value}` } });
     expect(me.statusCode).toBe(200);
@@ -229,8 +229,12 @@ describe('passkey reauth', () => {
     expect(o.statusCode).toBe(200);
     const arg = webauthn.generateAuthenticationOptions.mock.calls[0]![0] as Record<string, any>;
     expect(arg.allowCredentials).toEqual([{ id: 'cred-1', transports: ['internal'] }]);
+    // Re-auth gates sensitive actions: user verification (PIN/biometrics) is required, not just presence.
+    expect(arg.userVerification).toBe('required');
     const ok = await post(app, '/api/auth/reauth/passkey/verify', `${cookie}; ${cookieHeader(o, 'asm_webauthn')}`, { response: { id: 'cred-1' } });
     expect(ok.statusCode).toBe(200);
+    const verifyArg = webauthn.verifyAuthentication.mock.calls.at(-1)![0] as Record<string, any>;
+    expect(verifyArg.requireUserVerification).toBe(true);
     const row = db.$client.prepare('SELECT last_auth_at FROM sessions').get() as { last_auth_at: number };
     expect(row.last_auth_at).toBe(clock.now());
   });

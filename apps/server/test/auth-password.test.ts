@@ -110,11 +110,15 @@ describe('login and sessions', () => {
     await app.close();
   });
 
-  it('unknown user also 401 + audit', async () => {
+  it('unknown user also 401 + audit, without storing the typed username (could be a mistyped password)', async () => {
     const { app, db } = await boot();
-    const res = await login(app, 'ghost', 'whatever-password');
+    const typed = 'my-Secret-P4ssword-typed-into-username';
+    const res = await login(app, typed, 'whatever-password');
     expect(res.statusCode).toBe(401);
-    expect(auditEvents(db, 'auth.login_failed')).toHaveLength(1);
+    const ev = auditEvents(db, 'auth.login_failed');
+    expect(ev).toHaveLength(1);
+    expect(ev[0]!.meta?.username).toBeUndefined();
+    expect(JSON.stringify(db.$client.prepare('SELECT * FROM audit_log').all())).not.toContain(typed.toLowerCase());
     await app.close();
   });
 
