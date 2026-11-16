@@ -26,8 +26,12 @@ describe('logger redaction', () => {
     });
     const log = pino({ redact: { paths: REDACT_PATHS, censor: '[REDACTED]' } }, sink);
     log.info({ secret: { value: 'hunter2', plaintext: 'p4ss' }, req: { headers: { authorization: 'Bearer abc', cookie: 'sid=1' } } }, 'x');
+    log.info({ value: 'top-value', password: 'top-pw', token: 'top-tok', authorization: 'top-auth', cookie: 'top-cookie' }, 'y');
+    log.info({ a: { b: { c: { value: 'deep-value', plaintext: 'deep-plain', token: 'deep-tok', password: 'deep-pw' } } } }, 'z');
+    log.info({ req: { body: { password: 'body-pw', token: 'body-tok' } } }, 'w');
     const out = lines.join('');
-    for (const s of ['hunter2', 'p4ss', 'Bearer abc', 'sid=1']) expect(out).not.toContain(s);
+    for (const s of ['hunter2', 'p4ss', 'Bearer abc', 'sid=1', 'top-value', 'top-pw', 'top-tok', 'top-auth', 'top-cookie', 'deep-value', 'deep-plain', 'deep-tok', 'deep-pw', 'body-pw', 'body-tok'])
+      expect(out).not.toContain(s);
   });
 });
 

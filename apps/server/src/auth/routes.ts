@@ -1,0 +1,118 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import rateLimit from '@fastify/rate-limit';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import type { AppDeps } from '../app.js';
+import { appendAudit } from '../audit/audit.js';
+import { users } from '../db/schema.js';
+import { HttpError } from '../errors.js';
+import { requireAdmin, requireUser } from './guards.js';
+import { hashPassword, verifyPassword } from './password.js';
+import { SESSION_COOKIE, SESSION_TTL_MS, createSession, deleteSession, touchReauth } from './sessions.js';
+import { MIN_PASSWORD_LENGTH, USERNAME_RE, countUsers, createUser } from './setup.js';
+
+const username = z.string().min(3).max(64).regex(USERNAME_RE);
+const newPassword = z.string().min(MIN_PASSWORD_LENGTH).max(1024);
+const anyPassword = z.string().min(1).max(1024);
+
+const setupBody = z.object({ token: z.string().min(1).max(256), username, password: newPassword });
+const loginBody = z.object({ username: z.string().min(1).max(256), password: anyPassword });
+const reauthBody = z.object({ password: anyPassword });
+const adminCreateBody = z.object({ username, password: newPassword.optional(), isAdmin: z.boolean().default(false) });
+
+// Hash of a random password; verified against when the user is unknown to equalize timing.
+const dummyHash = hashPassword('asm-dummy-password-for-timing');
+
+export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): Promise<void> {
+  const { db, clock } = deps;
+
+  await app.register(rateLimit, {
+    global: false,
+    hook: 'preHandler', // body is parsed, so the key can include the username
+    errorResponseBuilder: () => new HttpError(429, 'rate_limited'),
+  });
+  const limited = (nameOf: (req: FastifyRequest) => string) => ({
+    rateLimit: {
+      max: 5,
+      timeWindow: '1 minute',
+      keyGenerator: (req: FastifyRequest) => `${req.ip}|${nameOf(req).toLowerCase().slice(0, 64)}`,
+    },
+  });
+  const bodyField = (field: string) => (req: FastifyRequest) => {
+    const v = (req.body as Record<string, unknown> | null | undefined)?.[field];
+    return typeof v === 'string' ? v : '';
+  };
+
+  function setSessionCookie(reply: FastifyReply, token: string): void {
+    reply.setCookie(SESSION_COOKIE, token, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'strict',
+      path: '/',
+      maxAge: SESSION_TTL_MS / 1000,
+    });
+  }
+
+  app.get('/api/setup/status', async () => ({ needsSetup: countUsers(db) === 0 }));
+
+  app.post('/api/setup', { config: limited(bodyField('username')) }, async (req, reply) => {
+    const body = setupBody.parse(req.body);
+    if (countUsers(db) > 0) throw new HttpError(409, 'already_setup');
+    if (!app.setup.verify(body.token)) throw new HttpError(403, 'invalid_setup_token');
+    const user = await createUser(db, clock, { username: body.username, password: body.password, isAdmin: true });
+    app.setup.clear();
+    return reply.status(201).send({ id: user.id, username: user.username, isAdmin: true });
+  });
+
+  app.post('/api/auth/login', { config: limited(bodyField('username')) }, async (req, reply) => {
+    const body = loginBody.parse(req.body);
+    const name = body.username.toLowerCase();
+    const row = db.select().from(users).where(eq(users.username, name)).get();
+    const ok = row?.passwordHash
+      ? await verifyPassword(row.passwordHash, body.password)
+      : (await verifyPassword(await dummyHash, body.password), false);
+    if (!row || !ok) {
+      appendAudit(db, clock, {
+        actorType: 'system',
+        actorId: 'anonymous',
+        event: 'auth.login_failed',
+        ip: req.ip,
+        meta: { username: name.slice(0, 64) },
+      });
+      throw new HttpError(401, 'invalid_credentials');
+    }
+    const { token } = createSession(db, clock, row.id);
+    appendAudit(db, clock, { actorType: 'user', actorId: row.id, event: 'auth.login', ip: req.ip });
+    setSessionCookie(reply, token);
+    return { id: row.id, username: row.username, isAdmin: row.isAdmin };
+  });
+
+  app.post('/api/auth/logout', { preHandler: requireUser }, async (req, reply) => {
+    deleteSession(db, req.session!.id);
+    reply.clearCookie(SESSION_COOKIE, { path: '/' });
+    return { ok: true };
+  });
+
+  app.get('/api/auth/me', { preHandler: requireUser }, async (req) => req.user);
+
+  app.post(
+    '/api/auth/reauth/password',
+    { preHandler: requireUser, config: limited((req) => req.user?.id ?? '') },
+    async (req) => {
+      const body = reauthBody.parse(req.body);
+      const row = db.select().from(users).where(eq(users.id, req.user!.id)).get();
+      if (!row?.passwordHash || !(await verifyPassword(row.passwordHash, body.password))) {
+        throw new HttpError(401, 'invalid_credentials');
+      }
+      touchReauth(db, clock, req.session!.id);
+      return { ok: true };
+    },
+  );
+
+  app.post('/api/admin/users', { preHandler: requireAdmin }, async (req, reply) => {
+    const body = adminCreateBody.parse(req.body);
+    const user = await createUser(db, clock, body);
+    return reply.status(201).send({ id: user.id, username: user.username, isAdmin: user.isAdmin });
+  });
+
+}
