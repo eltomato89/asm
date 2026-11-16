@@ -38,6 +38,8 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
 
 ## Setup (Docker)
 
+Das Image basiert auf `node:24-alpine`. Ohne Docker braucht der Server Node.js ≥ 24 (LTS) und pnpm 11.
+
 ```sh
 docker build -t asm .
 
@@ -230,6 +232,8 @@ Projekt ist standardmäßig der Name des Git-Repos bzw. Ordners (`--project` üb
   Für Werte mit diesen Zeichen besser `asm run` verwenden.
 
 ## Entwicklung
+
+Voraussetzungen: Node.js ≥ 24 (LTS), pnpm 11 (Version aus `packageManager` in `package.json`).
 
 ```sh
 pnpm install

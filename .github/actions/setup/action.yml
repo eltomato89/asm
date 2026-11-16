@@ -1,5 +1,5 @@
 name: Setup pnpm workspace
-description: Install pnpm + Node 22 (with pnpm store cache) and install workspace dependencies.
+description: Install pnpm + Node 24 (with pnpm store cache) and install workspace dependencies.
 runs:
   using: composite
   steps:
@@ -7,7 +7,7 @@ runs:
     - uses: pnpm/action-setup@v4
     - uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version: 24
         cache: pnpm
     - name: Install dependencies
       shell: bash

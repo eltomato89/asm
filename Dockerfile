@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- build: compile native deps (better-sqlite3, argon2) for musl, build shared/server/web + CLI bundle, deploy prod deps ---
-FROM node:22-alpine AS build
+FROM node:24-alpine AS build
 RUN apk add --no-cache python3 make g++ \
  && npm install -g pnpm@11.7.0
 WORKDIR /src
@@ -19,7 +19,7 @@ RUN pnpm --filter @asm/shared build \
  && pnpm --filter @asm/server deploy --prod --legacy /out
 
 # --- runtime: server + production node_modules + web UI + CLI bundle (served under /cli), no build toolchain ---
-FROM node:22-alpine
+FROM node:24-alpine
 ENV NODE_ENV=production \
     ASM_DATA_DIR=/data \
     PORT=8080 \
