@@ -11,6 +11,11 @@ declare module 'fastify' {
   }
 }
 
+/** Login CSRF: browsers always send Origin on cross-site POSTs. */
+export function checkLoginOrigin(req: FastifyRequest, publicOrigin: string): void {
+  if (req.headers.origin !== undefined && req.headers.origin !== publicOrigin) throw new HttpError(403, 'bad_origin');
+}
+
 const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**

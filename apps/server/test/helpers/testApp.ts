@@ -8,7 +8,7 @@ import { openDb, type Db } from '../../src/db/client.js';
 export const TEST_KEY = Buffer.alloc(32, 7);
 
 export async function createTestApp(
-  opts: { dbPath?: string; config?: Partial<Config>; clock?: FakeClock; logger?: AppDeps['logger'] } = {},
+  opts: { dbPath?: string; config?: Partial<Config>; clock?: FakeClock; logger?: AppDeps['logger']; webauthn?: AppDeps['webauthn'] } = {},
 ): Promise<{ app: FastifyInstance; db: Db; clock: FakeClock; config: Config }> {
   const clock = opts.clock ?? new FakeClock();
   const config: Config = {
@@ -22,6 +22,6 @@ export async function createTestApp(
   };
   const db = openDb(opts.dbPath ?? ':memory:');
   const logger = opts.logger ?? pino({ level: 'silent' });
-  const app = await buildApp({ config, db, clock, logger });
+  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn });
   return { app, db, clock, config };
 }

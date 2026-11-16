@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
@@ -6,9 +6,10 @@ import type { AppDeps } from '../app.js';
 import { appendAudit } from '../audit/audit.js';
 import { users } from '../db/schema.js';
 import { HttpError } from '../errors.js';
-import { requireAdmin, requireUser } from './guards.js';
+import { checkLoginOrigin, requireAdmin, requireUser } from './guards.js';
 import { hashPassword, verifyPassword } from './password.js';
-import { SESSION_COOKIE, SESSION_TTL_MS, createSession, deleteSession, touchReauth } from './sessions.js';
+import { SESSION_COOKIE, SESSION_COOKIE_ATTRS, createSession, deleteSession, setSessionCookie, touchReauth } from './sessions.js';
+import { registerPasskeyRoutes } from './webauthn.js';
 import { MIN_PASSWORD_LENGTH, USERNAME_RE, countUsers, createUser } from './setup.js';
 
 const username = z.string().min(3).max(64).regex(USERNAME_RE);
@@ -43,17 +44,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
     return typeof v === 'string' ? v : '';
   };
 
-  const COOKIE_ATTRS = { httpOnly: true, secure: true, sameSite: 'strict', path: '/' } as const;
-  // Login CSRF: browsers always send Origin on cross-site POSTs.
-  const checkOrigin = (req: FastifyRequest) => {
-    if (req.headers.origin !== undefined && req.headers.origin !== config.publicUrl.origin) {
-      throw new HttpError(403, 'bad_origin');
-    }
-  };
-
-  function setSessionCookie(reply: FastifyReply, token: string): void {
-    reply.setCookie(SESSION_COOKIE, token, { ...COOKIE_ATTRS, maxAge: SESSION_TTL_MS / 1000 });
-  }
+  const checkOrigin = (req: FastifyRequest) => checkLoginOrigin(req, config.publicUrl.origin);
 
   app.get('/api/setup/status', async () => ({ needsSetup: countUsers(db) === 0 }));
 
@@ -102,7 +93,7 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
 
   app.post('/api/auth/logout', { preHandler: requireUser }, async (req, reply) => {
     deleteSession(db, req.session!.id);
-    reply.clearCookie(SESSION_COOKIE, COOKIE_ATTRS);
+    reply.clearCookie(SESSION_COOKIE, SESSION_COOKIE_ATTRS);
     return { ok: true };
   });
 
@@ -128,4 +119,5 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
     return reply.status(201).send({ id: user.id, username: user.username, isAdmin: user.isAdmin });
   });
 
+  registerPasskeyRoutes(app, deps, { limited, checkOrigin });
 }

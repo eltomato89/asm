@@ -52,4 +52,19 @@ describe('loadConfig', () => {
     });
     expect(cfg).toMatchObject({ port: 9000, autoModeMaxMin: 60, trustProxy: true, dataDir: '/tmp/x' });
   });
+  describe('ASM_PUBLIC_URL hardening', () => {
+    const withUrl = (u: string) => () => loadConfig({ ...base, ASM_PUBLIC_URL: u });
+    it('rejects non-http(s) schemes', () => {
+      expect(withUrl('ftp://asm.test')).toThrow(ConfigError);
+      expect(withUrl('file:///etc/passwd')).toThrow(ConfigError);
+    });
+    it('rejects http for non-local hosts', () => {
+      expect(withUrl('http://asm.test')).toThrow(/https/);
+    });
+    it('allows http for localhost and 127.0.0.1, https anywhere', () => {
+      expect(withUrl('http://localhost:8080')).not.toThrow();
+      expect(withUrl('http://127.0.0.1:8080')).not.toThrow();
+      expect(withUrl('https://asm.example.com')).not.toThrow();
+    });
+  });
 });

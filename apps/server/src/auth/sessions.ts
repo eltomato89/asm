@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { newId } from '@asm/shared';
+import type { FastifyReply } from 'fastify';
 import { and, eq, gt } from 'drizzle-orm';
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/client.js';
@@ -7,6 +8,12 @@ import { sessions, users } from '../db/schema.js';
 
 export const SESSION_COOKIE = 'asm_session';
 export const SESSION_TTL_MS = 7 * 24 * 3600_000;
+
+export const SESSION_COOKIE_ATTRS = { httpOnly: true, secure: true, sameSite: 'strict', path: '/' } as const;
+
+export function setSessionCookie(reply: FastifyReply, token: string): void {
+  reply.setCookie(SESSION_COOKIE, token, { ...SESSION_COOKIE_ATTRS, maxAge: SESSION_TTL_MS / 1000 });
+}
 
 export type Session = { id: string; userId: string; lastAuthAt: number; expiresAt: number; createdAt: number };
 export type SessionUser = { id: string; username: string; isAdmin: boolean };

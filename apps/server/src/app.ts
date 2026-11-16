@@ -6,6 +6,7 @@ import type { Db } from './db/client.js';
 import { installAuthContext } from './auth/guards.js';
 import { registerAuthRoutes } from './auth/routes.js';
 import { createSetupState, type SetupState } from './auth/setup.js';
+import type { WebAuthnAdapter } from './auth/webauthn.js';
 import { installErrorHandler } from './errors.js';
 import cookie from '@fastify/cookie';
 
@@ -15,7 +16,7 @@ declare module 'fastify' {
   }
 }
 
-export type AppDeps = { config: Config; db: Db; clock: Clock; logger?: Logger };
+export type AppDeps = { config: Config; db: Db; clock: Clock; logger?: Logger; webauthn?: WebAuthnAdapter };
 
 const REDACT_KEYS = ['value', 'plaintext', 'password', 'token', 'authorization', 'cookie'];
 const MAX_REDACT_DEPTH = 6;
