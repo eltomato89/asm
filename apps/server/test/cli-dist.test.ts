@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -10,7 +10,8 @@ import { ConfigError, loadConfig } from '../src/config.js';
 import { renderInstallScript } from '../src/cli-dist/install-script.js';
 import { createTestApp } from './helpers/testApp.js';
 
-const BUNDLE = '#!/usr/bin/env node\nconsole.log("asm fake");\n';
+/** Tiny ESM bundle: the import statement proves the installed command is loaded as a module. */
+const BUNDLE = "#!/usr/bin/env node\nimport { argv } from 'node:process';\nif (argv.includes('--version')) console.log('1.2.3');\n";
 const SHA = createHash('sha256').update(BUNDLE).digest('hex');
 
 function makeCliDir(manifest: Record<string, unknown> = { version: '1.2.3', sha256: SHA, size: Buffer.byteLength(BUNDLE) }): string {
@@ -154,6 +155,14 @@ function runSh(script: string, env: Record<string, string>): Promise<{ code: num
   });
 }
 
+function runFile(file: string, args: string[], env: Record<string, string>): Promise<{ code: number; stdout: string }> {
+  return new Promise((resolve) => {
+    execFile(file, args, { env, timeout: 10_000 }, (err, stdout) => {
+      resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout });
+    });
+  });
+}
+
 const SYSTEM_PATH = '/usr/bin:/bin:/usr/sbin:/sbin';
 
 describe('install.sh end to end', () => {
@@ -166,50 +175,64 @@ describe('install.sh end to end', () => {
     return { origin, script };
   }
 
-  it('downloads, verifies and installs the bundle', async () => {
+  const NODE_PATH = `${dirname(process.execPath)}:${SYSTEM_PATH}`;
+  const newHome = () => mkdtempSync(join(tmpdir(), 'asm-home-'));
+
+  it('installs asm.mjs under ASM_HOME and links ASM_INSTALL_DIR/asm to it', async () => {
     const { origin, script } = await serve(makeCliDir());
-    const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
-    const target = join(home, 'bin');
-    const r = await runSh(script, { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: target });
+    const home = newHome();
+    const bin = join(home, 'bin');
+    const asmHome = join(home, 'share');
+    const r = await runSh(script, { PATH: NODE_PATH, HOME: home, ASM_INSTALL_DIR: bin, ASM_HOME: asmHome });
     expect(r.stderr).toBe('');
     expect(r.code).toBe(0);
-    const installed = join(target, 'asm');
-    expect(readFileSync(installed, 'utf8')).toBe(BUNDLE);
-    expect(statSync(installed).mode & 0o777).toBe(0o755);
-    expect(readdirSync(target)).toEqual(['asm']);
+    const real = join(asmHome, 'asm.mjs');
+    expect(readFileSync(real, 'utf8')).toBe(BUNDLE);
+    expect(statSync(real).mode & 0o777).toBe(0o755);
+    expect(lstatSync(join(bin, 'asm')).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(join(bin, 'asm'))).toBe(real);
+    expect(readdirSync(bin)).toEqual(['asm']);
+    expect(readdirSync(asmHome)).toEqual(['asm.mjs']);
     expect(r.stdout).toContain('Installed asm 1.2.3');
     expect(r.stdout).toContain('is not on your PATH');
     expect(r.stdout).toContain(`asm login ${origin}`);
+    // The symlinked command runs as ESM (the fake bundle uses an import statement).
+    const run = await runFile(join(bin, 'asm'), ['--version'], { PATH: NODE_PATH, HOME: home });
+    expect(run).toEqual({ code: 0, stdout: '1.2.3\n' });
   });
 
-  it('defaults to $HOME/.local/bin', async () => {
+  it('defaults to $HOME/.local/bin and $HOME/.local/share/asm and replaces an existing asm', async () => {
     const { script } = await serve(makeCliDir());
-    const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
+    const home = newHome();
     const bin = join(home, '.local', 'bin');
-    const r = await runSh(script, { PATH: `${bin}:${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home });
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'asm'), 'old');
+    const r = await runSh(script, { PATH: `${bin}:${NODE_PATH}`, HOME: home });
     expect(r.code).toBe(0);
+    expect(readlinkSync(join(bin, 'asm'))).toBe(join(home, '.local', 'share', 'asm', 'asm.mjs'));
     expect(readFileSync(join(bin, 'asm'), 'utf8')).toBe(BUNDLE);
     expect(r.stdout).not.toContain('is not on your PATH');
+    // Re-running replaces the link in place.
+    expect((await runSh(script, { PATH: `${bin}:${NODE_PATH}`, HOME: home })).code).toBe(0);
+    expect(readdirSync(bin)).toEqual(['asm']);
   });
 
   it('aborts on a hash mismatch and installs nothing', async () => {
     const { script } = await serve(makeCliDir({ version: '1.2.3', sha256: 'a'.repeat(64), size: Buffer.byteLength(BUNDLE) }));
-    const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
-    const target = join(home, 'bin');
-    const r = await runSh(script, { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: target });
+    const home = newHome();
+    const r = await runSh(script, { PATH: NODE_PATH, HOME: home });
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain('SHA-256 mismatch');
-    expect(existsSync(join(target, 'asm'))).toBe(false);
+    expect(readdirSync(home)).toEqual([]);
   });
 
   it('aborts on a size mismatch and installs nothing', async () => {
     const { script } = await serve(makeCliDir({ version: '1.2.3', sha256: SHA, size: Buffer.byteLength(BUNDLE) + 1 }));
-    const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
-    const target = join(home, 'bin');
-    const r = await runSh(script, { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: target });
+    const home = newHome();
+    const r = await runSh(script, { PATH: NODE_PATH, HOME: home });
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain('size mismatch');
-    expect(existsSync(join(target, 'asm'))).toBe(false);
+    expect(readdirSync(home)).toEqual([]);
   });
 
   it('executes nothing from a truncated download', async () => {
@@ -218,11 +241,10 @@ describe('install.sh end to end', () => {
     const lines = script.split('\n');
     const cuts = [script.slice(0, Math.floor(script.length / 2)), `${lines.slice(0, lines.length - 2).join('\n')}\n`];
     for (const [cut, truncated] of cuts.entries()) {
-      const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
-      const target = join(home, 'bin');
-      const r = await runSh(truncated, { PATH: `${dirname(process.execPath)}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: target });
-      expect(existsSync(target), `cut at line ${cut}: ${r.stdout}`).toBe(false);
-      expect(r.stdout, `cut at line ${cut}`).toBe('');
+      const home = newHome();
+      const r = await runSh(truncated, { PATH: NODE_PATH, HOME: home });
+      expect(readdirSync(home), `cut ${cut}`).toEqual([]);
+      expect(r.stdout, `cut ${cut}`).toBe('');
     }
   });
 
@@ -236,6 +258,6 @@ describe('install.sh end to end', () => {
     const r = await runSh(script, { PATH: `${fakeBin}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: join(home, 'bin') });
     expect(r.code).not.toBe(0);
     expect(r.stderr).toContain('Node.js >= 22 is required (found v20.0.0)');
-    expect(existsSync(join(home, 'bin'))).toBe(false);
+    expect(readdirSync(home)).toEqual(['fakebin']);
   });
 });

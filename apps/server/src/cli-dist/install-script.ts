@@ -12,12 +12,15 @@ export function renderInstallScript(origin: string): string {
   return `#!/bin/sh
 # Installs the asm CLI from ${origin}
 #   curl -fsSL ${origin}/cli/install.sh | sh
-# Target: \${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm. Needs Node.js >= 22 and curl or wget. Never uses sudo.
+# Installs \${ASM_HOME:-$HOME/.local/share/asm}/asm.mjs and links \${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm to it
+# (the .mjs extension makes Node load it as ESM regardless of version or surrounding package.json).
+# Needs Node.js >= 22 and curl or wget. Never uses sudo. Uninstall: remove both.
 set -eu
 
 main() {
   ASM_URL='${origin}'
   INSTALL_DIR="\${ASM_INSTALL_DIR:-$HOME/.local/bin}"
+  ASM_DIR="\${ASM_HOME:-$HOME/.local/share/asm}"
 
   die() { printf 'asm install: %s\\n' "$*" >&2; exit 1; }
 
@@ -46,7 +49,12 @@ main() {
 
   TMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t asm)
   PART=''
-  cleanup() { rm -rf "$TMP_DIR"; if [ -n "$PART" ]; then rm -f "$PART"; fi; }
+  LINK_PART=''
+  cleanup() {
+    rm -rf "$TMP_DIR"
+    if [ -n "$PART" ]; then rm -f "$PART"; fi
+    if [ -n "$LINK_PART" ]; then rm -f "$LINK_PART"; fi
+  }
   trap cleanup EXIT
   trap 'exit 1' HUP INT TERM
 
@@ -64,14 +72,21 @@ main() {
   [ "$(wc -c < "$TMP_DIR/asm.mjs" | tr -d ' ')" = "$SIZE" ] || die "size mismatch for asm.mjs (expected $SIZE bytes); aborting."
   [ "$(sha256 "$TMP_DIR/asm.mjs")" = "$SHA256" ] || die "SHA-256 mismatch for asm.mjs; aborting."
 
-  mkdir -p "$INSTALL_DIR"
-  PART="$INSTALL_DIR/.asm.$$.tmp"
+  mkdir -p "$ASM_DIR" "$INSTALL_DIR"
+  ASM_DIR=$(CDPATH= cd -- "$ASM_DIR" && pwd)
+  PART="$ASM_DIR/.asm.$$.tmp"
   cp "$TMP_DIR/asm.mjs" "$PART"
   chmod 755 "$PART"
-  mv -f "$PART" "$INSTALL_DIR/asm"
+  mv -f "$PART" "$ASM_DIR/asm.mjs"
   PART=''
 
-  printf 'Installed asm %s to %s\\n' "$VERSION" "$INSTALL_DIR/asm"
+  # Replace the command with a symlink to the .mjs (temp link + rename, so asm never disappears).
+  LINK_PART="$INSTALL_DIR/.asm.$$.link"
+  ln -s "$ASM_DIR/asm.mjs" "$LINK_PART"
+  mv -f "$LINK_PART" "$INSTALL_DIR/asm"
+  LINK_PART=''
+
+  printf 'Installed asm %s: %s -> %s\\n' "$VERSION" "$INSTALL_DIR/asm" "$ASM_DIR/asm.mjs"
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
     *) printf '\\n%s is not on your PATH. Add it, e.g. in ~/.profile:\\n  export PATH="%s:$PATH"\\n' "$INSTALL_DIR" "$INSTALL_DIR" ;;

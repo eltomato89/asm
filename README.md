@@ -104,11 +104,20 @@ curl -fsSL https://asm.example.com/cli/install.sh | sh
 asm login https://asm.example.com
 ```
 
-Das Skript lädt das CLI-Bundle (`/cli/asm.mjs`), prüft SHA-256 und Größe gegen `/cli/asm.json` und installiert
-es nach `~/.local/bin/asm` (anderes Ziel: `ASM_INSTALL_DIR=/pfad sh`). Für die Prüfung wird `sha256sum`,
-`shasum` oder `openssl` benötigt. Liegt das Verzeichnis nicht im `PATH`, gibt es einen Hinweis aus. Ein
-vorhandenes `asm` – auch ein Symlink auf einen Repo-Build – wird durch eine normale Datei ersetzt. Die CLI-Version passt so immer zur Server-Version; `asm update` holt später das
-aktuelle Bundle vom Server (ebenfalls mit Hash-Prüfung), `asm --version` zeigt die installierte Version.
+Das Skript lädt das CLI-Bundle (`/cli/asm.mjs`), prüft SHA-256 und Größe gegen `/cli/asm.json` (dafür wird
+`sha256sum`, `shasum` oder `openssl` benötigt) und installiert es nach `~/.local/share/asm/asm.mjs`
+(anderer Ort: `ASM_HOME`). Der Befehl `~/.local/bin/asm` (anderes Verzeichnis: `ASM_INSTALL_DIR`) wird als
+Symlink darauf angelegt; die Endung `.mjs` sorgt dafür, dass Node die Datei immer als ES-Modul lädt. Ein
+vorhandenes `asm` – auch ein Symlink auf einen Repo-Build – wird ersetzt. Liegt das Verzeichnis nicht im
+`PATH`, gibt das Skript einen Hinweis aus. Beispiel mit eigenen Pfaden:
+
+```sh
+curl -fsSL https://asm.example.com/cli/install.sh | ASM_HOME=/opt/asm ASM_INSTALL_DIR=$HOME/bin sh
+```
+
+Die CLI-Version passt so immer zur Server-Version; `asm update` holt später das aktuelle Bundle vom Server
+(ebenfalls mit Hash-Prüfung), `asm --version` zeigt die installierte Version. Deinstallieren: beide entfernen,
+`rm ~/.local/bin/asm ~/.local/share/asm/asm.mjs`.
 
 Tokens speichert die CLI im OS-Schlüsselbund: unter macOS in der Keychain (`security`), unter Linux über
 `secret-tool` (libsecret, z. B. Paket `libsecret-tools`). Steht keins davon zur Verfügung (etwa auf einem
