@@ -77,6 +77,8 @@ export const SecretMetaSchema = z.strictObject({
   envName: z.string().nullable(),
   allowPlaintextToAgent: z.boolean(),
   updatedAt: z.number(),
+  /** Who created the secret (a device = an agent). */
+  createdBy: ActorRefSchema,
   archived: z
     .strictObject({
       at: z.number(),

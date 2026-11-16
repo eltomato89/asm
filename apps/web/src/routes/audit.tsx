@@ -4,6 +4,7 @@ import { Calendar, Check, ChevronDown, Download, X } from 'lucide-react';
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { AUDIT_EVENTS } from '../components/audit/describe';
 import { AuditRow } from '../components/audit/AuditRow';
+import { SecretFilter } from '../components/audit/SecretFilter';
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
@@ -61,7 +62,6 @@ export function AuditPage({ search }: { search: AuditSearch }) {
   const names = useNames();
   const me = useQuery({ queryKey: queryKeys.me, queryFn: api.me });
   const devices = useQuery({ queryKey: queryKeys.devices, queryFn: api.devices });
-  const secrets = useQuery({ queryKey: queryKeys.secrets('all', ''), queryFn: () => api.secrets('all') });
   const projects = useQuery({ queryKey: queryKeys.projectsAll, queryFn: api.projects });
   const verify = useQuery({ queryKey: queryKeys.auditVerify, queryFn: api.verifyAudit, enabled: me.data?.isAdmin === true, staleTime: 60_000 });
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -155,15 +155,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
             </option>
           ))}
         </FilterSelect>
-        <FilterSelect label="Secret" value={search.secretId ?? ''} onChange={(v) => setSearch({ secretId: v || undefined })}>
-          <option value="">Alle</option>
-          {search.secretId && !secrets.data?.items.some((s) => s.id === search.secretId) ? <option value={search.secretId}>{search.secretId}</option> : null}
-          {(secrets.data?.items ?? []).map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.envName ?? s.title}
-            </option>
-          ))}
-        </FilterSelect>
+        <SecretFilter value={search.secretId} onChange={(secretId) => setSearch({ secretId })} />
         <FilterSelect label="Projekt" value={search.project ?? ''} onChange={(v) => setSearch({ project: v || undefined })}>
           <option value="">Alle</option>
           {search.project && !projects.data?.items.some((p) => p.slug === search.project) ? <option value={search.project}>{search.project}</option> : null}

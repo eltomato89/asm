@@ -59,11 +59,15 @@ export async function sessionFetch(input: RequestInfo | URL, init: RequestInit =
   return send();
 }
 
-const client = createApiClient({
-  baseUrl: typeof window === 'undefined' ? 'http://localhost' : window.location.origin,
+const baseUrl = typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
+const client = Object.assign(
+  createApiClient({
+  baseUrl,
   getAccessToken: () => undefined,
   fetch: sessionFetch,
-});
+  }),
+  { baseUrl },
+);
 
 const get = <T>(path: string, query?: Record<string, string | number | undefined>, signal?: AbortSignal) =>
   client.request<T>('GET', path, { query, signal });
@@ -71,6 +75,29 @@ const post = <T>(path: string, body: unknown = {}) => client.request<T>('POST', 
 const patch = <T>(path: string, body: unknown) => client.request<T>('PATCH', path, { body });
 const del = <T>(path: string, body?: unknown) => client.request<T>('DELETE', path, body === undefined ? {} : { body });
 const id = (s: string) => encodeURIComponent(s);
+
+/** For endpoints that may answer 204 No Content: resolves undefined then instead of parsing an empty body. */
+async function sendMaybeEmpty<T>(method: string, path: string, body?: unknown): Promise<T | undefined> {
+  const res = await sessionFetch(new URL(path, client.baseUrl), {
+    method,
+    headers: { accept: 'application/json', ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
+  if (res.status === 204) return undefined;
+  if (!res.ok) {
+    let code = `http_${res.status}`;
+    let details: Record<string, string> = {};
+    try {
+      const b = (await res.json()) as Record<string, unknown>;
+      if (typeof b.error === 'string') code = b.error;
+      details = Object.fromEntries(Object.entries(b).filter(([k, v]) => k !== 'error' && k !== 'value' && typeof v === 'string' && v.length <= 100)) as Record<string, string>;
+    } catch {
+      // non-JSON error body
+    }
+    throw new ApiError(res.status, code, details);
+  }
+  return (await res.json()) as T;
+}
 
 export type AutoModeInput = { minutes: number; vaultIds: string[] | null };
 export type SecretStatus = 'active' | 'archived' | 'all';
@@ -123,6 +150,7 @@ export type AuditFilter = {
 export type AuditPage = { items: AuditRow[]; nextCursor?: string };
 export type ChainStatus = { ok: true } | { ok: false; brokenAtSeq: number };
 export type Passkey = { id: string; name: string; createdAt: number; transports: string[] | null };
+export type AdminUser = { id: string; username: string; isAdmin: boolean; createdAt: number; hasPassword: boolean; passkeyCount: number };
 export type ConsentInfo = { clientName: string; redirectHost: string; requestedAt: number };
 export type ActivationInfo = { name: string; hostname: string | null; requestedAt: number };
 
@@ -145,7 +173,8 @@ export const api = {
   searchSecrets: (q: string, signal?: AbortSignal) => get<{ items: SecretMeta[] }>('/api/secrets', { q }, signal),
   decide: (requestId: string, decision: 'approve' | 'deny') => post<AccessRequestDto>(`/api/requests/${id(requestId)}/decision`, { decision }),
 
-  secrets: (status: SecretStatus, q = '', vault?: string) => get<{ items: SecretMeta[] }>('/api/secrets', { q, status, vault }),
+  secrets: (status: SecretStatus, q = '', opts: { vault?: string; cursor?: string; limit?: number } = {}) =>
+    get<{ items: SecretMeta[]; nextCursor?: string }>('/api/secrets', { q, status, vault: opts.vault, cursor: opts.cursor, limit: opts.limit }),
   secret: (secretId: string) => get<SecretMeta>(`/api/secrets/${id(secretId)}`),
   createSecret: (body: SecretWrite & { title: string; vaultId?: string }) => post<SecretMeta>('/api/secrets', body),
   updateSecret: (secretId: string, body: SecretWrite) => patch<SecretMeta>(`/api/secrets/${id(secretId)}`, body),
@@ -165,14 +194,7 @@ export const api = {
   createVault: (name: string) => post<VaultDto>('/api/vaults', { name }),
   addVaultMember: (vaultId: string, body: { username: string; role: 'owner' | 'member' }) => post<VaultDto>(`/api/vaults/${id(vaultId)}/members`, body),
   /** Resolves to undefined when the caller removed themself (204 without body). */
-  removeVaultMember: async (vaultId: string, userId: string): Promise<VaultDto | undefined> => {
-    try {
-      return await del<VaultDto>(`/api/vaults/${id(vaultId)}/members`, { userId });
-    } catch (e) {
-      if (e instanceof SyntaxError) return undefined;
-      throw e;
-    }
-  },
+  removeVaultMember: (vaultId: string, userId: string) => sendMaybeEmpty<VaultDto>('DELETE', `/api/vaults/${id(vaultId)}/members`, { userId }),
 
   devices: () => get<{ items: DeviceDto[] }>('/api/devices'),
   renameDevice: (deviceId: string, name: string) => patch<DeviceDto>(`/api/devices/${id(deviceId)}`, { name }),
@@ -185,6 +207,9 @@ export const api = {
   passkeyRegisterOptions: () => post<PublicKeyCredentialCreationOptionsJSON>('/api/auth/passkey/register/options'),
   passkeyRegisterVerify: (response: RegistrationResponseJSON, name?: string) => post<Passkey>('/api/auth/passkey/register/verify', { response, ...(name ? { name } : {}) }),
   deletePasskey: (passkeyId: string) => del<{ ok: true }>(`/api/auth/passkeys/${id(passkeyId)}`),
+  renamePasskey: (passkeyId: string, name: string) => patch<Passkey>(`/api/auth/passkeys/${id(passkeyId)}`, { name }),
+  changePassword: (body: { currentPassword?: string; newPassword: string }) => post<{ ok: true }>('/api/auth/password', body),
+  users: () => get<{ items: AdminUser[] }>('/api/admin/users'),
   createUser: (body: { username: string; password?: string; isAdmin: boolean }) => post<Me>('/api/admin/users', body),
 
   consentInfo: (req: string) => get<ConsentInfo>(`/api/oauth/consent/${id(req)}`),
@@ -210,6 +235,7 @@ export const queryKeys = {
   requests: (status: 'pending' | 'all') => ['requests', status] as const,
   secretsAll: ['secrets'] as const,
   secrets: (status: SecretStatus, q: string, vault?: string) => ['secrets', 'list', status, q, vault ?? null] as const,
+  users: ['admin-users'] as const,
   secret: (secretId: string) => ['secrets', 'one', secretId] as const,
   secretHistory: (secretId: string) => ['secrets', 'history', secretId] as const,
   secretProjects: (secretId: string) => ['secrets', 'projects', secretId] as const,

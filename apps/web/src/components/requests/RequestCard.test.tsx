@@ -98,6 +98,23 @@ describe('RequestQueue', () => {
     }
   });
 
+  it('clears the focus when the focused card disappears; A then does nothing until J', async () => {
+    const { calls } = mockFetch((c) => (c.path.endsWith('/decision') ? { body: { ...makeRequest({ id: 'req_02' }), status: 'approved' } } : undefined));
+    const r1 = makeRequest();
+    const r2 = makeRequest({ id: 'req_02' });
+    const { rerender } = renderWithProviders(<RequestQueue requests={[r1, r2]} />);
+    expect(screen.getAllByRole('article')[0]).toHaveClass('is-selected');
+    rerender(<RequestQueue requests={[r2]} />);
+    expect(screen.getByRole('article')).not.toHaveClass('is-selected');
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await act(async () => {});
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(0);
+    fireEvent.keyDown(document.body, { key: 'j' });
+    expect(screen.getByRole('article')).toHaveClass('is-selected');
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.path).toBe('/api/requests/req_02/decision'));
+  });
+
   it('shows the empty state without requests', () => {
     renderWithProviders(<RequestQueue requests={[]} />);
     expect(screen.getByText('Keine offenen Anfragen')).toBeInTheDocument();

@@ -1,12 +1,12 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import { eq } from 'drizzle-orm';
+import { and, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
 import { appendAudit } from '../audit/audit.js';
-import { users } from '../db/schema.js';
-import { HttpError } from '../errors.js';
-import { checkLoginOrigin, requireAdmin, requireUser } from './guards.js';
+import { sessions, users } from '../db/schema.js';
+import { HttpError, ValidationError } from '../errors.js';
+import { checkLoginOrigin, requireAdmin, requireRecentAuth, requireUser } from './guards.js';
 import { hashPassword, verifyPassword } from './password.js';
 import { SESSION_COOKIE, SESSION_COOKIE_ATTRS, createSession, deleteSession, setSessionCookie, touchReauth } from './sessions.js';
 import { registerPasskeyRoutes } from './webauthn.js';
@@ -20,6 +20,7 @@ const setupBody = z.object({ token: z.string().min(1).max(256), username, passwo
 const loginBody = z.object({ username: z.string().min(1).max(256), password: anyPassword });
 const reauthBody = z.object({ password: anyPassword });
 const adminCreateBody = z.object({ username, password: newPassword.optional(), isAdmin: z.boolean().default(false) });
+const passwordChangeBody = z.strictObject({ currentPassword: anyPassword.optional(), newPassword });
 
 // Hash of a random password; verified against when the user is unknown to equalize timing.
 const dummyHash = hashPassword('asm-dummy-password-for-timing');
@@ -112,6 +113,47 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AppDeps): P
       return { ok: true };
     },
   );
+
+  // Change (or first set) the own password. Ends every other session of the user; the current one stays.
+  app.post(
+    '/api/auth/password',
+    { preHandler: [requireUser, requireRecentAuth(clock)], config: limited((req) => req.user?.id ?? '') },
+    async (req) => {
+      const body = passwordChangeBody.parse(req.body);
+      const userId = req.user!.id;
+      const row = db.select().from(users).where(eq(users.id, userId)).get();
+      if (row?.passwordHash) {
+        if (body.currentPassword === undefined) throw new ValidationError('current_password_required');
+        if (!(await verifyPassword(row.passwordHash, body.currentPassword))) throw new HttpError(401, 'invalid_credentials');
+      }
+      const hash = await hashPassword(body.newPassword);
+      db.$client.transaction(() => {
+        db.update(users).set({ passwordHash: hash }).where(eq(users.id, userId)).run();
+        db.delete(sessions).where(and(eq(sessions.userId, userId), ne(sessions.id, req.session!.id))).run();
+      })();
+      return { ok: true };
+    },
+  );
+
+  app.get('/api/admin/users', { preHandler: requireAdmin }, async () => {
+    const rows = db.$client
+      .prepare(
+        `SELECT u.id, u.username, u.is_admin, u.created_at, u.password_hash IS NOT NULL AS has_password,
+                (SELECT count(*) FROM passkeys p WHERE p.user_id = u.id) AS passkey_count
+           FROM users u ORDER BY u.username`,
+      )
+      .all() as { id: string; username: string; is_admin: number; created_at: number; has_password: number; passkey_count: number }[];
+    return {
+      items: rows.map((r) => ({
+        id: r.id,
+        username: r.username,
+        isAdmin: r.is_admin === 1,
+        createdAt: r.created_at,
+        hasPassword: r.has_password === 1,
+        passkeyCount: r.passkey_count,
+      })),
+    };
+  });
 
   app.post('/api/admin/users', { preHandler: requireAdmin }, async (req, reply) => {
     const body = adminCreateBody.parse(req.body);

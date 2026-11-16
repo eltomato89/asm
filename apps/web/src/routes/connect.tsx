@@ -97,6 +97,16 @@ export function PairingResult({ ok, title, children }: { ok: boolean; title: str
   );
 }
 
+/** Only follow http(s) redirects (never javascript:, data: or other schemes). */
+export function isHttpUrl(u: string): boolean {
+  try {
+    const p = new URL(u).protocol;
+    return p === 'http:' || p === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 /** OAuth consent for MCP clients (`/connect?req=…`, opened by /oauth/authorize). */
 export function ConnectPage({ req }: { req?: string }) {
   const info = useQuery({ queryKey: ['consent', req], queryFn: () => api.consentInfo(req!), enabled: !!req, retry: false, staleTime: Infinity });
@@ -111,6 +121,10 @@ export function ConnectPage({ req }: { req?: string }) {
     mutationFn: (decision: 'approve' | 'deny') =>
       api.consent({ req: req!, decision, ...(decision === 'approve' && deviceName.trim() ? { deviceName: deviceName.trim() } : {}) }),
     onSuccess: ({ redirectTo }, decision) => {
+      if (!isHttpUrl(redirectTo)) {
+        setError('Die Rückleitung zum Client ist ungültig. Starte die Kopplung im Client neu.');
+        return;
+      }
       setDone(decision);
       window.location.assign(redirectTo);
     },

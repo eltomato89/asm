@@ -17,7 +17,7 @@ export type Names = {
 export function useNames(): Names {
   const me = useQuery({ queryKey: queryKeys.me, queryFn: api.me });
   const devices = useQuery({ queryKey: queryKeys.devices, queryFn: api.devices });
-  const secrets = useQuery({ queryKey: queryKeys.secrets('all', ''), queryFn: () => api.secrets('all') });
+  const secrets = useQuery({ queryKey: queryKeys.secrets('all', ''), queryFn: () => api.secrets('all', '', { limit: 200 }) });
   const vaults = useQuery({ queryKey: queryKeys.vaults, queryFn: api.vaults });
 
   return useMemo(() => {

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import { vi } from 'vitest';
 import { ToastProvider } from '../components/ui/Toast';
 
@@ -31,10 +31,11 @@ export function makeQueryClient() {
 }
 
 export function renderWithProviders(ui: ReactElement, queryClient = makeQueryClient()) {
-  const result = render(
+  // As wrapper, so rerender() keeps the providers.
+  const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>{ui}</ToastProvider>
-    </QueryClientProvider>,
+      <ToastProvider>{children}</ToastProvider>
+    </QueryClientProvider>
   );
-  return { ...result, queryClient };
+  return { ...render(ui, { wrapper }), queryClient };
 }

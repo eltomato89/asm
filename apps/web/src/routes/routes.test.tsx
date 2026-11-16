@@ -139,6 +139,10 @@ describe('login redirect target', () => {
     expect(safeRedirect('//evil.example/x')).toBeUndefined();
     expect(safeRedirect('https://evil.example')).toBeUndefined();
     expect(safeRedirect('/\\evil')).toBeUndefined();
+    expect(safeRedirect('/\nevil')).toBeUndefined();
+    expect(safeRedirect('/\tx')).toBeUndefined();
+    expect(safeRedirect('/a\\b')).toBeUndefined();
+    expect(safeRedirect('javascript:alert(1)')).toBeUndefined();
     expect(safeRedirect('/connect?req=1')).toBe('/connect?req=1');
   });
 });

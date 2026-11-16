@@ -1,5 +1,5 @@
 import type { SecretMeta, VaultDto } from '@asm/shared';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
 import { api, queryKeys, type SecretWrite } from '../../lib/api';
 import { errorText } from '../../lib/errors';
@@ -65,16 +65,21 @@ export function SecretForm({ secret, vaults, defaultVaultId, onDone, onCancel }:
     return out;
   };
 
-  const save = useMutation({
-    mutationFn: (b: SecretWrite) => (secret ? api.updateSecret(secret.id, b) : api.createSecret({ ...b, title: b.title ?? '', vaultId })),
-    onSuccess: (meta) => {
+  // Deliberately no useMutation: its cache would keep the request body (incl. the value) as variables.
+  const [saving, setSaving] = useState(false);
+  const save = async (b: SecretWrite) => {
+    setSaving(true);
+    try {
+      const meta = secret ? await api.updateSecret(secret.id, b) : await api.createSecret({ ...b, title: b.title ?? '', vaultId });
       qc.setQueryData(queryKeys.secret(meta.id), meta);
       void qc.invalidateQueries({ queryKey: queryKeys.secretsAll });
       toast(creating ? `${meta.envName ?? meta.title} angelegt.` : 'Änderungen gespeichert.', 'ok');
       onDone(meta);
-    },
-    onError: (e) => toast(errorText(e, creating ? 'Anlegen fehlgeschlagen.' : 'Speichern fehlgeschlagen.'), 'danger'),
-  });
+    } catch (e) {
+      toast(errorText(e, creating ? 'Anlegen fehlgeschlagen.' : 'Speichern fehlgeschlagen.'), 'danger');
+      setSaving(false);
+    }
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -86,7 +91,7 @@ export function SecretForm({ secret, vaults, defaultVaultId, onDone, onCancel }:
       toast('Keine Änderungen zum Speichern.');
       return;
     }
-    save.mutate(b);
+    void save(b);
   };
 
   const modes: { mode: SecretFormValues['valueMode']; label: string }[] = creating
@@ -168,16 +173,16 @@ export function SecretForm({ secret, vaults, defaultVaultId, onDone, onCancel }:
 
       <div className="field">
         <Switch checked={v.allowPlaintextToAgent} onChange={(x) => set('allowPlaintextToAgent', x)} label="Klartext an Agenten erlauben" />
-        <p className={v.allowPlaintextToAgent ? 'help warn' : 'help'}>
+        <p className={v.allowPlaintextToAgent ? 'help danger' : 'help'}>
           {v.allowPlaintextToAgent
-            ? 'Agents dürfen den Wert dann direkt im Gesprächsverlauf erhalten. Er kann so in Protokollen und beim Modellanbieter landen. Nur für unkritische Werte.'
+            ? 'Achtung: Agents dürfen den Wert dann direkt im Gesprächsverlauf erhalten. Er kann so in Protokollen und beim Modellanbieter landen. Nur für unkritische Werte.'
             : 'Standard: Agents erhalten den Wert nur über die CLI-Übergabe, nie im Gesprächsverlauf.'}
         </p>
       </div>
 
       <div className="form-actions">
         <Button onClick={onCancel}>Abbrechen</Button>
-        <Button variant="primary" type="submit" disabled={save.isPending}>
+        <Button variant="primary" type="submit" disabled={saving}>
           {creating ? 'Secret anlegen' : 'Änderungen speichern'}
         </Button>
       </div>

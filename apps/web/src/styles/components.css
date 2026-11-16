@@ -617,7 +617,7 @@ button { cursor: pointer; }
   .notice .icon { margin-top: 2px; color: var(--text-3); }
   .notice p { margin: 0; }
   .notice .req-reason { margin-top: 4px; font-size: var(--fs-13); }
-  .notice-line { margin: 0 0 12px; font-size: var(--fs-13); color: var(--amber); }
+  .notice-line { margin: 0 0 12px; font-size: var(--fs-13); color: var(--text-2); }
 
   .mini-list { list-style: none; margin: 0; padding: 0; }
   .mini-list li { display: flex; align-items: center; gap: 12px; min-height: 32px; font-size: var(--fs-13); border-bottom: 1px solid var(--line); }
@@ -678,7 +678,7 @@ button { cursor: pointer; }
   .mono-area .textarea { font-family: var(--font-mono); }
   .select { height: 36px; padding: 0 10px; }
   .field-error { margin: 6px 0 0; font-size: var(--fs-12); color: var(--danger); }
-  .help.warn { color: var(--amber); }
+  .help.danger { color: var(--danger); }
   [aria-invalid="true"] { border-color: var(--danger); }
   .input:has(input[aria-invalid="true"]) { border-color: var(--danger); }
   .secret-form .field + .field, .secret-form .field + .field-error + .field, .secret-form fieldset { margin-top: 14px; }
@@ -769,4 +769,24 @@ button { cursor: pointer; }
   .panel .feed li > .dot { align-self: start; margin-top: 8px; }
   .panel .feed li .chip { grid-column: 2; grid-row: 2; justify-self: start; }
   .panel .feed li time { grid-column: 3; grid-row: 1; align-self: start; min-width: 0; }
+}
+
+@layer components {
+  .user-create { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .user-create h3 { margin: 0 0 10px; font-size: var(--fs-13); font-weight: 600; }
+  .list-more { display: flex; justify-content: center; margin-top: 12px; }
+}
+
+@layer components {
+  .picker { width: 300px; padding: 8px; }
+  .picker-search { display: flex; max-width: none; width: 100%; }
+  .picker-list { list-style: none; margin: 6px 0 0; padding: 0; max-height: 260px; overflow-y: auto; }
+  .picker-list li { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-height: 32px; padding: 0 8px; border-radius: var(--radius-sm); cursor: pointer; font-size: var(--fs-13); }
+  .picker-list li:hover, .picker-list li:focus-visible, .picker-list li[aria-selected="true"] { background: var(--hover); outline: none; }
+  .picker-list .picker-empty { cursor: default; }
+  button.filter { cursor: pointer; }
+}
+
+@layer components {
+  .search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 }

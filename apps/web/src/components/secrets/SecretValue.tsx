@@ -8,6 +8,8 @@ import { useToast } from '../ui/Toast';
 export const REVEAL_TTL_MS = 30_000;
 
 type Props = {
+  /** What is being revealed (secret id, plus version). A change drops any revealed value. */
+  identity: string;
   /** Fetches the plaintext (explicit click only; may open the ReauthDialog). */
   reveal: () => Promise<{ value: string }>;
   label?: string;
@@ -18,13 +20,15 @@ type Props = {
  * Masked secret value with „Anzeigen“ / „Kopieren“. The plaintext is fetched on demand, kept only in this
  * component's state (never in a query/mutation cache, URL or log), hidden again after 30 s and dropped on unmount.
  */
-export function SecretValue({ reveal, label = 'Wert', compact }: Props) {
+export function SecretValue({ identity, reveal, label = 'Wert', compact }: Props) {
   const toast = useToast();
   const [value, setValue] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const [busy, setBusy] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const alive = useRef(true);
+  /** Identity of the value currently held; results of an outdated reveal are discarded. */
+  const current = useRef(identity);
 
   useEffect(() => {
     alive.current = true;
@@ -40,12 +44,20 @@ export function SecretValue({ reveal, label = 'Wert', compact }: Props) {
     setShown(false);
   };
 
+  // Another secret/version: never keep showing or copying the previous plaintext.
+  useEffect(() => {
+    if (current.current === identity) return;
+    current.current = identity;
+    forget();
+  }, [identity]);
+
   const load = async (): Promise<string | null> => {
     if (value !== null) return value;
     setBusy(true);
+    const asked = identity;
     try {
       const res = await reveal();
-      if (!alive.current) return null;
+      if (!alive.current || current.current !== asked) return null;
       setValue(res.value);
       clearTimeout(timer.current);
       timer.current = setTimeout(forget, REVEAL_TTL_MS);
@@ -76,7 +88,7 @@ export function SecretValue({ reveal, label = 'Wert', compact }: Props) {
 
   return (
     <div className={compact ? 'secret-value is-compact' : 'secret-value'}>
-      <code className="sv-text" aria-label={label} aria-live="polite">
+      <code className="sv-text" aria-label={label}>
         {shown && value !== null ? value : '••••••••••••'}
       </code>
       <div className="sv-actions">

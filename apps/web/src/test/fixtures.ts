@@ -32,6 +32,7 @@ export function makeSecret(over: Partial<SecretMeta> = {}): SecretMeta {
     envName: 'GITHUB_TOKEN',
     allowPlaintextToAgent: false,
     updatedAt: T0,
+    createdBy: { type: 'user', id: 'usr_1', name: 'jana' },
     archived: null,
     ...over,
   };

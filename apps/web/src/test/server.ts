@@ -21,6 +21,7 @@ export function appServer(extra: (c: FetchCall) => Answer = () => undefined, opt
     if (c.path === '/api/audit') return { body: { items: [] } };
     if (c.path === '/api/audit/verify') return { body: { ok: true } };
     if (c.path === '/api/auth/passkeys') return { body: [] };
+    if (c.path === '/api/admin/users' && c.method === 'GET') return { body: { items: [] } };
     return undefined;
   });
 }

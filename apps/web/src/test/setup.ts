@@ -1,6 +1,9 @@
 import '@testing-library/jest-dom/vitest';
-import { cleanup } from '@testing-library/react';
+import { cleanup, configure } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
+
+// The full monorepo run (`pnpm -r test`) executes server suites in parallel; give async queries headroom.
+configure({ asyncUtilTimeout: 4000 });
 
 // jsdom lacks matchMedia, ResizeObserver and scrollIntoView (used by Radix and the palette).
 if (!window.matchMedia) {

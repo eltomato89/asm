@@ -69,6 +69,7 @@ export function generateValue(length: number, alphabet: GenerateSpec['alphabet']
 type SecretRow = {
   id: string; vault_id: string; vault_name: string; title: string; description: string; tags: string; env_name: string | null;
   allow_plaintext_to_agent: number; current_version: number; updated_at: number;
+  created_by_type: 'user' | 'device'; created_by_id: string; created_by_name: string | null;
   archived_at: number | null; archived_by_type: 'user' | 'device' | null; archived_by_id: string | null; archived_by_name: string | null;
   archive_reason: string | null; archive_project: string | null;
 };
@@ -76,14 +77,18 @@ type SecretRow = {
 // Joins the caller's membership, so every query through it only sees accessible vaults.
 const META_SELECT = `
   SELECT s.id, s.vault_id, v.name AS vault_name, s.title, s.description, s.tags, s.env_name, s.allow_plaintext_to_agent,
-         s.current_version, s.updated_at, s.archived_at, s.archived_by_type, s.archived_by_id,
+         s.current_version, s.updated_at, s.created_by_type, s.created_by_id,
+         CASE s.created_by_type WHEN 'user' THEN uc.username WHEN 'device' THEN dc.name END AS created_by_name,
+         s.archived_at, s.archived_by_type, s.archived_by_id,
          CASE s.archived_by_type WHEN 'user' THEN ua.username WHEN 'device' THEN da.name END AS archived_by_name,
          s.archive_reason, s.archive_project
     FROM secrets s
     JOIN vaults v ON v.id = s.vault_id
     JOIN vault_members m ON m.vault_id = s.vault_id AND m.user_id = @userId
     LEFT JOIN users ua ON s.archived_by_type = 'user' AND ua.id = s.archived_by_id
-    LEFT JOIN devices da ON s.archived_by_type = 'device' AND da.id = s.archived_by_id`;
+    LEFT JOIN devices da ON s.archived_by_type = 'device' AND da.id = s.archived_by_id
+    LEFT JOIN users uc ON s.created_by_type = 'user' AND uc.id = s.created_by_id
+    LEFT JOIN devices dc ON s.created_by_type = 'device' AND dc.id = s.created_by_id`;
 
 function toMeta(r: SecretRow): SecretMeta {
   return {
@@ -96,6 +101,7 @@ function toMeta(r: SecretRow): SecretMeta {
     envName: r.env_name,
     allowPlaintextToAgent: r.allow_plaintext_to_agent === 1,
     updatedAt: r.updated_at,
+    createdBy: { type: r.created_by_type, id: r.created_by_id, name: r.created_by_name ?? r.created_by_id },
     archived:
       r.archived_at === null
         ? null
@@ -144,9 +150,26 @@ function ftsQuery(query: string): string | null {
 }
 
 export function searchSecrets(db: Db, userId: string, query: string, opts: SearchOptions = {}): SecretMeta[] {
+  return searchSecretsPage(db, userId, query, opts).items;
+}
+
+export const MAX_PAGE_LIMIT = 200;
+const CURSOR_RE = /^(\d{1,16})\.([a-z]{3}_[0-9A-Za-z]{1,40})$/;
+
+/**
+ * Search (FTS prefix match) or list, newest change first, with keyset paging:
+ * `nextCursor` is set when more rows exist (cursor = "<updatedAt>.<id>" of the last row).
+ */
+export function searchSecretsPage(
+  db: Db,
+  userId: string,
+  query: string,
+  opts: SearchOptions & { cursor?: string; limit?: number } = {},
+): { items: SecretMeta[]; nextCursor?: string } {
   const status = opts.status ?? (opts.includeArchived ? 'all' : 'active');
+  const limit = Math.min(Math.max(Math.trunc(opts.limit ?? SEARCH_LIMIT) || SEARCH_LIMIT, 1), MAX_PAGE_LIMIT);
   const where: string[] = [];
-  const params: Record<string, string | number> = { userId, limit: SEARCH_LIMIT };
+  const params: Record<string, string | number> = { userId, limit: limit + 1 };
   if (status === 'active') where.push('s.archived_at IS NULL');
   if (status === 'archived') where.push('s.archived_at IS NOT NULL');
   if (opts.vaultId !== undefined) {
@@ -158,8 +181,18 @@ export function searchSecrets(db: Db, userId: string, query: string, opts: Searc
     where.push('s.id IN (SELECT secret_id FROM secrets_fts WHERE secrets_fts MATCH @match)');
     params.match = match;
   }
+  if (opts.cursor !== undefined) {
+    const m = CURSOR_RE.exec(opts.cursor);
+    if (!m) throw new ValidationError('invalid_cursor');
+    where.push('(s.updated_at < @cUpdated OR (s.updated_at = @cUpdated AND s.id < @cId))');
+    params.cUpdated = Number(m[1]);
+    params.cId = m[2]!;
+  }
   const sql = `${META_SELECT} ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY s.updated_at DESC, s.id DESC LIMIT @limit`;
-  return (db.$client.prepare(sql).all(params) as SecretRow[]).map(toMeta);
+  const rows = db.$client.prepare(sql).all(params) as SecretRow[];
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  return rows.length > limit && last ? { items: page.map(toMeta), nextCursor: `${last.updated_at}.${last.id}` } : { items: page.map(toMeta) };
 }
 
 // ---------- writes ----------

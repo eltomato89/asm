@@ -20,12 +20,11 @@ import { VersionTimeline } from './VersionTimeline';
 type Props = {
   secretId: string;
   vaults: VaultDto[];
-  agentCreated: boolean;
   onClose: () => void;
 };
 
 /** Right-hand detail panel: value, metadata, usage, history and lifecycle actions of one secret. */
-export function SecretPanel({ secretId, vaults, agentCreated, onClose }: Props) {
+export function SecretPanel({ secretId, vaults, onClose }: Props) {
   const secret = useQuery({ queryKey: queryKeys.secret(secretId), queryFn: () => api.secret(secretId) });
   const [tab, setTab] = useState<'details' | 'history'>('details');
   const [editing, setEditing] = useState(false);
@@ -74,7 +73,7 @@ export function SecretPanel({ secretId, vaults, agentCreated, onClose }: Props) 
           </div>
           <div className="panel-body" role="tabpanel">
             {tab === 'details' ? (
-              <SecretDetails secret={secret.data} agentCreated={agentCreated} onEdit={() => setEditing(true)} onDeleted={onClose} />
+              <SecretDetails secret={secret.data} onEdit={() => setEditing(true)} onDeleted={onClose} />
             ) : (
               <VersionTimeline secret={secret.data} />
             )}
@@ -85,7 +84,7 @@ export function SecretPanel({ secretId, vaults, agentCreated, onClose }: Props) 
   );
 }
 
-function SecretDetails({ secret: s, agentCreated, onEdit, onDeleted }: { secret: SecretMeta; agentCreated: boolean; onEdit: () => void; onDeleted: () => void }) {
+function SecretDetails({ secret: s, onEdit, onDeleted }: { secret: SecretMeta; onEdit: () => void; onDeleted: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [archiveOpen, setArchiveOpen] = useState(false);
@@ -144,7 +143,7 @@ function SecretDetails({ secret: s, agentCreated, onEdit, onDeleted }: { secret:
       ) : (
         <section className="panel-sec" aria-label="Wert">
           <h3>Wert</h3>
-          <SecretValue label={`Wert von ${name}`} reveal={() => api.revealSecret(s.id)} />
+          <SecretValue key={s.id} identity={s.id} label={`Wert von ${name}`} reveal={() => api.revealSecret(s.id)} />
         </section>
       )}
 
@@ -157,9 +156,17 @@ function SecretDetails({ secret: s, agentCreated, onEdit, onDeleted }: { secret:
           <dt>Tags</dt>
           <dd>{s.tags.length ? s.tags.map((t) => <span key={t} className="chip tag">{t}</span>) : <span className="faint">–</span>}</dd>
           <dt>Klartext an Agenten</dt>
-          <dd>{s.allowPlaintextToAgent ? <Badge tone="amber">erlaubt</Badge> : 'nicht erlaubt'}</dd>
+          <dd>{s.allowPlaintextToAgent ? <Badge tone="danger">erlaubt</Badge> : 'nicht erlaubt'}</dd>
           <dt>Herkunft</dt>
-          <dd>{agentCreated ? <Badge>von Agent</Badge> : 'von Hand angelegt'}</dd>
+          <dd>
+            {s.createdBy.type === 'device' ? (
+              <>
+                <Badge>von Agent</Badge> <span className="host">{s.createdBy.name}</span>
+              </>
+            ) : (
+              <>von {s.createdBy.name} angelegt</>
+            )}
+          </dd>
           <dt>Geändert</dt>
           <dd>
             <RelativeTime ts={s.updatedAt} />

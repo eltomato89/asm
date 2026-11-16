@@ -1,9 +1,9 @@
 import type { SecretMeta } from '@asm/shared';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { Plus, Search, X } from 'lucide-react';
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { RelativeTime } from '../components/RelativeTime';
 import { SecretForm } from '../components/secrets/SecretForm';
 import { SecretPanel } from '../components/secrets/SecretPanel';
@@ -16,18 +16,13 @@ import { cx } from '../lib/cx';
 import { formatAbsolute } from '../lib/format';
 import { useCurrentVault } from '../lib/vault';
 
+const PAGE = 100;
+
 const FILTERS: { status: SecretStatus; label: string }[] = [
   { status: 'active', label: 'Aktiv' },
   { status: 'archived', label: 'Archiviert' },
   { status: 'all', label: 'Alle' },
 ];
-
-/** IDs of secrets created by agents (from the audit log's secret.created rows). */
-function useAgentCreated(): Set<string> {
-  const filter = { event: 'secret.created', limit: 200 };
-  const q = useQuery({ queryKey: queryKeys.audit(filter), queryFn: () => api.audit(filter) });
-  return useMemo(() => new Set((q.data?.items ?? []).filter((r) => r.actorType === 'device' && r.secretId).map((r) => r.secretId!)), [q.data]);
-}
 
 export function SecretsPage({ selected }: { selected?: string }) {
   const navigate = useNavigate();
@@ -37,11 +32,11 @@ export function SecretsPage({ selected }: { selected?: string }) {
   const [q, setQ] = useState('');
   const query = useDeferredValue(q.trim());
   const [creating, setCreating] = useState(false);
-  const agentCreated = useAgentCreated();
-
-  const list = useQuery({
-    queryKey: queryKeys.secrets(status, query, vault?.id),
-    queryFn: () => api.secrets(status, query, vault?.id),
+  const list = useInfiniteQuery({
+    queryKey: [...queryKeys.secrets(status, query, vault?.id), 'pages'],
+    queryFn: ({ pageParam }) => api.secrets(status, query, { vault: vault?.id, cursor: pageParam || undefined, limit: PAGE }),
+    initialPageParam: '',
+    getNextPageParam: (last) => last.nextCursor,
     enabled: vault !== undefined,
     placeholderData: (prev) => prev,
   });
@@ -50,7 +45,7 @@ export function SecretsPage({ selected }: { selected?: string }) {
     setCreating(false);
     void navigate({ to: '/secrets', search: id ? { selected: id } : {} });
   };
-  const items = list.data?.items ?? [];
+  const items = list.data?.pages.flatMap((p) => p.items) ?? [];
   const panelOpen = creating || !!selected;
 
   return (
@@ -58,7 +53,7 @@ export function SecretsPage({ selected }: { selected?: string }) {
       <div className="split-main">
         <div className="page-head">
           <h1>Secrets</h1>
-          <span className="meta num">{list.data ? `${items.length} in ${vault?.name ?? ''}` : ''}</span>
+          <span className="meta num">{list.data ? `${items.length}${list.hasNextPage ? '+' : ''} in ${vault?.name ?? ''}` : ''}</span>
           <div className="actions">
             <Button
               variant="primary"
@@ -107,12 +102,18 @@ export function SecretsPage({ selected }: { selected?: string }) {
             </THead>
             <TBody>
               {items.map((s) => (
-                <SecretRow key={s.id} s={s} active={s.id === selected} agent={agentCreated.has(s.id)} onSelect={() => select(s.id)} />
+                <SecretRow key={s.id} s={s} active={s.id === selected} onSelect={() => select(s.id)} />
               ))}
             </TBody>
           </Table>
         )}
-        {items.length >= 50 ? <p className="table-note">Es werden die 50 zuletzt geänderten Treffer gezeigt. Grenze die Suche weiter ein.</p> : null}
+        {list.hasNextPage ? (
+          <div className="list-more">
+            <Button onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
+              Mehr laden
+            </Button>
+          </div>
+        ) : null}
       </div>
 
       {creating ? (
@@ -131,13 +132,13 @@ export function SecretsPage({ selected }: { selected?: string }) {
           </div>
         </aside>
       ) : selected ? (
-        <SecretPanel secretId={selected} vaults={vaults.data?.items ?? []} agentCreated={agentCreated.has(selected)} onClose={() => select()} />
+        <SecretPanel key={selected} secretId={selected} vaults={vaults.data?.items ?? []} onClose={() => select()} />
       ) : null}
     </div>
   );
 }
 
-function SecretRow({ s, active, agent, onSelect }: { s: SecretMeta; active: boolean; agent: boolean; onSelect: () => void }) {
+function SecretRow({ s, active, onSelect }: { s: SecretMeta; active: boolean; onSelect: () => void }) {
   return (
     <tr className={cx('row-link', active && 'is-active', s.archived && 'is-archived')} onClick={onSelect}>
       <Td>
@@ -160,7 +161,7 @@ function SecretRow({ s, active, agent, onSelect }: { s: SecretMeta; active: bool
               </Tooltip.Portal>
             </Tooltip.Root>
           ) : null}
-          {agent ? <Badge>von Agent</Badge> : null}
+          {s.createdBy.type === 'device' ? <Badge title={`angelegt von ${s.createdBy.name}`}>von Agent</Badge> : null}
         </span>
       </Td>
       <Td className="col-tags">

@@ -59,7 +59,7 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
       <ol className="timeline" aria-label="Verlauf">
         {entries.map((e) =>
           e.kind === 'version' ? (
-            <li key={`v${e.v.version}`} data-entry={`v${e.v.version}`}>
+            <li key={`${secret.id}:v${e.v.version}`} data-entry={`v${e.v.version}`}>
               <div className="tl-head">
                 <span className="tl-title num">Version {e.v.version}</span>
                 {e.v.version === latest ? <span className="badge">aktuell</span> : null}
@@ -79,7 +79,12 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
               {e.v.reason ? <p className="tl-reason">{e.v.reason}</p> : null}
               {e.v.version > 1 && e.v.restoredFrom === null ? <VersionDiff v={e.v} /> : null}
               <div className="tl-actions">
-                <SecretValue compact label={`Wert von Version ${e.v.version}`} reveal={() => api.revealVersion(secret.id, e.v.version)} />
+                <SecretValue
+                  key={`${secret.id}:${e.v.version}`}
+                  identity={`${secret.id}:${e.v.version}`}
+                  compact
+                  label={`Wert von Version ${e.v.version}`}
+                  reveal={() => api.revealVersion(secret.id, e.v.version)} />
                 {e.v.version !== latest && !secret.archived ? (
                   <Button variant="ghost" onClick={() => setRestoreV(e.v.version)}>
                     Wiederherstellen

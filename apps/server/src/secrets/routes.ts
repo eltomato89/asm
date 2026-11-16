@@ -11,7 +11,8 @@ import {
   deleteSecret,
   getSecretMeta,
   revealSecret,
-  searchSecrets,
+  MAX_PAGE_LIMIT,
+  searchSecretsPage,
   unarchiveSecret,
 } from './service.js';
 import { listHistory, restoreVersion } from './versions.js';
@@ -22,6 +23,8 @@ const searchQuery = z.object({
   q: z.string().max(500).default(''),
   vault: z.string().min(1).max(100).optional(),
   status: z.enum(['active', 'archived', 'all']).default('active'),
+  cursor: z.string().max(80).optional(),
+  limit: z.coerce.number().int().min(1).max(MAX_PAGE_LIMIT).optional(),
 });
 
 export const userActor = (req: FastifyRequest): Actor => ({ type: 'user', userId: req.user!.id });
@@ -34,7 +37,7 @@ export async function registerSecretRoutes(app: FastifyInstance, deps: ModuleDep
 
   app.get('/api/secrets', { preHandler: requireUser }, async (req) => {
     const q = searchQuery.parse(req.query);
-    return { items: searchSecrets(ctx.db, req.user!.id, q.q, { vaultId: q.vault, status: q.status }) };
+    return searchSecretsPage(ctx.db, req.user!.id, q.q, { vaultId: q.vault, status: q.status, cursor: q.cursor, limit: q.limit });
   });
 
   app.post('/api/secrets', { preHandler: requireUser }, async (req, reply) => {

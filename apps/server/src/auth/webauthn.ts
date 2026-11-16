@@ -253,6 +253,16 @@ export function registerPasskeyRoutes(
     userPasskeys(req.user!.id).map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, transports: p.transports })),
   );
 
+  app.patch('/api/auth/passkeys/:id', { preHandler: requireUser }, async (req) => {
+    const { id } = z.object({ id: z.string().min(1).max(64) }).parse(req.params);
+    const { name } = z.strictObject({ name: z.string().trim().min(1).max(100) }).parse(req.body);
+    const where = and(eq(passkeys.id, id), eq(passkeys.userId, req.user!.id));
+    const row = db.select().from(passkeys).where(where).get();
+    if (!row) throw new HttpError(404, 'not_found');
+    db.update(passkeys).set({ name }).where(where).run();
+    return { id: row.id, name, createdAt: row.createdAt, transports: row.transports };
+  });
+
   app.delete('/api/auth/passkeys/:id', { preHandler: recent }, async (req) => {
     const { id } = z.object({ id: z.string().min(1).max(64) }).parse(req.params);
     const userId = req.user!.id;

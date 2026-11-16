@@ -38,9 +38,22 @@ async function currentUser(qc: QueryClient) {
   }
 }
 
-/** Only same-origin paths are accepted as post-login targets (no `//host` or `/\host`). */
+/**
+ * Only same-origin paths are accepted as post-login targets: a string starting with "/", without control
+ * characters or backslashes, that resolves to this origin (rejects `//host`, `/\\host`, absolute URLs).
+ */
 export function safeRedirect(target: unknown): string | undefined {
-  return typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\') ? target : undefined;
+  if (typeof target !== 'string' || !target.startsWith('/') || target.length > 2000) return undefined;
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f\\]/.test(target)) return undefined;
+  try {
+    const origin = window.location.origin;
+    const url = new URL(target, origin);
+    if (url.origin !== origin || !url.pathname.startsWith('/')) return undefined;
+    return url.pathname + url.search + url.hash;
+  } catch {
+    return undefined;
+  }
 }
 
 /** Shared guard: setup first, then a session; remembers the target for after the login. */

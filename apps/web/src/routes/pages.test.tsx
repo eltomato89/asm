@@ -72,6 +72,22 @@ describe('audit page', () => {
     expect(query(last).get('limit')).toBe('50');
   });
 
+  it('Secret filter searches on the server and sets secretId', async () => {
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/secrets' && query(c).get('q') === 'git') return { body: { items: [makeSecret()] } };
+      if (c.path === '/api/secrets/sec_1') return { body: makeSecret() };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    const { router } = renderApp('/audit');
+    await u.click(await screen.findByRole('button', { name: 'Secret: Alle' }));
+    await u.type(screen.getByRole('searchbox', { name: 'Secret suchen' }), 'git');
+    await u.click(await screen.findByRole('option', { name: /GITHUB_TOKEN/ }));
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ secretId: 'sec_1' }));
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/audit' && query(c).get('secretId') === 'sec_1')).toBe(true));
+    expect(await screen.findByRole('button', { name: 'Secret: GITHUB_TOKEN' })).toBeInTheDocument();
+  });
+
   it('shows „Kette unterbrochen bei #seq“ when the verification fails', async () => {
     appServer((c) => (c.path === '/api/audit/verify' ? { body: { ok: false, brokenAtSeq: 17 } } : undefined));
     renderApp('/audit');
@@ -125,6 +141,20 @@ describe('connect page', () => {
     expect(await screen.findByRole('heading', { name: 'Verbunden' })).toBeInTheDocument();
   });
 
+  it('never follows a non-http(s) redirect', async () => {
+    vi.stubGlobal('location', { ...window.location, assign, host: 'asm.local', origin: window.location.origin, href: window.location.href });
+    appServer((c) => {
+      if (c.path === '/api/oauth/consent/r1') return { body: { clientName: 'Claude Code', redirectHost: 'x', requestedAt: T0 } };
+      if (c.path === '/api/oauth/consent' && c.method === 'POST') return { body: { redirectTo: 'javascript:alert(1)' } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/connect?req=r1');
+    await u.click(await screen.findByRole('button', { name: 'Verweigern' }));
+    expect(await screen.findByText(/Rückleitung zum Client ist ungültig/)).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
+  });
+
   it('shows a friendly error for an unknown or expired request', async () => {
     appServer((c) => (c.path === '/api/oauth/consent/old' ? { status: 404, body: { error: 'unknown_request' } } : undefined));
     renderApp('/connect?req=old');
@@ -163,18 +193,19 @@ describe('activate page', () => {
 });
 
 describe('projects page', () => {
-  const projectA = { id: 'prj_a', slug: 'agent-secrets-manager', displayName: 'agent-secrets-manager', mergedInto: null, firstSeen: T0, lastSeen: Date.now() - 120_000 };
+  const projectA = { id: 'prj_a', slug: 'agent-secrets-manager', displayName: 'agent-secrets-manager', mergedInto: null, firstSeen: T0, lastSeen: T0 };
   const projectB = { id: 'prj_b', slug: 'asm', displayName: 'asm', mergedInto: null, firstSeen: T0, lastSeen: T0 };
 
   it('detail lists secrets with last access and „Zusammenführen“ calls merge with the target id', async () => {
+    const now = Date.now();
     const { calls } = appServer((c) => {
       if (c.path === '/api/projects' && c.method === 'GET') return { body: { items: [projectA, projectB] } };
       if (c.path === '/api/projects/prj_a') {
         return {
           body: {
             project: projectA,
-            secrets: [{ secret: makeSecret(), lastUsedAt: Date.now() - 200_000 }],
-            devices: [{ device: { id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp' }, lastUsedAt: Date.now() - 180_000 }],
+            secrets: [{ secret: makeSecret(), lastUsedAt: now - 180_000 }],
+            devices: [{ device: { id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp' }, lastUsedAt: now - 180_000 }],
           },
         };
       }
@@ -281,15 +312,64 @@ describe('settings page', () => {
     expect(await screen.findByText(/einziger Anmeldeweg/)).toBeInTheDocument();
   });
 
+  it('renames a passkey inline', async () => {
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/auth/passkeys') return { body: [{ id: 'pky_1', name: 'MacBook', createdAt: T0, transports: null }] };
+      if (c.path === '/api/auth/passkeys/pky_1' && c.method === 'PATCH') return { body: { id: 'pky_1', name: 'iPhone', createdAt: T0, transports: null } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/settings');
+    await u.click(await screen.findByRole('button', { name: 'Passkey MacBook umbenennen' }));
+    const input = screen.getByLabelText('Name des Passkeys');
+    await u.clear(input);
+    await u.type(input, 'iPhone{Enter}');
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: 'iPhone' }));
+  });
+
+  it('changes the password (current required on 400) without caching it', async () => {
+    let n = 0;
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/auth/password') return n++ === 0 ? { status: 401, body: { error: 'invalid_credentials' } } : { body: { ok: true } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    const { queryClient } = renderApp('/settings');
+    const form = await screen.findByRole('form', { name: 'Passwort ändern' });
+    await u.type(within(form).getByLabelText('Aktuelles Passwort'), 'falsch-falsch');
+    await u.type(within(form).getByLabelText('Neues Passwort'), 'ein-neues-langes-pw');
+    await u.type(within(form).getByLabelText('Neues Passwort wiederholen'), 'ein-neues-langes-pw');
+    await u.click(within(form).getByRole('button', { name: 'Passwort ändern' }));
+    expect(await within(form).findByText('Das aktuelle Passwort stimmt nicht.')).toBeInTheDocument();
+    await u.clear(within(form).getByLabelText('Aktuelles Passwort'));
+    await u.type(within(form).getByLabelText('Aktuelles Passwort'), 'richtig-richtig');
+    await u.click(within(form).getByRole('button', { name: 'Passwort ändern' }));
+    expect(await screen.findByText(/Passwort geändert/)).toBeInTheDocument();
+    expect(calls.filter((c) => c.path === '/api/auth/password').at(-1)?.body).toEqual({ currentPassword: 'richtig-richtig', newPassword: 'ein-neues-langes-pw' });
+    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state))).not.toContain('ein-neues-langes-pw');
+  });
+
+  it('lists accounts for admins', async () => {
+    appServer((c) =>
+      c.path === '/api/admin/users'
+        ? { body: { items: [{ id: 'usr_1', username: 'jana', isAdmin: true, createdAt: T0, hasPassword: true, passkeyCount: 2 }] } }
+        : undefined,
+    );
+    renderApp('/settings');
+    const table = await screen.findByRole('table', { name: 'Konten' });
+    expect(table).toHaveTextContent('jana');
+    expect(table).toHaveTextContent('Passwort, 2 Passkeys');
+  });
+
   it('admin creates a user', async () => {
-    const { calls } = appServer((c) => (c.path === '/api/admin/users' ? { status: 201, body: { id: 'usr_2', username: 'tom', isAdmin: false } } : undefined));
+    const { calls } = appServer((c) => (c.path === '/api/admin/users' && c.method === 'POST' ? { status: 201, body: { id: 'usr_2', username: 'tom', isAdmin: false } } : c.path === '/api/admin/users' ? { body: { items: [] } } : undefined));
     const u = userEvent.setup();
     renderApp('/settings');
     const form = await screen.findByRole('form', { name: 'Konto anlegen' });
     await u.type(within(form).getByLabelText('Benutzername'), 'tom');
     await u.type(within(form).getByLabelText('Startpasswort'), 'ein-langes-passwort');
     await u.click(within(form).getByRole('button', { name: 'Konto anlegen' }));
-    await waitFor(() => expect(calls.find((c) => c.path === '/api/admin/users')?.body).toEqual({ username: 'tom', password: 'ein-langes-passwort', isAdmin: false }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/admin/users' && c.method === 'POST')?.body).toEqual({ username: 'tom', password: 'ein-langes-passwort', isAdmin: false }));
     expect(await screen.findByText('Konto tom angelegt.')).toBeInTheDocument();
   });
 });

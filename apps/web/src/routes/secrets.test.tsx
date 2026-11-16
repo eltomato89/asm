@@ -104,6 +104,30 @@ describe('secrets page', () => {
     expect(within(panel).queryByText('ghp_geheim')).toBeNull();
   });
 
+  it('switching to another (cached) secret never shows the previously revealed value', async () => {
+    const other = makeSecret({ id: 'sec_3', title: 'OpenAI', envName: 'OPENAI_API_KEY' });
+    secretsServer((c) => {
+      if (c.path === '/api/secrets' && c.method === 'GET') return { body: { items: [active, other] } };
+      if (c.path === '/api/secrets/sec_3') return { body: other };
+      if (c.path === '/api/secrets/sec_1/reveal') return { body: { value: 'ghp_geheim' } };
+      if (c.path === '/api/secrets/sec_3/reveal') return { body: { value: 'sk_other' } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    const { queryClient } = renderApp('/secrets?selected=sec_3');
+    await screen.findByRole('complementary', { name: /OPENAI_API_KEY/ });
+    await u.click(await screen.findByText('GITHUB_TOKEN', { selector: '.name' }));
+    const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
+    await u.click(await within(panel).findByRole('button', { name: 'Anzeigen' }));
+    expect(await within(panel).findByText('ghp_geheim')).toBeInTheDocument();
+    expect(queryClient.getQueryData(['secrets', 'one', 'sec_3'])).toBeTruthy();
+    await u.click(screen.getByText('OPENAI_API_KEY', { selector: '.name' }));
+    const next = await screen.findByRole('complementary', { name: /OPENAI_API_KEY/ });
+    expect(within(next).queryByText('ghp_geheim')).toBeNull();
+    expect(screen.queryByText('ghp_geheim')).toBeNull();
+    expect(within(next).getByLabelText('Wert von OPENAI_API_KEY')).toHaveTextContent('••••');
+  });
+
   it('archive dialog cannot be submitted without a reason', async () => {
     const { calls } = secretsServer((c) => (c.path === '/api/secrets/sec_1/archive' ? { body: archived } : undefined));
     const u = userEvent.setup();
@@ -119,6 +143,43 @@ describe('secrets page', () => {
     expect(submit).toBeEnabled();
     await u.click(submit);
     await waitFor(() => expect(calls.find((c) => c.path === '/api/secrets/sec_1/archive')?.body).toEqual({ reason: 'Nicht mehr benötigt' }));
+  });
+});
+
+describe('secrets list paging and form', () => {
+  it('loads more with the cursor and marks agent-created secrets', async () => {
+    const agent = makeSecret({ id: 'sec_9', envName: 'SENTRY_DSN', title: 'Sentry', createdBy: { type: 'device', id: 'dev_1', name: 'claude@mbp' } });
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/secrets' && c.method === 'GET' && !query(c).get('q')) {
+        return query(c).get('cursor') === 'c1' ? { body: { items: [agent] } } : { body: { items: [active], nextCursor: 'c1' } };
+      }
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/secrets');
+    await screen.findByText('GITHUB_TOKEN', { selector: '.name' });
+    expect(screen.queryByText('von Agent')).toBeNull();
+    await u.click(screen.getByRole('button', { name: 'Mehr laden' }));
+    const row = (await screen.findByText('SENTRY_DSN', { selector: '.name' })).closest('tr')!;
+    expect(within(row).getByText('von Agent')).toBeInTheDocument();
+    expect(calls.some((c) => c.path === '/api/secrets' && query(c).get('cursor') === 'c1')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Mehr laden' })).toBeNull();
+  });
+
+  it('creating a secret sends the value but leaves nothing of it in the mutation cache', async () => {
+    const { calls } = secretsServer((c) => (c.path === '/api/secrets' && c.method === 'POST' ? { status: 201, body: makeSecret({ id: 'sec_new', envName: 'NEW_KEY', title: 'Neu' }) } : c.path === '/api/secrets/sec_new' ? { body: makeSecret({ id: 'sec_new', envName: 'NEW_KEY', title: 'Neu' }) } : undefined));
+    const u = userEvent.setup();
+    const { queryClient } = renderApp('/secrets');
+    await u.click(await screen.findByRole('button', { name: 'Neues Secret' }));
+    const form = await screen.findByRole('form', { name: 'Secret anlegen' });
+    await u.type(within(form).getByLabelText('Titel'), 'Neu');
+    await u.type(within(form).getByLabelText('ENV-Name'), 'new_key');
+    await u.type(within(form).getByLabelText('Wert eingeben'), 'super-geheim-123');
+    await u.click(within(form).getByRole('button', { name: 'Secret anlegen' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.path === '/api/secrets')?.body).toMatchObject({ title: 'Neu', envName: 'NEW_KEY', value: 'super-geheim-123' }));
+    await screen.findByRole('complementary', { name: /NEW_KEY/ });
+    const cached = JSON.stringify([queryClient.getMutationCache().getAll().map((m) => m.state), queryClient.getQueryCache().getAll().map((q) => q.state.data)]);
+    expect(cached).not.toContain('super-geheim-123');
   });
 });
 

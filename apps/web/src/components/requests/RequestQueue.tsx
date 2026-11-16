@@ -21,13 +21,20 @@ export function RequestQueue({ requests }: { requests: AccessRequestDto[] }) {
   const cardRefs = useRef(new Map<string, HTMLElement>());
 
   const visible = requests.filter((r) => r.status === 'pending');
-  const focusIndex = Math.max(0, visible.findIndex((r) => r.id === focusId));
-  const focused = visible[focusIndex];
+  const focused = visible.find((r) => r.id === focusId);
+  const focusIndex = focused ? visible.indexOf(focused) : -1;
+  const autoFocused = useRef(false);
 
-  // Keep the focus on a card that still exists.
+  // The first card is focused once on arrival. If the focused card disappears (decided elsewhere, expired),
+  // the focus is cleared instead of jumping to another card: A/D then need an explicit J/K or click first.
   useEffect(() => {
-    if (focused && focused.id !== focusId) setFocusId(focused.id);
-  }, [focused, focusId]);
+    if (!autoFocused.current && visible[0]) {
+      autoFocused.current = true;
+      setFocusId(visible[0].id);
+    } else if (focusId !== null && !focused) {
+      setFocusId(null);
+    }
+  }, [visible, focusId, focused]);
 
   const decide = useMutation({
     mutationFn: ({ request, decision }: { request: AccessRequestDto; decision: Decision }) => api.decide(request.id, decision),
@@ -62,7 +69,7 @@ export function RequestQueue({ requests }: { requests: AccessRequestDto[] }) {
     }
   };
   const move = (delta: number) => {
-    const next = visible[Math.min(visible.length - 1, Math.max(0, focusIndex + delta))];
+    const next = focusIndex < 0 ? visible[0] : visible[Math.min(visible.length - 1, Math.max(0, focusIndex + delta))];
     if (!next) return;
     setFocusId(next.id);
     cardRefs.current.get(next.id)?.scrollIntoView({ block: 'nearest' });
