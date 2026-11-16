@@ -10,14 +10,17 @@ import { registerRequest } from './commands/request.js';
 import { registerRun } from './commands/run.js';
 import { registerSearch } from './commands/search.js';
 import { registerSet } from './commands/set.js';
+import { registerUpdate } from './commands/update.js';
 import { registerWrite } from './commands/write.js';
 import { CliError, EXIT, Runtime, type CliDeps, type GlobalOptions } from './runtime.js';
+import { VERSION } from './version.js';
 
 export function buildProgram(deps: CliDeps, setExit: (code: number) => void): Command {
   const program = new Command('asm')
     .description('ASM – Agent Secrets Manager CLI')
+    .version(deps.version ?? VERSION, '-V, --version', 'print the asm version')
     .option('--server <url>', 'ASM server URL (default: the one from asm login)')
-    .option('--insecure-store', 'use ~/.config/asm/credentials.json instead of the OS keyring')
+    .option('--insecure-store', 'use ~/.config/asm/credentials.json instead of the OS keychain')
     .enablePositionalOptions()
     .exitOverride()
     .configureOutput({ writeOut: (s) => void deps.stdout.write(s), writeErr: (s) => void deps.stderr.write(s) });
@@ -31,6 +34,7 @@ export function buildProgram(deps: CliDeps, setExit: (code: number) => void): Co
   registerSet(program, rt);
   registerArchive(program, rt);
   registerMcpConfig(program, rt);
+  registerUpdate(program, rt);
   for (const c of program.commands) c.exitOverride().configureOutput({ writeOut: (s) => void deps.stdout.write(s), writeErr: (s) => void deps.stderr.write(s) });
   return program;
 }

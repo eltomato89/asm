@@ -51,7 +51,7 @@ export function registerLogin(program: Command, rt: (o?: { insecureStore?: boole
     .command('login')
     .description('Pair this machine with an ASM server (device flow)')
     .argument('<url>', 'server URL, e.g. https://asm.example.com')
-    .option('--insecure-store', 'store the tokens in ~/.config/asm/credentials.json (0600) instead of the OS keyring')
+    .option('--insecure-store', 'store the tokens in ~/.config/asm/credentials.json (0600) instead of the OS keychain')
     .option('--allow-http', 'allow plain http for a non-local server')
     .action(async (url: string, o: { insecureStore?: boolean; allowHttp?: boolean }) =>
       login(rt(o.insecureStore ? { insecureStore: true } : {}), url, { allowHttp: o.allowHttp }));

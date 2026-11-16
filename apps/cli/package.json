@@ -8,16 +8,17 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\"",
+    "bundle": "node scripts/bundle.mjs",
     "dev": "tsx --conditions=development src/index.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@asm/shared": "workspace:*",
-    "@napi-rs/keyring": "^2.1.2",
     "commander": "^15.1.0"
   },
   "devDependencies": {
+    "esbuild": "^0.25.12",
     "tsx": "^4.23.15"
   },
   "files": [

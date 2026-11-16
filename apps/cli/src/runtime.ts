@@ -22,7 +22,7 @@ export type CliDeps = {
   readStdin: () => Promise<string>;
   configDir: string;
   hostname: string;
-  /** Token store; default: OS keyring (file with --insecure-store). */
+  /** Token store; default: OS keychain via `security`/`secret-tool` (file with --insecure-store). */
   storeFor?: (insecure: boolean) => TokenStore;
   /** API client factory; default: createApiClient with token refresh. */
   makeApi?: (server: string) => ApiClient;
@@ -36,6 +36,10 @@ export type CliDeps = {
   refreshTimeoutMs?: number;
   /** Source of SIGINT/SIGTERM/SIGHUP for `asm run` forwarding (default: process). */
   signals?: NodeJS.EventEmitter;
+  /** Version reported by --version and compared by `asm update` (default: build version). */
+  version?: string;
+  /** File replaced by `asm update` (default: process.argv[1] when running from the bundle). */
+  selfPath?: string;
 };
 
 export const EXIT = { ok: 0, api: 1, usage: 2, denied: 3 } as const;

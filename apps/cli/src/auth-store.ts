@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -88,59 +89,143 @@ export class MemoryStore implements TokenStore {
   }
 }
 
-// ---------- OS keyring ----------
+// ---------- OS keychain (via system tools; no native modules) ----------
 
-type KeyringEntry = { getPassword(): string | null | undefined; setPassword(p: string): void; deletePassword(): boolean };
+export type RunResult = { code: number; stdout: string; stderr: string };
+/**
+ * Runs a system tool. `input` is written to stdin — secrets go there, never into argv (visible in `ps`).
+ * Rejects with an error whose `code` is 'ENOENT' if the tool is missing.
+ */
+export type CommandRunner = (cmd: string, args: string[], input?: string) => Promise<RunResult>;
 
-export class KeyringStore implements TokenStore {
-  private entry(host: string): Promise<KeyringEntry> {
-    return import('@napi-rs/keyring')
-      .then((m) => new m.Entry(KEYRING_SERVICE, host) as KeyringEntry)
-      .catch(() => {
-        throw new StoreError('OS keyring unavailable (use --insecure-store)');
-      });
+export const defaultRunner: CommandRunner = (cmd, args, input) =>
+  new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8').on('data', (c: string) => (stdout += c));
+    child.stderr.setEncoding('utf8').on('data', (c: string) => (stderr += c));
+    child.on('error', reject);
+    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+    child.stdin.on('error', () => {
+      // tool exited before reading stdin; the exit code reports the failure
+    });
+    child.stdin.end(input ?? '');
+  });
+
+const UNAVAILABLE_HINT = 'use --insecure-store to keep the tokens in ~/.config/asm/credentials.json (0600) instead';
+
+function keychainError(what: string): StoreError {
+  return new StoreError(`OS keychain ${what} (${UNAVAILABLE_HINT})`);
+}
+
+async function runTool(run: CommandRunner, cmd: string, args: string[], input?: string): Promise<RunResult> {
+  try {
+    return await run(cmd, args, input);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') throw keychainError(`unavailable: \`${cmd}\` not found`);
+    throw keychainError(`access failed: \`${cmd}\` could not be started`);
   }
+}
 
-  private async attempt<T>(fn: () => T): Promise<T> {
-    try {
-      return fn();
-    } catch {
-      throw new StoreError('OS keyring access failed (use --insecure-store)');
-    }
+function parseStored(raw: string): Credentials | undefined {
+  try {
+    return parseCredentials(JSON.parse(raw));
+  } catch {
+    return undefined;
   }
+}
+
+/** Quotes an argument for the `security -i` command parser (double quotes, backslash-escaped `"` and `\`). */
+export function securityQuote(value: string): string {
+  if (/[\r\n\0]/.test(value)) throw new StoreError('value not storable in the OS keychain');
+  return `"${value.replace(/["\\]/g, (c) => `\\${c}`)}"`;
+}
+
+/** `security` exit code for "item not found" (errSecItemNotFound). */
+const SECURITY_NOT_FOUND = 44;
+
+/** macOS Keychain via /usr/bin/security (service `asm`, account = server host). */
+export class MacKeychainStore implements TokenStore {
+  constructor(private readonly run: CommandRunner = defaultRunner) {}
 
   async get(host: string) {
-    const e = await this.entry(host);
-    const raw = await this.attempt(() => {
-      try {
-        return e.getPassword();
-      } catch (err) {
-        // "No entry" is reported as an error by some platforms.
-        if (/no (matching )?entry|not found/i.test(String((err as Error)?.message))) return null;
-        throw err;
-      }
-    });
-    if (!raw) return undefined;
-    try {
-      return parseCredentials(JSON.parse(raw));
-    } catch {
-      return undefined;
-    }
+    const r = await runTool(this.run, 'security', ['find-generic-password', '-s', KEYRING_SERVICE, '-a', host, '-w']);
+    if (r.code === SECURITY_NOT_FOUND) return undefined;
+    if (r.code !== 0) throw keychainError('access failed');
+    let raw = r.stdout.replace(/\n$/, '');
+    // `security -w` prints non-printable data as hex.
+    if (/^([0-9a-f]{2})+$/.test(raw) && !raw.startsWith('{')) raw = Buffer.from(raw, 'hex').toString('utf8');
+    return parseStored(raw);
   }
 
   async set(host: string, creds: Credentials) {
-    const e = await this.entry(host);
-    await this.attempt(() => e.setPassword(JSON.stringify(creds)));
+    // `security -i` reads the command from stdin, so the secret never appears in argv.
+    const line = ['add-generic-password', '-U', '-s', securityQuote(KEYRING_SERVICE), '-a', securityQuote(host), '-w', securityQuote(JSON.stringify(creds))].join(' ');
+    const r = await runTool(this.run, 'security', ['-i'], `${line}\n`);
+    if (r.code !== 0) throw keychainError('access failed');
   }
 
   async delete(host: string) {
-    const e = await this.entry(host);
-    try {
-      return e.deletePassword();
-    } catch {
-      return false;
-    }
+    const r = await runTool(this.run, 'security', ['delete-generic-password', '-s', KEYRING_SERVICE, '-a', host]);
+    if (r.code === 0) return true;
+    if (r.code === SECURITY_NOT_FOUND) return false;
+    throw keychainError('access failed');
   }
+}
+
+/** Linux Secret Service (GNOME Keyring, KWallet, …) via `secret-tool` from libsecret. */
+export class SecretToolStore implements TokenStore {
+  constructor(private readonly run: CommandRunner = defaultRunner) {}
+
+  private attrs(host: string): string[] {
+    return ['service', KEYRING_SERVICE, 'account', host];
+  }
+
+  async get(host: string) {
+    const r = await runTool(this.run, 'secret-tool', ['lookup', ...this.attrs(host)]);
+    if (r.code !== 0) {
+      // Not found: exit 1 without output. Anything on stderr means the Secret Service failed.
+      if (r.stderr.trim() === '') return undefined;
+      throw keychainError('access failed');
+    }
+    return parseStored(r.stdout.replace(/\n$/, ''));
+  }
+
+  async set(host: string, creds: Credentials) {
+    const r = await runTool(this.run, 'secret-tool', ['store', `--label=asm ${host}`, ...this.attrs(host)], JSON.stringify(creds));
+    if (r.code !== 0) throw keychainError('access failed');
+  }
+
+  async delete(host: string) {
+    // `secret-tool clear` does not report whether something was deleted.
+    const existed = (await this.get(host)) !== undefined;
+    const r = await runTool(this.run, 'secret-tool', ['clear', ...this.attrs(host)]);
+    if (r.code !== 0 && r.stderr.trim() !== '') throw keychainError('access failed');
+    return existed;
+  }
+}
+
+/** Platform without a supported keychain tool. */
+export class UnavailableKeychainStore implements TokenStore {
+  private fail(): never {
+    throw keychainError('not supported on this platform');
+  }
+  async get(_host: string): Promise<Credentials | undefined> {
+    this.fail();
+  }
+  async set(_host: string, _creds: Credentials): Promise<void> {
+    this.fail();
+  }
+  async delete(_host: string): Promise<boolean> {
+    this.fail();
+  }
+}
+
+export function createKeychainStore(platform: NodeJS.Platform = process.platform, run: CommandRunner = defaultRunner): TokenStore {
+  if (platform === 'darwin') return new MacKeychainStore(run);
+  if (platform === 'linux') return new SecretToolStore(run);
+  return new UnavailableKeychainStore();
 }
 
 // ---------- plaintext file (--insecure-store) ----------
@@ -218,7 +303,7 @@ export class DefaultStore implements TokenStore {
 }
 
 export function createDefaultStore(dir: string, insecure: boolean): TokenStore {
-  return new DefaultStore(new KeyringStore(), new FileStore(join(dir, 'credentials.json')), insecure);
+  return new DefaultStore(createKeychainStore(), new FileStore(join(dir, 'credentials.json')), insecure);
 }
 
 // ---------- non-secret config ----------
