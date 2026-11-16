@@ -71,6 +71,8 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
 | `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
 | `PORT` | HTTP-Port. | `8080` |
 | `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |
+| `ASM_TRUSTED_NETWORKS` | Kommagetrennte IPv4/IPv6-CIDRs (z. B. `192.168.0.0/16,100.64.0.0/10`). Clients außerhalb erreichen nur die Freigabe-Seite (siehe „Push-Freigabe vom iPhone“), alles andere ist 404. Hinter einem Proxy nur mit `ASM_TRUST_PROXY=true` sinnvoll. | leer = keine Sperre |
+| `ASM_VAPID_SUBJECT` | Kontakt für Web-Push-Dienste (`mailto:` oder `https:`). Eine echte Adresse wird empfohlen – Apple lehnt Platzhalter teils ab. | `mailto:asm@localhost` |
 
 ## Reverse Proxy
 
@@ -82,6 +84,60 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
   Nutzer gemeinsam. Den Container-Port dann nur für den Proxy erreichbar machen.
 - Passkeys brauchen https und einen Domainnamen – eine IP-Adresse funktioniert nicht.
 - Live-Anfragen (Server-Sent Events) und MCP-Long-Polls (bis ~50 s) nicht puffern und Timeouts ≥ 60 s lassen.
+
+## Push-Freigabe vom iPhone
+
+Wartet eine Anfrage auf Freigabe, schickt ASM eine Push-Benachrichtigung an deine Geräte. Tippen öffnet eine
+kleine Freigabe-Seite: „Freigeben“ (mit Face ID) oder „Verweigern“. Das geht auch unterwegs, obwohl ASM nicht
+öffentlich erreichbar ist – nach außen ist nur die Freigabe-Seite offen.
+
+**Einrichten (einmalig, im Heimnetz/VPN):**
+
+1. ASM in Safari öffnen (`ASM_PUBLIC_URL`), anmelden, Teilen → „Zum Home-Bildschirm“ (iOS ≥ 16.4).
+2. ASM über das neue Symbol starten, Einstellungen → „Benachrichtigungen“ → „Aktivieren“ und erlauben.
+3. „Test senden“ prüft die Zustellung. Für die Freigabe braucht dein Konto einen Passkey (Face ID).
+
+Die VAPID-Schlüssel erzeugt ASM beim ersten Start selbst (privater Schlüssel mit dem Master-Key verschlüsselt in der DB).
+
+**Öffentliche Pfade:** `/approve/`, `/api/approve/`, `/assets/`, `/favicon.svg`, `/theme-init.js`. Alles andere nur aus
+dem Heimnetz/VPN. Ein Hostname für innen und außen, damit derselbe Passkey gilt.
+
+**Nginx Proxy Manager – Variante A (Oberfläche):**
+
+- *Access Lists* → neue Liste „Heimnetz“: unter *Access* `allow 192.168.0.0/16` (und ggf. VPN-Netz), Rest `deny`,
+  keine Benutzer, „Satisfy Any“.
+- *Proxy Host* `asm.example.de` → `http://asm:8080`, SSL aktiv, *Access List* = „Heimnetz“.
+- *Custom Locations* ohne Access List, gleiches Ziel (`asm`, `8080`): `/approve/`, `/api/approve/`, `/assets/`,
+  `/favicon.svg`, `/theme-init.js`.
+- Per Mobilfunk testen: `https://asm.example.de/` muss 403 liefern, ein Freigabe-Link muss funktionieren. Greift die
+  Access List in deiner NPM-Version auch für die Custom Locations, Variante B nehmen.
+
+**Variante B (Tab *Advanced* des Proxy Hosts, keine Access List am Host):**
+
+```nginx
+location ~ ^/(approve/|api/approve/|assets/|favicon\.svg$|theme-init\.js$) {
+  include conf.d/include/proxy.conf;
+}
+location / {
+  allow 192.168.0.0/16;
+  allow 100.64.0.0/10;   # z. B. Tailscale
+  deny all;
+  include conf.d/include/proxy.conf;
+}
+```
+
+Zusätzlich `ASM_TRUST_PROXY=true` und `ASM_TRUSTED_NETWORKS=192.168.0.0/16,100.64.0.0/10` setzen: Dann sperrt auch
+ASM selbst alle anderen Pfade für fremde IPs (zweite Sicherung, falls der Proxy falsch konfiguriert ist).
+
+**Sicherheit:**
+
+- Der Text der Benachrichtigung ist neutral („Neue Anfrage wartet auf Freigabe“), ohne Secret, Projekt oder Grund.
+  Der Inhalt ist Ende-zu-Ende verschlüsselt (Web Push), Apple sieht nur Ziel und Zeitpunkt.
+- Jeder Link enthält ein Einmal-Token (nur als SHA-256 gespeichert). Es gilt nur für diese Anfrage, nur solange sie
+  offen ist, und ist nach einer Entscheidung – egal ob per Link oder im Dashboard – wertlos.
+- „Freigeben“ verlangt einen Passkey des Besitzers mit Nutzerverifikation (Face ID/Geräte-PIN). „Verweigern“ geht
+  ohne. Keine Session, kein Cookie, keine Secret-Werte; 30 Aufrufe pro Minute und IP.
+- Entscheidungen erscheinen im Audit-Log wie gewohnt (`request.approved`/`request.denied`) mit `via: push`.
 
 ## Claude Code verbinden
 

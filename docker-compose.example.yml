@@ -25,6 +25,9 @@ services:
       # der Port ausschließlich über den Proxy erreichbar ist (X-Forwarded-For wird sonst fälschbar).
       ASM_TRUST_PROXY: "true"
       # ASM_AUTO_MODE_MAX_MIN: "240"
+      # Push-Freigabe: von außen nur die Freigabe-Seite erlauben (siehe README).
+      # ASM_TRUSTED_NETWORKS: "192.168.0.0/16,100.64.0.0/10"
+      # ASM_VAPID_SUBJECT: "mailto:admin@example.com"
     secrets:
       - asm_master_key
     volumes:
