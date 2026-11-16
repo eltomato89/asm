@@ -31,6 +31,20 @@ describe('audit routes', () => {
     expect((await w.req(w.bob, 'GET', '/api/audit?event=auth.login_failed')).json().items).toHaveLength(0);
   });
 
+  it('admins do not see system rows tied to another user\'s vault or secret', async () => {
+    const w = await world();
+    const s = createSecret(w.ctx, w.bob.actor, { title: 'Bob private', value: 'v' });
+    appendAudit(w.db, w.clock, { actorType: 'system', actorId: null, event: 'request.expired', vaultId: w.bob.personalVaultId, reason: 'bob-private-reason' });
+    appendAudit(w.db, w.clock, { actorType: 'system', actorId: null, event: 'request.denied', secretId: s.id, project: 'bob-proj' });
+    const admin = await w.req(w.alice, 'GET', '/api/audit');
+    expect(admin.body).not.toContain('bob-private-reason');
+    expect(admin.body).not.toContain('bob-proj');
+    expect((await w.req(w.alice, 'GET', '/api/audit.csv')).body).not.toContain('bob-private-reason');
+    // bob still sees the vault-scoped one
+    const bobs = (await w.req(w.bob, 'GET', '/api/audit')).json().items as { event: string }[];
+    expect(bobs.map((r) => r.event)).toContain('request.expired');
+  });
+
   it('CSV export: header, RFC 4180 quoting, formula-injection guard', async () => {
     const w = await world();
     appendAudit(w.db, w.clock, {
@@ -46,6 +60,25 @@ describe('audit routes', () => {
     expect(r.body).toContain('"a,b"');
     expect(r.body).toContain('"{""note"":""line1\\nline2""}"');
     expect(r.body).not.toMatch(/,=HYPERLINK/);
+    expect(r.headers['x-truncated']).toBeUndefined();
+  });
+
+  it('CSV guard also covers leading tab / CR; 10 000-row cap sets X-Truncated', async () => {
+    const w = await world();
+    appendAudit(w.db, w.clock, { actorType: 'user', actorId: w.alice.id, event: 'secret.archived', reason: '\t=1+1', project: '\r@SUM(A1)' });
+    const r1 = await w.req(w.alice, 'GET', '/api/audit.csv');
+    expect(r1.body).toContain(",'\t=1+1,");
+    expect(r1.body).toContain(`"'\r@SUM(A1)"`);
+
+    const ins = w.db.$client.prepare(
+      `INSERT INTO audit_log (id, ts, actor_type, actor_id, event, prev_hash, hash) VALUES (?, 0, 'user', ?, 'auth.login', '', '')`,
+    );
+    w.db.$client.transaction(() => {
+      for (let i = 0; i < 10_050; i++) ins.run(`aud_bulk_${i}`, w.alice.id);
+    })();
+    const r2 = await w.req(w.alice, 'GET', '/api/audit.csv');
+    expect(r2.headers['x-truncated']).toBe('true');
+    expect(r2.body.trimEnd().split('\r\n')).toHaveLength(10_001);
   });
 
   it('verify is admin-only', async () => {

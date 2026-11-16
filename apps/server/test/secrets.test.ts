@@ -9,12 +9,13 @@ import {
   createSecret,
   deleteSecret,
   generateValue,
+  getSecretMeta,
   revealSecret,
   searchSecrets,
   unarchiveSecret,
 } from '../src/secrets/service.js';
 import { listHistory, listVersions, restoreVersion } from '../src/secrets/versions.js';
-import { FORBIDDEN_RESPONSE_KEYS, ORIGIN, addDevice, allKeys, auditRows, world } from './helpers/fixtures.js';
+import { FORBIDDEN_RESPONSE_KEYS, ORIGIN, PW, addDevice, allKeys, auditRows, world } from './helpers/fixtures.js';
 
 const MIN11 = 11 * 60_000;
 
@@ -81,9 +82,15 @@ describe('secrets: access and routes', () => {
 
   it('GET responses never contain value/ciphertext fields', async () => {
     const w = await world();
-    const s = (await w.req(w.alice, 'POST', '/api/secrets', { title: 'T', value: 'plain-value-123' })).json();
+    const dev = addDevice(w.db, w.alice.id);
+    const s = createSecret(w.ctx, dev, { title: 'T', value: 'plain-value-123', project: 'scan-proj', reason: 'r' });
     await w.req(w.alice, 'PATCH', `/api/secrets/${s.id}`, { value: 'plain-value-456' });
-    const urls = ['/api/secrets', `/api/secrets/${s.id}`, `/api/secrets/${s.id}/versions`, '/api/vaults', '/api/audit', `/api/secrets/${s.id}/projects`];
+    const p = (await w.req(w.alice, 'GET', '/api/projects')).json().items[0];
+    expect(p.slug).toBe('scan-proj');
+    const urls = [
+      '/api/secrets', `/api/secrets/${s.id}`, `/api/secrets/${s.id}/versions`, '/api/vaults', '/api/audit', `/api/secrets/${s.id}/projects`,
+      '/api/projects', `/api/projects/${p.id}`,
+    ];
     for (const url of urls) {
       const r = await w.req(w.alice, 'GET', url);
       expect(r.statusCode, url).toBe(200);
@@ -153,6 +160,24 @@ describe('secrets: access and routes', () => {
     expect(w.db.$client.prepare('SELECT count(*) n FROM secret_versions').get()).toEqual({ n: 0 });
     expect(w.db.$client.prepare('SELECT count(*) n FROM secrets_fts').get()).toEqual({ n: 0 });
     expect(auditRows(w.db, 'secret.deleted')).toHaveLength(1);
+  });
+
+  it('PATCH changing allowPlaintextToAgent requires recent auth; other fields do not', async () => {
+    const w = await world();
+    const s = createSecret(w.ctx, w.alice.actor, { title: 'T', value: 'v' });
+    w.clock.advance(MIN11);
+    const flip = await w.req(w.alice, 'PATCH', `/api/secrets/${s.id}`, { allowPlaintextToAgent: true });
+    expect(flip.statusCode).toBe(401);
+    expect(flip.json()).toEqual({ error: 'reauth_required' });
+    expect(getSecretMeta(w.db, w.alice.id, s.id).allowPlaintextToAgent).toBe(false);
+    // unchanged value + other fields are fine without re-auth
+    expect((await w.req(w.alice, 'PATCH', `/api/secrets/${s.id}`, { allowPlaintextToAgent: false, title: 'T2' })).statusCode).toBe(200);
+    expect((await w.req(w.alice, 'PATCH', `/api/secrets/${s.id}`, { title: 'T3' })).statusCode).toBe(200);
+    // fresh auth: allowed
+    await w.req(w.alice, 'POST', '/api/auth/reauth/password', { password: PW });
+    const ok = await w.req(w.alice, 'PATCH', `/api/secrets/${s.id}`, { allowPlaintextToAgent: true });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().allowPlaintextToAgent).toBe(true);
   });
 
   it('DELETE requires recent auth', async () => {

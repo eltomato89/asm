@@ -8,10 +8,13 @@ import { applySecretChange, loadAccessible, openVersion, same, SNAPSHOT_FIELDS, 
 /** Applies the value + metadata of an old version as a new version with `restoredFrom`. */
 export function restoreVersion(ctx: ServiceCtx, actor: Actor, secretId: string, version: number, info: RequestInfo = {}): SecretMeta {
   userOnly(actor);
-  const row = loadAccessible(ctx.db, actor.userId, secretId);
-  if (row.archived_at !== null) throw new HttpError(409, 'secret_archived');
-  const old = openVersion(ctx, secretId, version);
-  return applySecretChange(ctx, actor, secretId, { value: old.plaintext, meta: old.snapshot, restoredFrom: version }, info);
+  // applySecretChange's transaction nests as a savepoint.
+  return ctx.db.$client.transaction((): SecretMeta => {
+    const row = loadAccessible(ctx.db, actor.userId, secretId);
+    if (row.archived_at !== null) throw new HttpError(409, 'secret_archived');
+    const old = openVersion(ctx, secretId, version);
+    return applySecretChange(ctx, actor, secretId, { value: old.plaintext, meta: old.snapshot, restoredFrom: version }, info);
+  })();
 }
 
 const NAME_OF = (alias: string, typeCol: string, idCol: string) => `

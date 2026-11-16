@@ -162,7 +162,7 @@ export function verifyChain(db: Db): { ok: true } | { ok: false; brokenAtSeq: nu
 
 export interface AuditFilter {
   userId: string;
-  /** Admins additionally see system-actor rows (e.g. auth.login_failed). */
+  /** Admins additionally see system-actor rows not tied to a vault/secret (e.g. auth.login_failed). */
   includeSystem?: boolean;
   deviceId?: string;
   secretId?: string;
@@ -182,7 +182,7 @@ export function queryAudit(db: Db, filter: AuditFilter): { items: AuditRow[]; ne
   const where: string[] = [
     `(vault_id IN (SELECT vault_id FROM vault_members WHERE user_id = @userId)
       OR (actor_type = 'user' AND actor_id = @userId)
-      OR device_id IN (SELECT id FROM devices WHERE user_id = @userId)${filter.includeSystem ? " OR actor_type = 'system'" : ''})`,
+      OR device_id IN (SELECT id FROM devices WHERE user_id = @userId)${filter.includeSystem ? " OR (actor_type = 'system' AND vault_id IS NULL AND secret_id IS NULL)" : ''})`,
   ];
   const params: Record<string, string | number> = { userId: filter.userId, limit: limit + 1 };
   const add = (cond: string, key: string, val: string | number | undefined) => {

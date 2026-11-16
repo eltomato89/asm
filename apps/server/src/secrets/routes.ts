@@ -29,7 +29,8 @@ export const reqInfo = (req: FastifyRequest): RequestInfo => ({ ip: req.ip });
 
 export async function registerSecretRoutes(app: FastifyInstance, deps: ModuleDeps): Promise<void> {
   const { ctx, clock } = deps;
-  const recent = [requireUser, requireRecentAuth(clock)];
+  const reauth = requireRecentAuth(clock);
+  const recent = [requireUser, reauth];
 
   app.get('/api/secrets', { preHandler: requireUser }, async (req) => {
     const q = searchQuery.parse(req.query);
@@ -46,9 +47,12 @@ export async function registerSecretRoutes(app: FastifyInstance, deps: ModuleDep
     return getSecretMeta(ctx.db, req.user!.id, id);
   });
 
-  app.patch('/api/secrets/:id', { preHandler: requireUser }, async (req) => {
+  app.patch('/api/secrets/:id', { preHandler: requireUser }, async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const { value, generate, project, reason, ...meta } = SecretPatchSchema.parse(req.body);
+    if (meta.allowPlaintextToAgent !== undefined && meta.allowPlaintextToAgent !== getSecretMeta(ctx.db, req.user!.id, id).allowPlaintextToAgent) {
+      await reauth(req, reply);
+    }
     return applySecretChange(ctx, userActor(req), id, { meta, value, generate, project, reason }, reqInfo(req));
   });
 

@@ -125,6 +125,17 @@ export function mergeProjects(ctx: ServiceCtx, userId: string, fromId: string, i
     const from = visibleProject(db, userId, fromId);
     const into = visibleProject(db, userId, intoId);
     if (from.id === into.id) throw new ValidationError('same_project');
+    // Merging moves all of `from`'s usage; refuse if any of it belongs to data the caller cannot see.
+    const hidden = db.$client
+      .prepare(
+        `SELECT 1 FROM project_usage u
+          WHERE u.project_id = @fromId
+            AND u.device_id NOT IN (SELECT id FROM devices WHERE user_id = @userId)
+            AND u.secret_id NOT IN (SELECT s.id FROM secrets s JOIN vault_members m ON m.vault_id = s.vault_id AND m.user_id = @userId)
+          LIMIT 1`,
+      )
+      .get({ fromId: from.id, userId });
+    if (hidden) throw new HttpError(403, 'merge_not_allowed');
     db.$client
       .prepare(
         `INSERT INTO project_usage (project_id, secret_id, device_id, last_used_at)

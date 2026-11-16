@@ -112,6 +112,7 @@ export function removeMember(ctx: ServiceCtx, actorUserId: string, vaultId: stri
       if (owners.length <= 1) throw new HttpError(409, 'last_owner');
     }
     db.delete(vaultMembers).where(and(eq(vaultMembers.vaultId, vaultId), eq(vaultMembers.userId, userId))).run();
+    ctx.hooks.onVaultMemberRemoved(ctx, vaultId, userId);
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: actorUserId, event: 'vault.member_removed', vaultId, ip: info.ip, meta: { userId, role },
     });

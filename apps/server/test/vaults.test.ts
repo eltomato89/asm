@@ -38,7 +38,12 @@ describe('vaults', () => {
     expect(byMember.statusCode).toBe(403);
     expect((await w.req(w.bob, 'DELETE', `/api/vaults/${v.id}/members`, { userId: w.alice.id })).statusCode).toBe(403);
 
+    const removed: [string, string][] = [];
+    w.ctx.hooks.onVaultMemberRemoved = (_c, vaultId, userId) => {
+      removed.push([vaultId, userId]);
+    };
     const rm = await w.req(w.alice, 'DELETE', `/api/vaults/${v.id}/members`, { userId: w.bob.id });
+    expect(removed).toEqual([[v.id, w.bob.id]]);
     expect(rm.statusCode).toBe(200);
     expect(canAccessVault(w.db, w.bob.id, v.id)).toBe(false);
     expect(auditRows(w.db, 'vault.member_removed')[0]).toMatchObject({ actor_id: w.alice.id, vault_id: v.id });

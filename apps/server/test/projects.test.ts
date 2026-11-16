@@ -110,6 +110,15 @@ describe('projects', () => {
     expect(touchProject(w.ctx, 'alice-secret-project').id).toBe(pa.id);
     expect(touchProject(w.ctx, 'bob-project').id).toBe(pb.id);
 
+    // B sees X through own usage, but X also carries A's private usage -> merge refused
+    createSecret(w.ctx, devB, { title: 'B2', value: 'v', project: 'alice-secret-project', reason: 'r' });
+    const m = await w.req(w.bob, 'POST', `/api/projects/${pa.id}/merge`, { into: pb.id });
+    expect(m.statusCode).toBe(403);
+    expect(m.json()).toEqual({ error: 'merge_not_allowed' });
+    expect(touchProject(w.ctx, 'alice-secret-project').id).toBe(pa.id);
+    // A sees everything of pb? no (B's private usage) -> also refused for A merging pb
+    expect(() => mergeProjects(w.ctx, w.alice.id, pa.id, pb.id)).toThrow();
+
     // shared vault access makes the project visible
     const v = (await w.req(w.alice, 'POST', '/api/vaults', { name: 'Team' })).json();
     await w.req(w.alice, 'POST', `/api/vaults/${v.id}/members`, { username: 'bob' });

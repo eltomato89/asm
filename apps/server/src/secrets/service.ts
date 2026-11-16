@@ -267,9 +267,6 @@ export function applySecretChange(ctx: ServiceCtx, actor: Actor, secretId: strin
   const { db } = ctx;
   if (actor.type === 'device' && change.meta && 'allowPlaintextToAgent' in change.meta) throw new ValidationError('field_not_allowed');
   requireDeviceContext(actor, change, { reason: true });
-  const row = loadAccessible(db, actor.userId, secretId);
-  if (row.archived_at !== null) throw new HttpError(409, 'secret_archived');
-
   const meta = SecretInputSchema.partial().parse(change.meta ?? {});
   const newValue = change.value === undefined ? undefined : SecretValueSchema.parse(change.value);
   const gen = change.generate === undefined ? undefined : GenerateSchema.parse(change.generate);
@@ -277,21 +274,23 @@ export function applySecretChange(ctx: ServiceCtx, actor: Actor, secretId: strin
   const projectName = change.project === undefined ? undefined : ProjectNameSchema.parse(change.project);
   const reason = change.reason === undefined ? undefined : ReasonSchema.parse(change.reason);
 
-  const prev = snapshotOf(row);
-  const next: MetaSnapshot = {
-    title: meta.title ?? prev.title,
-    description: meta.description ?? prev.description,
-    tags: meta.tags ?? prev.tags,
-    envName: meta.envName !== undefined ? meta.envName : prev.envName,
-  };
-  const allowPlaintextToAgent = meta.allowPlaintextToAgent ?? row.allow_plaintext_to_agent === 1;
-  const changed: string[] = SNAPSHOT_FIELDS.filter((f) => !same(prev[f], next[f]));
-  if (allowPlaintextToAgent !== (row.allow_plaintext_to_agent === 1)) changed.push('allowPlaintextToAgent');
-  if (newValue !== undefined || gen !== undefined) changed.push('value');
-  if (changed.length === 0 && change.restoredFrom === undefined) throw new ValidationError('no_changes');
-
-  const version = row.current_version + 1;
   db.$client.transaction(() => {
+    const row = loadAccessible(db, actor.userId, secretId);
+    if (row.archived_at !== null) throw new HttpError(409, 'secret_archived');
+    const prev = snapshotOf(row);
+    const next: MetaSnapshot = {
+      title: meta.title ?? prev.title,
+      description: meta.description ?? prev.description,
+      tags: meta.tags ?? prev.tags,
+      envName: meta.envName !== undefined ? meta.envName : prev.envName,
+    };
+    const allowPlaintextToAgent = meta.allowPlaintextToAgent ?? row.allow_plaintext_to_agent === 1;
+    const changed: string[] = SNAPSHOT_FIELDS.filter((f) => !same(prev[f], next[f]));
+    if (allowPlaintextToAgent !== (row.allow_plaintext_to_agent === 1)) changed.push('allowPlaintextToAgent');
+    if (newValue !== undefined || gen !== undefined) changed.push('value');
+    if (changed.length === 0 && change.restoredFrom === undefined) throw new ValidationError('no_changes');
+
+    const version = row.current_version + 1;
     const plaintext = newValue ?? (gen ? generateValue(gen.length, gen.alphabet) : openVersion(ctx, secretId, row.current_version).plaintext);
     const project = useProject(ctx, projectName);
     insertVersion(ctx, actor, {
@@ -357,9 +356,9 @@ export function archiveSecret(
   const { db } = ctx;
   requireDeviceContext(actor, input, { reason: false });
   const data = ArchiveInputSchema.parse(input);
-  const row = loadAccessible(db, actor.userId, secretId);
-  if (row.archived_at !== null) throw new HttpError(409, 'already_archived');
   db.$client.transaction(() => {
+    const row = loadAccessible(db, actor.userId, secretId);
+    if (row.archived_at !== null) throw new HttpError(409, 'already_archived');
     const project = useProject(ctx, data.project);
     const now = ctx.clock.now();
     db.update(secrets)
@@ -385,9 +384,9 @@ export function archiveSecret(
 export function unarchiveSecret(ctx: ServiceCtx, actor: Actor, secretId: string, info: RequestInfo = {}): SecretMeta {
   userOnly(actor);
   const { db } = ctx;
-  const row = loadAccessible(db, actor.userId, secretId);
-  if (row.archived_at === null) throw new HttpError(409, 'not_archived');
   db.$client.transaction(() => {
+    const row = loadAccessible(db, actor.userId, secretId);
+    if (row.archived_at === null) throw new HttpError(409, 'not_archived');
     db.update(secrets)
       .set({ archivedAt: null, archivedByType: null, archivedById: null, archiveReason: null, archiveProject: null, updatedAt: ctx.clock.now() })
       .where(eq(secrets.id, secretId))

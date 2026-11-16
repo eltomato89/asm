@@ -22,7 +22,7 @@ const CSV_COLUMNS = ['seq', 'id', 'ts', 'actor_type', 'actor_id', 'event', 'secr
 /** RFC 4180 cell with spreadsheet formula-injection guard. */
 export function csvCell(v: unknown): string {
   let s = v === null || v === undefined ? '' : typeof v === 'string' ? v : String(v);
-  if (/^[=+\-@]/.test(s)) s = `'${s}`;
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
@@ -48,13 +48,19 @@ export async function registerAuditRoutes(app: FastifyInstance, deps: ModuleDeps
     const lines = [CSV_COLUMNS.join(',')];
     let cursor = filter.cursor;
     let count = 0;
-    while (count < CSV_MAX_ROWS) {
+    let truncated = false;
+    for (;;) {
       const page = queryAudit(db, { ...filter, cursor, limit: Math.min(CSV_PAGE, CSV_MAX_ROWS - count) });
       for (const r of page.items) lines.push(csvLine(r));
       count += page.items.length;
       if (!page.nextCursor) break;
+      if (count >= CSV_MAX_ROWS) {
+        truncated = true;
+        break;
+      }
       cursor = page.nextCursor;
     }
+    if (truncated) reply.header('x-truncated', 'true');
     return reply
       .header('content-type', 'text/csv; charset=utf-8')
       .header('content-disposition', 'attachment; filename="audit.csv"')

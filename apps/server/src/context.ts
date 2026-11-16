@@ -5,6 +5,8 @@ import type { Db } from './db/client.js';
 export type ServiceHooks = {
   /** Runs inside the archive transaction. */
   onSecretArchived: (ctx: ServiceCtx, secretId: string) => void;
+  /** Runs inside the member-removal transaction (Task 9 revokes the user's grants/requests for the vault). */
+  onVaultMemberRemoved: (ctx: ServiceCtx, vaultId: string, userId: string) => void;
 };
 
 export type ServiceCtx = { db: Db; clock: Clock; kek: Buffer; hooks: ServiceHooks };
@@ -16,6 +18,7 @@ export type RequestInfo = { ip?: string };
 
 export const defaultHooks: ServiceHooks = {
   onSecretArchived: () => {},
+  onVaultMemberRemoved: () => {},
 };
 
 export function createServiceCtx(deps: { db: Db; clock: Clock; kek: Buffer; hooks?: ServiceHooks }): ServiceCtx {
