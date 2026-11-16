@@ -1,8 +1,11 @@
 # ASM – Beispiel für Docker Compose.
 #
 # 1. Master-Key erzeugen (einmalig, sicher aufbewahren – ohne ihn sind alle Secrets verloren):
-#      docker run --rm asm node apps/server/dist/scripts/generate-key.js > asm_master_key
-#      chmod 600 asm_master_key && sudo chown 1000:1000 asm_master_key   # lesbar für den Container-User node (UID 1000)
+#      mkdir -p secrets && chmod 700 secrets
+#      docker run --rm asm node apps/server/dist/scripts/generate-key.js > secrets/asm_master_key
+#      chmod 600 secrets/asm_master_key && sudo chown 1000:1000 secrets/asm_master_key   # lesbar für User node (UID 1000)
+#    secrets/ ist in .gitignore/.dockerignore ausgeschlossen – nie committen, nie ins Image bauen.
+#    Liegt der Key außerhalb dieses Verzeichnisses, unten secrets.asm_master_key.file anpassen.
 # 2. ASM_PUBLIC_URL auf die öffentliche https-Adresse setzen, Reverse Proxy konfigurieren (siehe unten).
 # 3. docker compose -f docker-compose.example.yml up -d
 # 4. Setup-Token aus dem Log holen: docker compose logs asm | grep "ASM setup token"
@@ -55,7 +58,7 @@ services:
 
 secrets:
   asm_master_key:
-    file: ./asm_master_key
+    file: ./secrets/asm_master_key
 
 volumes:
   asm-data:

@@ -1,4 +1,4 @@
-// Starts the built server (apps/server/dist/main.js) with a fresh temp data dir and tees its log to
+// Starts the built server (apps/server/dist/main.js) with the temp data dir from the config and tees its log to
 // ASM_E2E_LOG_FILE, where the specs read the one-time setup token from the „ASM setup token: …“ line.
 // Plain JS on purpose: runs with any Node 22 without type stripping. Configured via env by playwright.config.ts.
 import { spawn } from 'node:child_process';
@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 
 const { ASM_DATA_DIR: dataDir, ASM_E2E_LOG_FILE: logFile } = process.env;
 if (!dataDir || !logFile) throw new Error('ASM_DATA_DIR and ASM_E2E_LOG_FILE are required');
-rmSync(dataDir, { recursive: true, force: true });
 mkdirSync(dataDir, { recursive: true });
 const log = createWriteStream(logFile);
 
@@ -22,4 +21,8 @@ for (const stream of [child.stdout, child.stderr]) {
 const stop = () => child.kill('SIGTERM');
 process.on('SIGTERM', stop);
 process.on('SIGINT', stop);
-child.on('exit', (code) => process.exit(code ?? 0));
+child.on('exit', (code) => {
+  log.end();
+  rmSync(dataDir, { recursive: true, force: true }); // temp dir holds the test DB and log
+  process.exit(code ?? 0);
+});

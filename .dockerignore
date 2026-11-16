@@ -10,3 +10,6 @@ test-results
 playwright-report
 Dockerfile
 docker-compose*.yml
+secrets
+asm_master_key*
+**/asm_master_key*

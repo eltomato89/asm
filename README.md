@@ -39,10 +39,15 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
 docker build -t asm .
 
 # Master-Key erzeugen – getrennt von den Daten sichern! Ohne ihn sind alle Secrets verloren.
-docker run --rm asm node apps/server/dist/scripts/generate-key.js > asm_master_key
-chmod 600 asm_master_key
-sudo chown 1000:1000 asm_master_key   # der Container läuft als User node (UID 1000) und muss die Datei lesen können
+# Eigenes Verzeichnis (secrets/ ist in .gitignore und .dockerignore ausgeschlossen).
+mkdir -p secrets && chmod 700 secrets
+docker run --rm asm node apps/server/dist/scripts/generate-key.js > secrets/asm_master_key
+chmod 600 secrets/asm_master_key
+sudo chown 1000:1000 secrets/asm_master_key   # der Container läuft als User node (UID 1000) und muss die Datei lesen können
 ```
+
+Den Key nie committen und nicht ins Image bauen. Am besten liegt er ganz außerhalb des Repos (dann den Pfad
+unter `secrets.asm_master_key.file` in der Compose-Datei anpassen).
 
 Dann `docker-compose.example.yml` kopieren, `ASM_PUBLIC_URL` anpassen und starten:
 

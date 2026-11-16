@@ -1,17 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { ADMIN } from './env';
-import { addVirtualAuthenticator, loginWithPassword, readSetupToken } from './helpers';
+import { addVirtualAuthenticator, loginWithPassword } from './helpers';
 
-test('setup → password login → register passkey → logout → passkey login', async ({ page }) => {
-  // First start: the SPA routes to the setup page; the token comes from the server log.
-  await page.goto('/');
-  await expect(page).toHaveURL(/\/setup$/);
-  await page.getByLabel('Einrichtungs-Token').fill(readSetupToken());
-  await page.getByLabel('Benutzername').fill(ADMIN.username);
-  await page.getByLabel('Passwort').fill(ADMIN.password);
-  await page.getByRole('button', { name: 'Konto anlegen' }).click();
-  await expect(page).toHaveURL(/\/login$/);
-
+test('password login → register passkey → logout → passkey login', async ({ page }) => {
   await loginWithPassword(page);
 
   await addVirtualAuthenticator(page);
