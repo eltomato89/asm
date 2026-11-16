@@ -12,6 +12,7 @@
   "dependencies": {
     "@asm/shared": "workspace:*",
     "@fastify/cookie": "^11.1.5",
+    "@fastify/formbody": "^8.0.2",
     "@fastify/rate-limit": "^11.2.2",
     "@simplewebauthn/server": "^14.1.0",
     "argon2": "^0.45.2",

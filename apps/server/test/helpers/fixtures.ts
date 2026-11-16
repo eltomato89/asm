@@ -4,6 +4,9 @@ import { createUser, type CreatedUser } from '../../src/auth/setup.js';
 import type { Actor } from '../../src/context.js';
 import type { Db } from '../../src/db/client.js';
 import { devices } from '../../src/db/schema.js';
+import type { ServiceCtx } from '../../src/context.js';
+import { issueTokens } from '../../src/oauth/token.js';
+import { bearerAuth } from '../../src/oauth/bearer.js';
 import { createTestApp } from './testApp.js';
 
 export const ORIGIN = 'https://asm.test';
@@ -30,9 +33,27 @@ export function addDevice(db: Db, userId: string, name = 'laptop-mcp'): Actor & 
   return { type: 'device', deviceId: id, userId };
 }
 
-/** Two users (alice admin, bob) with sessions. */
-export async function world() {
+/**
+ * Creates an approved device for a user and issues tokens through the real token service
+ * (same code path as /oauth/token).
+ */
+export function pairDevice(
+  ctx: ServiceCtx,
+  opts: { userId: string; kind: 'mcp' | 'cli'; name?: string },
+): { deviceId: string; accessToken: string; refreshToken: string } {
+  const deviceId = newId('dev');
+  ctx.db
+    .insert(devices)
+    .values({ id: deviceId, userId: opts.userId, name: opts.name ?? `test-${opts.kind}`, kind: opts.kind, status: 'approved', createdAt: ctx.clock.now() })
+    .run();
+  const t = issueTokens(ctx, deviceId);
+  return { deviceId, accessToken: t.accessToken, refreshToken: t.refreshToken };
+}
+
+/** Two users (alice admin, bob) with sessions. `beforeReady` may add routes before the first inject. */
+export async function world(opts: { beforeReady?: (t: Awaited<ReturnType<typeof createTestApp>>) => void } = {}) {
   const t = await createTestApp();
+  opts.beforeReady?.(t);
   const alice = await addUser(t, 'alice', true);
   const bob = await addUser(t, 'bob');
   const req = (user: TestUser | undefined, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
@@ -62,3 +83,13 @@ export const FORBIDDEN_RESPONSE_KEYS = ['value', 'ciphertext', 'iv', 'tag', 'dek
 export function auditRows(db: Db, event: string) {
   return db.$client.prepare('SELECT * FROM audit_log WHERE event = ? ORDER BY seq').all(event) as Record<string, unknown>[];
 }
+
+export const BEARER_PROBE = '/test/whoami';
+
+/** Adds a test route guarded by bearerAuth that echoes req.device (use as world({ beforeReady })). */
+export function addBearerProbe(t: { app: FastifyInstance; db: Db; clock: { now(): number }; config: { publicUrl: URL } }): void {
+  t.app.get(BEARER_PROBE, { preHandler: bearerAuth({ db: t.db, clock: t.clock, publicOrigin: t.config.publicUrl.origin }) }, async (req) => req.device);
+}
+
+export const bearer = (app: FastifyInstance, token: string | undefined) =>
+  app.inject({ method: 'GET', url: BEARER_PROBE, headers: token === undefined ? {} : { authorization: `Bearer ${token}` } });

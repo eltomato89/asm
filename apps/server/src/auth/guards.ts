@@ -2,12 +2,15 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Clock } from '../clock.js';
 import type { Db } from '../db/client.js';
 import { HttpError } from '../errors.js';
+import type { DeviceIdentity } from '../oauth/bearer.js';
 import { SESSION_COOKIE, findSession, type Session, type SessionUser } from './sessions.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
     user: SessionUser | undefined;
     session: Session | undefined;
+    /** Set by bearerAuth (oauth/bearer.ts) for Bearer-authenticated devices. */
+    device: DeviceIdentity | undefined;
   }
 }
 
@@ -26,6 +29,7 @@ const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 export function installAuthContext(app: FastifyInstance, deps: { db: Db; clock: Clock; publicOrigin: string }): void {
   app.decorateRequest('user', undefined);
   app.decorateRequest('session', undefined);
+  app.decorateRequest('device', undefined);
   app.addHook('onRequest', async (req, reply) => {
     const token = req.cookies[SESSION_COOKIE];
     if (!token) return;

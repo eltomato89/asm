@@ -20,9 +20,27 @@ export class ValidationError extends Error {
   }
 }
 
+/** RFC 6749 §5.2 style error: `{ error, error_description? }`. */
+export class OAuthError extends Error {
+  constructor(
+    readonly error: string,
+    readonly description?: string,
+    readonly statusCode = 400,
+  ) {
+    super(error);
+    this.name = 'OAuthError';
+  }
+}
+
 /** Error responses never echo request bodies or arbitrary error messages. */
 export function installErrorHandler(app: FastifyInstance): void {
   app.setErrorHandler((err: FastifyError | Error, req: FastifyRequest, reply: FastifyReply) => {
+    if (err instanceof OAuthError) {
+      return reply
+        .status(err.statusCode)
+        .header('cache-control', 'no-store')
+        .send(err.description ? { error: err.error, error_description: err.description } : { error: err.error });
+    }
     if (err instanceof HttpError) return reply.status(err.statusCode).send({ error: err.code });
     if (err instanceof ZodError) return reply.status(400).send({ error: 'invalid_request' });
     if (err instanceof ValidationError) return reply.status(400).send({ error: err.code });
