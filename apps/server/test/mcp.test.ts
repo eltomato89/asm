@@ -77,6 +77,14 @@ describe('mcp: transport and auth', () => {
     expect(ok.statusCode).toBe(200);
   });
 
+  it('rejects devices of kind cli with 403 forbidden_device_kind', async () => {
+    const { w, inject } = await setup();
+    const cli = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli' });
+    const res = await inject({ authorization: `Bearer ${cli.accessToken}` });
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toEqual({ error: 'forbidden_device_kind' });
+  });
+
   it('GET and DELETE are 405 with Allow: POST (stateless, no server stream)', async () => {
     const { inject, dev } = await setup();
     for (const method of ['GET', 'DELETE'] as const) {

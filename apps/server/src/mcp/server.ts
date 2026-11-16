@@ -45,10 +45,15 @@ export async function registerMcpRoutes(app: FastifyInstance, deps: McpDeps): Pr
     if (req.headers.origin !== undefined && req.headers.origin !== publicOrigin) throw new HttpError(403, 'bad_origin');
   };
 
+  // CLI tokens redeem grants; only MCP devices act as agents here (keeps the credential roles separate).
+  const requireMcpDevice = async (req: FastifyRequest) => {
+    if (req.device?.kind !== 'mcp') throw new HttpError(403, 'forbidden_device_kind');
+  };
+
   app.post(
     '/mcp',
     {
-      preHandler: [checkOrigin, bearerAuth({ db: ctx.db, clock: ctx.clock, publicOrigin })],
+      preHandler: [checkOrigin, bearerAuth({ db: ctx.db, clock: ctx.clock, publicOrigin }), requireMcpDevice],
       config: {
         rateLimit: { max: MCP_RATE_LIMIT_PER_MIN, timeWindow: '1 minute', keyGenerator: (req: FastifyRequest) => req.device?.id ?? req.ip },
       },
