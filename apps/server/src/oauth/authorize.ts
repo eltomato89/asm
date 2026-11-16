@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { FastifyInstance, FastifyReply } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { OAuthDeps } from '../app.js';
 import { appendAudit } from '../audit/audit.js';
@@ -17,6 +17,7 @@ export const PENDING_AUTHORIZATION_TTL_MS = 10 * 60_000;
 export const AUTHORIZATION_CODE_TTL_MS = 60_000;
 const MAX_PENDING = 1000;
 const MAX_STATE_LENGTH = 1024;
+export const AUTHORIZE_RATE_LIMIT_PER_MIN = 30;
 
 export type PendingAuthorization = {
   clientId: string;
@@ -77,7 +78,8 @@ export function registerAuthorizeRoute(app: FastifyInstance, deps: OAuthDeps): v
   const { ctx, config, pending } = deps;
   const resource = mcpResource(config.publicUrl.origin);
 
-  app.get('/oauth/authorize', async (req, reply) => {
+  // Unauthenticated and reachable by any registered (DCR) client: bounded per IP.
+  app.get('/oauth/authorize', { config: { rateLimit: { max: AUTHORIZE_RATE_LIMIT_PER_MIN, timeWindow: '1 minute' } } }, async (req, reply) => {
     const q = (req.query ?? {}) as Record<string, unknown>;
     // Repeated parameters arrive as arrays and are treated as invalid (RFC 6749 §3.1).
     const param = (name: string): string | undefined | null => {
@@ -85,9 +87,10 @@ export function registerAuthorizeRoute(app: FastifyInstance, deps: OAuthDeps): v
       if (v === undefined || v === '') return undefined;
       return typeof v === 'string' && v.length <= 4096 ? v : null;
     };
+    // Errors are never redirected: with open dynamic registration anyone can register a redirect URI, so an error
+    // redirect would make this endpoint an open redirector. Only an explicit user denial redirects (access_denied).
     const fail = (error: string) => reply.status(400).header('cache-control', 'no-store').send({ error });
 
-    // 1. Client and redirect URI first: on failure never redirect.
     const clientId = param('client_id');
     const client = typeof clientId === 'string' ? getClient(ctx.db, clientId) : undefined;
     if (!client) return fail('invalid_client');
@@ -95,20 +98,18 @@ export function registerAuthorizeRoute(app: FastifyInstance, deps: OAuthDeps): v
     if (redirectUri === undefined && client.redirectUris.length === 1) redirectUri = client.redirectUris[0];
     if (typeof redirectUri !== 'string' || !matchesRedirectUri(client.redirectUris, redirectUri)) return fail('invalid_redirect_uri');
 
-    // 2. Everything else is reported to the client via redirect.
     const rawState = param('state');
     const state = typeof rawState === 'string' && rawState.length <= MAX_STATE_LENGTH ? rawState : undefined;
-    const redirectError = (error: string): FastifyReply => reply.redirect(withParams(redirectUri, { error, state }), 302);
-    if (rawState === null || (rawState !== undefined && state === undefined)) return redirectError('invalid_request');
+    if (rawState === null || (rawState !== undefined && state === undefined)) return fail('invalid_request');
     const responseType = param('response_type');
-    if (responseType === undefined || responseType === null) return redirectError('invalid_request');
-    if (responseType !== 'code') return redirectError('unsupported_response_type');
+    if (responseType === undefined || responseType === null) return fail('invalid_request');
+    if (responseType !== 'code') return fail('unsupported_response_type');
     const challenge = param('code_challenge');
     if (typeof challenge !== 'string' || !CHALLENGE_RE.test(challenge) || param('code_challenge_method') !== 'S256') {
-      return redirectError('invalid_request');
+      return fail('invalid_request');
     }
     const res = param('resource');
-    if (res === null || (res !== undefined && res !== resource)) return redirectError('invalid_target');
+    if (res === null || (res !== undefined && res !== resource)) return fail('invalid_target');
 
     const id = pending.add({ clientId: client.id, clientName: client.name, redirectUri, codeChallenge: challenge, state });
     return reply.redirect(`/connect?req=${id}`, 302);

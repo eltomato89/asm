@@ -160,7 +160,7 @@ describe('authorize endpoint', () => {
     }
   });
 
-  it('other errors redirect to the client with error and state', async () => {
+  it('other errors -> 400 JSON with error, never a redirect (no open redirector via dynamic registration)', async () => {
     const s = await setup();
     const { code_challenge: _c, ...noChallenge } = s.baseQuery;
     const cases: [Record<string, string>, string][] = [
@@ -168,15 +168,23 @@ describe('authorize endpoint', () => {
       [noChallenge, 'invalid_request'],
       [{ ...s.baseQuery, code_challenge_method: 'plain' }, 'invalid_request'],
       [{ ...s.baseQuery, resource: 'https://other.example/mcp' }, 'invalid_target'],
+      [{ ...s.baseQuery, state: 'x'.repeat(1025) }, 'invalid_request'],
     ];
     for (const [q, err] of cases) {
       const res = await s.startAuthorize(q);
-      expect(res.statusCode).toBe(302);
-      const loc = new URL(res.headers.location as string);
-      expect(`${loc.origin}${loc.pathname}`).toBe('http://127.0.0.1:33418/callback');
-      expect(loc.searchParams.get('error')).toBe(err);
-      expect(loc.searchParams.get('state')).toBe('st-123');
+      expect(res.statusCode).toBe(400);
+      expect(res.headers.location).toBeUndefined();
+      expect(res.headers['cache-control']).toBe('no-store');
+      expect(res.json()).toEqual({ error: err });
     }
+  });
+
+  it('rate limits GET /oauth/authorize to 30/min per IP', async () => {
+    const s = await setup();
+    for (let i = 0; i < 30; i++) expect((await s.startAuthorize()).statusCode).toBe(302);
+    const limited = await s.startAuthorize();
+    expect(limited.statusCode).toBe(429);
+    expect(limited.headers.location).toBeUndefined();
   });
 
   it('pending authorization expires after 10 minutes', async () => {
