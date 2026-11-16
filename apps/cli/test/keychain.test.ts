@@ -58,7 +58,9 @@ function fakeSecretTool(seed: { attrs: Record<string, string>; secret: string }[
     if (cmd !== 'secret-tool') throw Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
     const q = pairs(args.slice(1).filter((a) => !a.startsWith('--')));
     if (args[0] === 'store') {
-      const i = items.findIndex((it) => JSON.stringify(it.attrs) === JSON.stringify(q));
+      // libsecret replaces only an item with exactly the same attribute set; superset items (keyring-rs) survive.
+      const same = (a: Record<string, string>) => Object.keys(a).length === Object.keys(q).length && matches(a, q);
+      const i = items.findIndex((it) => same(it.attrs));
       if (i >= 0) items.splice(i, 1);
       items.push({ attrs: q, secret: input! });
       return { code: 0, stdout: '', stderr: '' };
@@ -134,10 +136,11 @@ describe('Linux Secret Service (secret-tool)', () => {
     const f = fakeSecretTool();
     const store = new SecretToolStore(f.run);
     await store.set('asm.test:8443', creds);
-    expect(f.calls[0]).toEqual({ cmd: 'secret-tool', args: ['store', '--label=asm asm.test:8443', 'service', 'asm', 'username', 'asm.test:8443'], input: JSON.stringify(creds) });
+    expect(f.calls.slice(0, 2).map((c) => c.args[0])).toEqual(['clear', 'clear']);
+    expect(f.calls[2]).toEqual({ cmd: 'secret-tool', args: ['store', '--label=asm asm.test:8443', 'service', 'asm', 'username', 'asm.test:8443'], input: JSON.stringify(creds) });
     expect(f.items.map((i) => i.attrs)).toEqual([{ service: 'asm', username: 'asm.test:8443' }]);
     expect(await store.get('asm.test:8443')).toEqual(creds);
-    expect(f.calls[1]!.args).toEqual(['lookup', 'service', 'asm', 'username', 'asm.test:8443']);
+    expect(f.calls[3]!.args).toEqual(['lookup', 'service', 'asm', 'username', 'asm.test:8443']);
     expect(await store.delete('asm.test:8443')).toBe(true);
     expect(f.calls.slice(-2).map((c) => c.args)).toEqual([
       ['clear', 'service', 'asm', 'username', 'asm.test:8443'],
@@ -156,6 +159,23 @@ describe('Linux Secret Service (secret-tool)', () => {
     expect(await store.get('old.test')).toEqual(creds);
     expect(await store.delete('old.test')).toBe(true);
     expect(f.items).toEqual([]);
+  });
+
+  it('set replaces keyring-rs and legacy `account` items: get returns the new tokens, one item remains', async () => {
+    const legacy = { service: 'asm', username: 'old.test', target: 'default', application: 'rust-keyring' };
+    const f = fakeSecretTool([
+      { attrs: legacy, secret: JSON.stringify({ ...creds, refreshToken: 'asm_rt_stale1' }) },
+      { attrs: { service: 'asm', account: 'old.test' }, secret: JSON.stringify({ ...creds, refreshToken: 'asm_rt_stale2' }) },
+      { attrs: { service: 'asm', username: 'other.test' }, secret: JSON.stringify(creds) },
+    ]);
+    const store = new SecretToolStore(f.run);
+    const fresh = { ...creds, refreshToken: 'asm_rt_fresh' };
+    await store.set('old.test', fresh);
+    expect(await store.get('old.test')).toEqual(fresh);
+    expect(f.items.map((i) => i.attrs)).toEqual([{ service: 'asm', username: 'other.test' }, { service: 'asm', username: 'old.test' }]);
+    await store.set('old.test', { ...fresh, refreshToken: 'asm_rt_fresh2' });
+    expect(f.items).toHaveLength(2);
+    expect(await store.get('old.test')).toMatchObject({ refreshToken: 'asm_rt_fresh2' });
   });
 
   it('falls back to legacy `account` items; clear removes them too', async () => {

@@ -63,7 +63,7 @@ export function compareVersions(a: string, b: string): number | undefined {
 async function download(f: typeof fetch, url: string): Promise<Response> {
   let res: Response;
   try {
-    res = await f(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS), headers: { 'cache-control': 'no-cache' } });
+    res = await f(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS), headers: { 'cache-control': 'no-cache', 'accept-encoding': 'identity' } });
   } catch {
     fail('update_download_failed');
   }
@@ -74,8 +74,9 @@ async function download(f: typeof fetch, url: string): Promise<Response> {
 
 /** Reads a response body of exactly `size` bytes; stops reading (and fails) as soon as it would exceed `size`. */
 async function readExactly(res: Response, size: number): Promise<Uint8Array> {
+  // content-length counts encoded bytes; with a content-encoding only the decoded size (+ hash) is checked.
   const declared = res.headers.get('content-length');
-  if (declared !== null && Number(declared) !== size) fail('update_size_mismatch');
+  if (declared !== null && !res.headers.has('content-encoding') && Number(declared) !== size) fail('update_size_mismatch');
   if (!res.body) fail('update_download_failed');
   const out = new Uint8Array(size);
   let len = 0;

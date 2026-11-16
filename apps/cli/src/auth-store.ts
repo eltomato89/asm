@@ -204,7 +204,17 @@ export class SecretToolStore implements TokenStore {
     return (await this.lookup(host, 'username')) ?? this.lookup(host, 'account');
   }
 
+  private async clear(host: string): Promise<void> {
+    for (const key of ['username', 'account'] as const) {
+      const r = await runTool(this.run, 'secret-tool', ['clear', ...this.attrs(host, key)]);
+      if (r.code !== 0 && r.stderr.trim() !== '') throw keychainError('access failed');
+    }
+  }
+
   async set(host: string, creds: Credentials) {
+    // Drop older items first (keyring-rs items carry extra attributes, legacy ones use `account`): a store with
+    // fewer attributes may not replace them, and a later lookup could return a stale, already-rotated refresh token.
+    await this.clear(host);
     const r = await runTool(this.run, 'secret-tool', ['store', `--label=asm ${host}`, ...this.attrs(host)], JSON.stringify(creds));
     if (r.code !== 0) throw keychainError('access failed');
   }
@@ -212,10 +222,7 @@ export class SecretToolStore implements TokenStore {
   async delete(host: string) {
     // `secret-tool clear` does not report whether something was deleted.
     const existed = (await this.get(host)) !== undefined;
-    for (const key of ['username', 'account'] as const) {
-      const r = await runTool(this.run, 'secret-tool', ['clear', ...this.attrs(host, key)]);
-      if (r.code !== 0 && r.stderr.trim() !== '') throw keychainError('access failed');
-    }
+    await this.clear(host);
     return existed;
   }
 }

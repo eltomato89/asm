@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -245,6 +245,27 @@ describe('install.sh end to end', () => {
       const r = await runSh(truncated, { PATH: NODE_PATH, HOME: home });
       expect(readdirSync(home), `cut ${cut}`).toEqual([]);
       expect(r.stdout, `cut ${cut}`).toBe('');
+    }
+  });
+
+  it('refuses an asm path that is a directory or a symlink to one, and installs nothing', async () => {
+    const { script } = await serve(makeCliDir());
+    for (const kind of ['dir', 'link'] as const) {
+      const home = newHome();
+      const bin = join(home, 'bin');
+      const asmHome = join(home, 'share');
+      mkdirSync(bin);
+      if (kind === 'dir') mkdirSync(join(bin, 'asm'));
+      else {
+        mkdirSync(join(home, 'target'));
+        symlinkSync(join(home, 'target'), join(bin, 'asm'));
+      }
+      const r = await runSh(script, { PATH: NODE_PATH, HOME: home, ASM_INSTALL_DIR: bin, ASM_HOME: asmHome });
+      expect(r.code, kind).not.toBe(0);
+      expect(r.stderr, kind).toContain(`${bin}/asm is a directory (or a link to one)`);
+      expect(existsSync(asmHome), kind).toBe(false);
+      if (kind === 'link') expect(readdirSync(join(home, 'target'))).toEqual([]);
+      else expect(readdirSync(join(bin, 'asm'))).toEqual([]);
     }
   });
 

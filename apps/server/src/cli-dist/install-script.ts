@@ -24,6 +24,10 @@ main() {
 
   die() { printf 'asm install: %s\\n' "$*" >&2; exit 1; }
 
+  # A directory (or a symlink to one) at the target would make mv move the new link into it.
+  [ ! -d "$INSTALL_DIR/asm" ] || die "$INSTALL_DIR/asm is a directory (or a link to one); remove it or set ASM_INSTALL_DIR."
+  [ ! -d "$ASM_DIR/asm.mjs" ] || die "$ASM_DIR/asm.mjs is a directory; remove it or set ASM_HOME."
+
   command -v node >/dev/null 2>&1 || die "Node.js >= 22 is required, but 'node' was not found in PATH."
   NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
   case "$NODE_MAJOR" in ''|*[!0-9]*) NODE_MAJOR=0 ;; esac

@@ -148,6 +148,21 @@ describe('asm update', () => {
     expect(readFileSync(real, 'utf8')).toBe(OLD);
   });
 
+  it('requests identity encoding; with a content-encoding the declared length is ignored, size + hash still checked', async () => {
+    const { real, link } = install();
+    const manifest = { version: '1.2.0', sha256: createHash('sha256').update(NEW).digest('hex'), size: Buffer.byteLength(NEW) };
+    const headers: (string | null)[] = [];
+    const fetch = (async (url: string, init: RequestInit) => {
+      headers.push(new Headers(init.headers).get('accept-encoding'));
+      if (url.endsWith('/asm.json')) return new Response(JSON.stringify(manifest));
+      return new Response(NEW, { headers: { 'content-encoding': 'gzip', 'content-length': '7' } });
+    }) as unknown as typeof globalThis.fetch;
+    const r = await runCli(['update'], { deps: { version: '1.0.0', selfPath: link, fetch } });
+    expect(r.code).toBe(0);
+    expect(headers).toEqual(['identity', 'identity']);
+    expect(readFileSync(real, 'utf8')).toBe(NEW);
+  });
+
   it('endless body without content-length → stops reading past the manifest size', async () => {
     const { real, link } = install();
     const manifest = { version: '1.2.0', sha256: createHash('sha256').update(NEW).digest('hex'), size: Buffer.byteLength(NEW) };
