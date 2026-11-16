@@ -66,12 +66,12 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
 | --- | --- | --- |
 | `ASM_PUBLIC_URL` | Öffentliche Adresse (Origin), Pflicht. Bestimmt Passkey-Domain, OAuth-Issuer, Origin-Prüfung. | – |
 | `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master-Key (base64, 32 Byte) als Datei bzw. direkt. Fehlt er, beendet sich der Server mit Fehler. | – |
-| `ASM_TRUST_PROXY` | `true` hinter einem Reverse Proxy. | `false` |
+| `ASM_TRUST_PROXY` | Hinter einem Reverse Proxy: Anzahl der Proxy-Hops (meist `1`) oder kommagetrennte IPs/CIDRs der Proxys. `true` vertraut jedem `X-Forwarded-For`-Eintrag (fälschbar, Warnung im Log) und ist zusammen mit `ASM_TRUSTED_NETWORKS` verboten. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximale Dauer des Auto-Modus. | `240` |
 | `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
 | `PORT` | HTTP-Port. | `8080` |
 | `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |
-| `ASM_TRUSTED_NETWORKS` | Kommagetrennte IPv4/IPv6-CIDRs (z. B. `192.168.0.0/16,100.64.0.0/10`). Clients außerhalb erreichen nur die Freigabe-Seite (siehe „Push-Freigabe vom iPhone“), alles andere ist 404. Hinter einem Proxy nur mit `ASM_TRUST_PROXY=true` sinnvoll. | leer = keine Sperre |
+| `ASM_TRUSTED_NETWORKS` | Kommagetrennte IPv4/IPv6-CIDRs (z. B. `192.168.0.0/16,100.64.0.0/10`). Clients außerhalb erreichen nur die Freigabe-Seite (siehe „Push-Freigabe vom iPhone“), alles andere ist 404. Hinter einem Proxy nur mit `ASM_TRUST_PROXY=1` (bzw. Proxy-IPs) sinnvoll. Nie das Proxy- oder Docker-Netz eintragen – sonst gilt jede Anfrage über den Proxy als intern. | leer = keine Sperre |
 | `ASM_VAPID_SUBJECT` | Kontakt für Web-Push-Dienste (`mailto:` oder `https:`). Eine echte Adresse wird empfohlen – Apple lehnt Platzhalter teils ab. | `mailto:asm@localhost` |
 
 ## Reverse Proxy
@@ -80,7 +80,7 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
   auskommentiert in `docker-compose.example.yml`.
 - `ASM_PUBLIC_URL` muss genau der https-Origin sein, unter dem Browser und Agenten ASM erreichen
   (z. B. `https://asm.example.com`, ohne Pfad). http ist nur für `localhost` erlaubt.
-- `ASM_TRUST_PROXY=true` setzen. Sonst sieht ASM nur die IP des Proxys, und die Rate-Limits pro IP treffen alle
+- `ASM_TRUST_PROXY=1` setzen (ein Proxy-Hop; bei mehreren Proxys deren Anzahl oder die Proxy-IPs/CIDRs). Sonst sieht ASM nur die IP des Proxys, und die Rate-Limits pro IP treffen alle
   Nutzer gemeinsam. Den Container-Port dann nur für den Proxy erreichbar machen.
 - Passkeys brauchen https und einen Domainnamen – eine IP-Adresse funktioniert nicht.
 - Live-Anfragen (Server-Sent Events) und MCP-Long-Polls (bis ~50 s) nicht puffern und Timeouts ≥ 60 s lassen.
@@ -99,7 +99,8 @@ kleine Freigabe-Seite: „Freigeben“ (mit Face ID) oder „Verweigern“. Das 
 
 Die VAPID-Schlüssel erzeugt ASM beim ersten Start selbst (privater Schlüssel mit dem Master-Key verschlüsselt in der DB).
 
-**Öffentliche Pfade:** `/approve/`, `/api/approve/`, `/assets/`, `/favicon.svg`, `/theme-init.js`. Alles andere nur aus
+**Öffentliche Pfade:** `/approve/`, `/api/approve/`, `/assets/`, `/favicon.svg`, `/theme-init.js`, `/sw.js`,
+`/manifest.webmanifest`, `/icons/icon-180.png`, `/icons/icon-192.png`, `/icons/icon-512.png`. Alles andere nur aus
 dem Heimnetz/VPN. Ein Hostname für innen und außen, damit derselbe Passkey gilt.
 
 **Nginx Proxy Manager – Variante A (Oberfläche):**
@@ -108,26 +109,35 @@ dem Heimnetz/VPN. Ein Hostname für innen und außen, damit derselbe Passkey gil
   keine Benutzer, „Satisfy Any“.
 - *Proxy Host* `asm.example.de` → `http://asm:8080`, SSL aktiv, *Access List* = „Heimnetz“.
 - *Custom Locations* ohne Access List, gleiches Ziel (`asm`, `8080`): `/approve/`, `/api/approve/`, `/assets/`,
-  `/favicon.svg`, `/theme-init.js`.
+  `/favicon.svg`, `/theme-init.js`, `/sw.js`, `/manifest.webmanifest`, `/icons/`. Bei `/approve/` und `/api/approve/`
+  im Zahnrad-Feld `access_log off;` eintragen (die Links enthalten Einmal-Tokens).
 - Per Mobilfunk testen: `https://asm.example.de/` muss 403 liefern, ein Freigabe-Link muss funktionieren. Greift die
   Access List in deiner NPM-Version auch für die Custom Locations, Variante B nehmen.
 
 **Variante B (Tab *Advanced* des Proxy Hosts, keine Access List am Host):**
 
 ```nginx
-location ~ ^/(approve/|api/approve/|assets/|favicon\.svg$|theme-init\.js$) {
+location ~ ^/(api/)?approve/ {
+  access_log off;        # Links enthalten Einmal-Tokens
+  include conf.d/include/proxy.conf;
+}
+location ~ ^/(assets/|favicon\.svg$|theme-init\.js$|sw\.js$|manifest\.webmanifest$|icons/icon-(180|192|512)\.png$) {
   include conf.d/include/proxy.conf;
 }
 location / {
   allow 192.168.0.0/16;
   allow 100.64.0.0/10;   # z. B. Tailscale
   deny all;
+  proxy_buffering off;   # Live-Anfragen (SSE)
+  proxy_read_timeout 120s;
   include conf.d/include/proxy.conf;
 }
 ```
 
-Zusätzlich `ASM_TRUST_PROXY=true` und `ASM_TRUSTED_NETWORKS=192.168.0.0/16,100.64.0.0/10` setzen: Dann sperrt auch
-ASM selbst alle anderen Pfade für fremde IPs (zweite Sicherung, falls der Proxy falsch konfiguriert ist).
+Zusätzlich `ASM_TRUST_PROXY=1` und `ASM_TRUSTED_NETWORKS=192.168.0.0/16,100.64.0.0/10` setzen: Dann sperrt auch
+ASM selbst alle anderen Pfade für fremde IPs (zweite Sicherung, falls der Proxy falsch konfiguriert ist). Mit
+`ASM_TRUST_PROXY=1` zählt nur der vom Proxy angehängte `X-Forwarded-For`-Eintrag – vom Client mitgeschickte Einträge
+werden ignoriert. Das Proxy- bzw. Docker-Netz (z. B. `172.16.0.0/12`) gehört **nicht** in `ASM_TRUSTED_NETWORKS`.
 
 **Sicherheit:**
 
@@ -137,6 +147,9 @@ ASM selbst alle anderen Pfade für fremde IPs (zweite Sicherung, falls der Proxy
   offen ist, und ist nach einer Entscheidung – egal ob per Link oder im Dashboard – wertlos.
 - „Freigeben“ verlangt einen Passkey des Besitzers mit Nutzerverifikation (Face ID/Geräte-PIN). „Verweigern“ geht
   ohne. Keine Session, kein Cookie, keine Secret-Werte; 30 Aufrufe pro Minute und IP.
+- Push-Abos werden nur für bekannte Push-Dienste angenommen (Apple, Google FCM, Mozilla, Windows).
+- ASM schreibt die Tokens nicht in sein Log. Access-Logs des Proxys enthalten die Links jedoch – für `/approve/` und
+  `/api/approve/` abschalten (siehe oben).
 - Entscheidungen erscheinen im Audit-Log wie gewohnt (`request.approved`/`request.denied`) mit `via: push`.
 
 ## Claude Code verbinden

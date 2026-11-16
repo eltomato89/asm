@@ -94,4 +94,17 @@ describe('loadConfig: push approval settings', () => {
     expect(loadConfig({ ...base, ASM_VAPID_SUBJECT: 'https://asm.example.org' }).vapidSubject).toBe('https://asm.example.org');
     expect(() => loadConfig({ ...base, ASM_VAPID_SUBJECT: 'http://x' })).toThrow(/ASM_VAPID_SUBJECT/);
   });
+  it('ASM_TRUST_PROXY: false, hop count, proxy list, legacy true', () => {
+    const tp = (v?: string, extra: Record<string, string> = {}) => loadConfig({ ...base, ...extra, ...(v === undefined ? {} : { ASM_TRUST_PROXY: v }) }).trustProxy;
+    expect(tp()).toBe(false);
+    expect(tp('false')).toBe(false);
+    expect(tp('0')).toBe(false);
+    expect(tp('1')).toBe(1);
+    expect(tp('2')).toBe(2);
+    expect(tp('true')).toBe(true);
+    expect(tp('172.18.0.0/16, 10.0.0.2')).toBe('172.18.0.0/16,10.0.0.2/32');
+    expect(() => tp('yes')).toThrow(/ASM_TRUST_PROXY/);
+    expect(tp('1', { ASM_TRUSTED_NETWORKS: '192.168.0.0/16' })).toBe(1);
+    expect(() => tp('true', { ASM_TRUSTED_NETWORKS: '192.168.0.0/16' })).toThrow(/hop/);
+  });
 });

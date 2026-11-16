@@ -13,7 +13,8 @@ export class ConfigError extends Error {
 export type Config = {
   publicUrl: URL;
   masterKey: Buffer;
-  trustProxy: boolean;
+  /** Fastify trustProxy: false, true (every hop — unsafe with a gate), a hop count, or a comma list of proxy IPs/CIDRs. */
+  trustProxy: boolean | number | string;
   autoModeMaxMin: number;
   dataDir: string;
   port: number;
@@ -32,18 +33,40 @@ export const DEFAULT_VAPID_SUBJECT = 'mailto:asm@localhost';
 /** Parses a comma-separated list of IPv4/IPv6 CIDRs (a bare address means a single host). */
 export function parseTrustedNetworks(raw: string | undefined): Cidr[] | null {
   if (raw === undefined || raw.trim() === '') return null;
+  return parseCidrList(raw, 'ASM_TRUSTED_NETWORKS');
+}
+
+function parseCidrList(raw: string, name: string): Cidr[] {
   return raw.split(',').map((part) => {
     const item = part.trim();
     const [address = '', prefixRaw, ...rest] = item.split('/');
     const family = isIPv4(address) ? 'ipv4' : isIPv6(address) ? 'ipv6' : null;
     const max = family === 'ipv4' ? 32 : 128;
     if (!family || rest.length > 0 || (prefixRaw !== undefined && !/^\d{1,3}$/.test(prefixRaw))) {
-      throw new ConfigError(`ASM_TRUSTED_NETWORKS contains an invalid CIDR: ${item}`);
+      throw new ConfigError(`${name} contains an invalid CIDR: ${item}`);
     }
     const prefix = prefixRaw === undefined ? max : Number(prefixRaw);
-    if (prefix > max) throw new ConfigError(`ASM_TRUSTED_NETWORKS contains an invalid CIDR: ${item}`);
+    if (prefix > max) throw new ConfigError(`${name} contains an invalid CIDR: ${item}`);
     return { address, prefix, family };
   });
+}
+
+/**
+ * ASM_TRUST_PROXY: unset/false/0 → off; a positive integer → that many proxy hops; a comma list of IPs/CIDRs → only
+ * those proxies; `true` → every hop (legacy: the left-most, client-controlled X-Forwarded-For entry wins).
+ */
+export function parseTrustProxy(raw: string | undefined): boolean | number | string {
+  const v = raw?.trim() ?? '';
+  if (v === '' || v === 'false' || v === '0') return false;
+  if (v === 'true') return true;
+  if (/^\d{1,2}$/.test(v)) return Number(v);
+  try {
+    return parseCidrList(v, 'ASM_TRUST_PROXY')
+      .map((c) => `${c.address}/${c.prefix}`)
+      .join(',');
+  } catch {
+    throw new ConfigError('ASM_TRUST_PROXY must be false, true, a hop count, or a comma-separated list of proxy IPs/CIDRs');
+  }
 }
 
 function parseVapidSubject(raw: string | undefined): string {
@@ -119,15 +142,24 @@ export function loadConfig(
     throw new ConfigError('ASM_PUBLIC_URL must use https: (http: is only allowed for localhost/127.0.0.1)');
   }
 
+  const trustedNetworks = parseTrustedNetworks(env.ASM_TRUSTED_NETWORKS);
+  const trustProxy = parseTrustProxy(env.ASM_TRUST_PROXY);
+  if (trustProxy === true && trustedNetworks) {
+    throw new ConfigError(
+      'ASM_TRUST_PROXY=true trusts any X-Forwarded-For value, so ASM_TRUSTED_NETWORKS could be bypassed. ' +
+        'Set ASM_TRUST_PROXY to the number of proxy hops (e.g. 1 for one Nginx Proxy Manager) or to the proxy IPs/CIDRs.',
+    );
+  }
+
   return {
     publicUrl,
     masterKey,
-    trustProxy: env.ASM_TRUST_PROXY === 'true' || env.ASM_TRUST_PROXY === '1',
+    trustProxy,
     autoModeMaxMin: parseInt10(env.ASM_AUTO_MODE_MAX_MIN, 240, 'ASM_AUTO_MODE_MAX_MIN'),
     dataDir: env.ASM_DATA_DIR || '/data',
     port: parseInt10(env.PORT, 8080, 'PORT'),
     cliDir: env.ASM_CLI_DIR || defaultCliDir(exists),
-    trustedNetworks: parseTrustedNetworks(env.ASM_TRUSTED_NETWORKS),
+    trustedNetworks,
     vapidSubject: parseVapidSubject(env.ASM_VAPID_SUBJECT),
   };
 }

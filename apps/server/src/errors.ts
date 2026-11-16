@@ -2,6 +2,11 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import { ZodError } from 'zod';
 import { AuditCursorError, AuditMetaError } from './audit/audit.js';
 
+/** Approval links are capabilities: never log the token part of /approve/<token> or /api/approve/<token>/…. */
+export function redactApproveUrl(url: string): string {
+  return url.replace(/\/(api\/)?approve\/[^/?#]+/g, (_m, api: string | undefined) => `/${api ?? ''}approve/[REDACTED]`);
+}
+
 export class HttpError extends Error {
   constructor(
     readonly statusCode: number,
@@ -54,7 +59,7 @@ export function installErrorHandler(app: FastifyInstance): void {
       const code = status === 429 ? 'rate_limited' : ((err as FastifyError).code ?? 'bad_request').toLowerCase();
       return reply.status(status).send({ error: code });
     }
-    req.log.error({ errName: err.name, url: req.url }, 'unhandled error');
+    req.log.error({ errName: err.name, url: redactApproveUrl(req.url) }, 'unhandled error');
     return reply.status(500).send({ error: 'internal' });
   });
   app.setNotFoundHandler((_req, reply) => reply.status(404).send({ error: 'not_found' }));

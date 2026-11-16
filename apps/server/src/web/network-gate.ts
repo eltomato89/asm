@@ -10,7 +10,7 @@ const PUBLIC_PATHS = [
   /^\/approve\/[A-Za-z0-9_-]{1,128}\/?$/,
   /^\/api\/approve\/[A-Za-z0-9_-]{1,128}(?:\/options|\/decision)?$/,
   /^\/assets\/[A-Za-z0-9_-][A-Za-z0-9._-]{0,200}$/,
-  /^\/(?:favicon\.svg|theme-init\.js|healthz)$/,
+  /^\/(?:favicon\.svg|theme-init\.js|healthz|sw\.js|manifest\.webmanifest|icons\/icon-(?:180|192|512)\.png)$/,
 ];
 
 export function isPublicPath(path: string): boolean {

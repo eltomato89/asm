@@ -12,6 +12,8 @@ export type PushSendOptions = {
   vapidDetails: { subject: string; publicKey: string; privateKey: string };
   TTL: number;
   urgency: 'high';
+  /** Socket timeout in ms (web-push has none by default). */
+  timeout: number;
 };
 /** Sends one encrypted Web Push message; rejects with an error carrying `statusCode` on push-service errors. */
 export type PushSender = (target: PushTarget, payload: string, opts: PushSendOptions) => Promise<unknown>;
@@ -22,6 +24,20 @@ export const defaultPushSender: PushSender = (target, payload, opts) => sendNoti
 export type PushPayload = { title: string; body: string; url: string; tag: string };
 
 export const PUSH_TTL_SECONDS = 300;
+export const PUSH_TIMEOUT_MS = 10_000;
+
+/** Known Web Push services (FCM/Chrome, Apple, Mozilla, Windows). Subscriptions elsewhere are refused (no SSRF). */
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^([a-z0-9-]+\.)*push\.apple\.com$/, /^updates\.push\.services\.mozilla\.com$/, /^([a-z0-9-]+\.)*notify\.windows\.com$/];
+
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && url.port === '' && url.username === '' && url.password === '' && PUSH_HOSTS.some((re) => re.test(url.hostname));
+}
 export const MAX_SUBSCRIPTIONS_PER_USER = 20;
 export const TEST_PAYLOAD: PushPayload = { title: 'ASM', body: 'Test-Benachrichtigung', url: '/settings', tag: 'asm-test' };
 export const pendingPayload = (token: string, requestId: string): PushPayload => ({
@@ -45,6 +61,7 @@ export function listSubscriptions(db: Db, userId: string): PushSubscriptionDto[]
 /** Stores a subscription; the same endpoint re-subscribing (same user) updates keys and name in place, another user's → 409. */
 export function upsertSubscription(db: Db, clock: Clock, userId: string, input: PushSubscribeInput): PushSubscriptionDto {
   const { endpoint, keys } = input.subscription;
+  if (!isAllowedPushEndpoint(endpoint)) throw new HttpError(400, 'unsupported_push_service');
   return db.$client.transaction(() => {
     const existing = db.$client.prepare('SELECT * FROM push_subscriptions WHERE endpoint = ?').get(endpoint) as SubRow | undefined;
     if (existing) {
@@ -93,9 +110,11 @@ export function createPushService(deps: { vapid: VapidKeys; subject: string; sen
     vapidDetails: { subject: deps.subject, publicKey: deps.vapid.publicKey, privateKey: deps.vapid.privateKey },
     TTL: PUSH_TTL_SECONDS,
     urgency: 'high',
+    timeout: PUSH_TIMEOUT_MS,
   };
 
   async function sendOne(ctx: Pick<ServiceCtx, 'db' | 'clock'>, sub: SubRow, payload: PushPayload): Promise<boolean> {
+    if (!isAllowedPushEndpoint(sub.endpoint)) return false;
     try {
       await sender({ endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } }, JSON.stringify(payload), opts);
       ctx.db.$client.prepare('UPDATE push_subscriptions SET last_used_at = ? WHERE id = ?').run(ctx.clock.now(), sub.id);
@@ -132,10 +151,13 @@ export function createPushService(deps: { vapid: VapidKeys; subject: string; sen
 
     async notifyPending(ctx, requestId) {
       try {
-        const req = ctx.db.$client.prepare('SELECT user_id, status, expires_at FROM access_requests WHERE id = ?').get(requestId) as
-          | { user_id: string | null; status: string; expires_at: number }
-          | undefined;
-        if (!req || req.status !== 'pending' || !req.user_id) return 0;
+        const req = ctx.db.$client
+          .prepare(
+            `SELECT r.user_id, r.status, r.expires_at, u.disabled_at
+               FROM access_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?`,
+          )
+          .get(requestId) as { user_id: string | null; status: string; expires_at: number; disabled_at: number | null } | undefined;
+        if (!req || req.status !== 'pending' || !req.user_id || req.disabled_at !== null) return 0;
         const userId = req.user_id;
         const now = ctx.clock.now();
         const insert = ctx.db.$client.prepare(

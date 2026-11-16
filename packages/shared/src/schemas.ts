@@ -229,7 +229,8 @@ export const ApproveSummaryDtoSchema = z.strictObject({
   project: z.string(),
   reason: z.string(),
   delivery: DeliverySchema.nullable(),
-  metaDiff: z.record(z.string(), z.strictObject({ from: z.unknown(), to: z.unknown() })).optional(),
+  /** Changed fields; values only for title/envName — others are `{ from: null, to: null, redacted: true }`. */
+  metaDiff: z.record(z.string(), z.strictObject({ from: z.unknown(), to: z.unknown(), redacted: z.literal(true).optional() })).optional(),
   valueChanged: z.boolean().optional(),
   expiresAt: z.number(),
   status: RequestStatusSchema,

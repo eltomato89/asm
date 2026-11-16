@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pino } from 'pino';
 import { describe, expect, it, vi } from 'vitest';
 import { ApproveSummaryDtoSchema, newId, PushSubscriptionDtoSchema } from '@asm/shared';
 import type { WebAuthnAdapter } from '../src/auth/webauthn.js';
@@ -12,7 +13,7 @@ import type { DeviceIdentity } from '../src/oauth/bearer.js';
 import { loadOrCreateVapidKeys } from '../src/push/vapid.js';
 import type { PushSender } from '../src/push/service.js';
 import { enableAutoMode } from '../src/requests/automode.js';
-import { createRequest, decideRequest } from '../src/requests/service.js';
+import { createRequest, createUpdateRequest, decideRequest } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, ORIGIN, allKeys, auditRows, pairDevice, world, type TestUser } from './helpers/fixtures.js';
 import { TEST_KEY } from './helpers/testApp.js';
@@ -91,18 +92,18 @@ describe('push subscriptions API', () => {
 
   it('create, list, re-subscribe in place, delete — scoped per user', async () => {
     const t = await setup();
-    const created = await t.subscribe(t.alice, 'https://push.example/a1', 'iPhone');
+    const created = await t.subscribe(t.alice, 'https://web.push.apple.com/a1', 'iPhone');
     expect(created.statusCode).toBe(201);
     const dto = PushSubscriptionDtoSchema.parse(created.json());
     expect(dto).toMatchObject({ deviceName: 'iPhone', lastUsedAt: null });
     expect(dto.id).toMatch(/^psh_/);
 
-    const again = await t.subscribe(t.alice, 'https://push.example/a1', 'iPhone 15');
+    const again = await t.subscribe(t.alice, 'https://web.push.apple.com/a1', 'iPhone 15');
     expect(again.statusCode).toBe(201);
     expect(again.json()).toMatchObject({ id: dto.id, deviceName: 'iPhone 15' });
     expect((await t.req(t.alice, 'GET', '/api/push/subscriptions')).json().items).toHaveLength(1);
     // Another user cannot take over an endpoint.
-    expect((await t.subscribe(t.bob, 'https://push.example/a1')).statusCode).toBe(409);
+    expect((await t.subscribe(t.bob, 'https://web.push.apple.com/a1')).statusCode).toBe(409);
     expect((await t.req(t.bob, 'GET', '/api/push/subscriptions')).json()).toEqual({ items: [] });
     expect((await t.req(t.bob, 'DELETE', `/api/push/subscriptions/${dto.id}`)).statusCode).toBe(404);
     expect((await t.req(t.alice, 'DELETE', `/api/push/subscriptions/${dto.id}`)).statusCode).toBe(204);
@@ -113,8 +114,8 @@ describe('push subscriptions API', () => {
     const t = await setup();
     const bad = [
       subBody('http://push.example/x'),
-      { ...subBody('https://push.example/x'), deviceName: '' },
-      { subscription: { endpoint: 'https://push.example/x', keys: { p256dh: 'x y', auth: 'a'.repeat(22) } }, deviceName: 'n' },
+      { ...subBody('https://web.push.apple.com/x'), deviceName: '' },
+      { subscription: { endpoint: 'https://web.push.apple.com/x', keys: { p256dh: 'x y', auth: 'a'.repeat(22) } }, deviceName: 'n' },
       { deviceName: 'n' },
     ];
     for (const body of bad) expect((await t.req(t.alice, 'POST', '/api/push/subscriptions', body)).statusCode).toBe(400);
@@ -122,12 +123,12 @@ describe('push subscriptions API', () => {
 
   it('POST /api/push/test sends the neutral test payload to own subscriptions only', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
-    await t.subscribe(t.alice, 'https://push.example/a2');
-    await t.subscribe(t.bob, 'https://push.example/b1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a2');
+    await t.subscribe(t.bob, 'https://web.push.apple.com/b1');
     const res = await t.req(t.alice, 'POST', '/api/push/test');
     expect(res.json()).toEqual({ sent: 2 });
-    expect(t.push.sent.map((s) => s.endpoint).sort()).toEqual(['https://push.example/a1', 'https://push.example/a2']);
+    expect(t.push.sent.map((s) => s.endpoint).sort()).toEqual(['https://web.push.apple.com/a1', 'https://web.push.apple.com/a2']);
     for (const s of t.push.sent) {
       expect(s.payload).toEqual({ title: 'ASM', body: 'Test-Benachrichtigung', url: '/settings', tag: 'asm-test' });
       expect(s.opts).toMatchObject({ TTL: 300, urgency: 'high', vapidDetails: { subject: 'mailto:asm@localhost' } });
@@ -137,12 +138,12 @@ describe('push subscriptions API', () => {
 
   it('404/410 from the push service removes the subscription; other errors keep it; never throws', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/gone');
-    await t.subscribe(t.alice, 'https://push.example/notfound');
-    await t.subscribe(t.alice, 'https://push.example/flaky');
-    t.push.failures.set('https://push.example/gone', 410);
-    t.push.failures.set('https://push.example/notfound', 404);
-    t.push.failures.set('https://push.example/flaky', 500);
+    await t.subscribe(t.alice, 'https://web.push.apple.com/gone');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/notfound');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/flaky');
+    t.push.failures.set('https://web.push.apple.com/gone', 410);
+    t.push.failures.set('https://web.push.apple.com/notfound', 404);
+    t.push.failures.set('https://web.push.apple.com/flaky', 500);
     expect((await t.req(t.alice, 'POST', '/api/push/test')).json()).toEqual({ sent: 0 });
     const items = (await t.req(t.alice, 'GET', '/api/push/subscriptions')).json().items as { id: string }[];
     expect(items).toHaveLength(1);
@@ -168,12 +169,12 @@ describe('VAPID keys', () => {
 describe('approval tokens', () => {
   it('pending request → one token per subscription of the device owner, neutral payload, hashed at rest', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
-    await t.subscribe(t.alice, 'https://push.example/a2');
-    await t.subscribe(t.bob, 'https://push.example/b1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a2');
+    await t.subscribe(t.bob, 'https://web.push.apple.com/b1');
     const r = t.read();
     await vi.waitFor(() => expect(t.push.sent).toHaveLength(2));
-    expect(t.push.sent.map((s) => s.endpoint).sort()).toEqual(['https://push.example/a1', 'https://push.example/a2']);
+    expect(t.push.sent.map((s) => s.endpoint).sort()).toEqual(['https://web.push.apple.com/a1', 'https://web.push.apple.com/a2']);
     const tokens = t.tokensOf(r.id);
     expect(new Set(tokens).size).toBe(2);
     for (const s of t.push.sent) {
@@ -194,9 +195,9 @@ describe('approval tokens', () => {
   it('no token and no push for auto-approved requests or users without subscriptions', async () => {
     const t = await setup();
     t.read();
-    await t.subscribe(t.bob, 'https://push.example/b1');
+    await t.subscribe(t.bob, 'https://web.push.apple.com/b1');
     expect(t.read().status).toBe('pending'); // alice has no subscription
-    await t.subscribe(t.alice, 'https://push.example/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
     enableAutoMode(t.ctx, t.alice.id, 30);
     expect(t.read().status).toBe('approved');
     await new Promise((r) => setTimeout(r, 10));
@@ -206,7 +207,7 @@ describe('approval tokens', () => {
 
   it('GET summary: request details without values, no-store; invalid tokens are a uniform 404', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
     const r = t.read();
     const [token] = t.tokensOf(r.id);
     const res = await t.api('GET', `/api/approve/${token}`);
@@ -227,7 +228,7 @@ describe('approval tokens', () => {
 
   it('expires with the request', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
     const [token] = t.tokensOf(t.read().id);
     t.clock.advance(5 * MIN);
     expect((await t.api('GET', `/api/approve/${token}`)).statusCode).toBe(404);
@@ -236,8 +237,8 @@ describe('approval tokens', () => {
 
   it('deny without assertion; single use; sibling links die; audited with via push', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
-    await t.subscribe(t.alice, 'https://push.example/a2');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a2');
     const r = t.read();
     const [tok1, tok2] = t.tokensOf(r.id);
     const res = await t.decide(tok1!, { decision: 'deny' });
@@ -258,7 +259,7 @@ describe('approval tokens', () => {
 
   it('dashboard decision makes the links useless (and marks them used)', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
     const r = t.read();
     const [token] = t.tokensOf(r.id);
     decideRequest(t.ctx, { requestId: r.id, userId: t.alice.id, decision: 'approve' });
@@ -271,7 +272,7 @@ describe('approval tokens', () => {
 describe('approve via push link', () => {
   async function pending() {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
     const r = t.read();
     const [token] = t.tokensOf(r.id);
     return { ...t, r, token: token! };
@@ -333,7 +334,7 @@ describe('approve via push link', () => {
 
   it('plaintext flag gone → 403 plaintext_not_allowed', async () => {
     const t = await setup();
-    await t.subscribe(t.alice, 'https://push.example/a1');
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
     t.db.$client.prepare('UPDATE secrets SET allow_plaintext_to_agent = 1').run();
     const r = t.read('plaintext');
     const [token] = t.tokensOf(r.id);
@@ -382,14 +383,18 @@ describe('ASM_TRUSTED_NETWORKS gate', () => {
     const dir = mkdtempSync(join(tmpdir(), 'asm-web-'));
     writeFileSync(join(dir, 'index.html'), '<!doctype html><div id="root"></div>');
     writeFileSync(join(dir, 'favicon.svg'), '<svg/>');
+    writeFileSync(join(dir, 'sw.js'), '// sw');
+    writeFileSync(join(dir, 'manifest.webmanifest'), '{}');
+    mkdirSync(join(dir, 'icons'));
+    for (const n of [180, 192, 512]) writeFileSync(join(dir, 'icons', `icon-${n}.png`), 'png');
     mkdirSync(join(dir, 'assets'));
     writeFileSync(join(dir, 'assets', 'index-abc.js'), 'x');
     return dir;
   }
 
-  async function gated() {
+  async function gated(opts: { trustProxy?: number | string } = {}) {
     const t = await setup({
-      config: { trustProxy: true, trustedNetworks: [
+      config: { trustProxy: opts.trustProxy ?? 1, trustedNetworks: [
         { address: '127.0.0.0', prefix: 8, family: 'ipv4' }, // inject() default, so fixtures can log in
         { address: '192.168.0.0', prefix: 16, family: 'ipv4' },
         { address: 'fd00::', prefix: 8, family: 'ipv6' },
@@ -417,8 +422,8 @@ describe('ASM_TRUSTED_NETWORKS gate', () => {
 
   it('untrusted clients only reach the public paths', async () => {
     const t = await gated();
-    expect((await t.from(OUTSIDE, '/api/push/subscriptions', 'POST', subBody('https://push.example/a1'), t.alice.cookie)).statusCode).toBe(404);
-    expect((await t.from('192.168.1.10', '/api/push/subscriptions', 'POST', subBody('https://push.example/a1'), t.alice.cookie)).statusCode).toBe(201);
+    expect((await t.from(OUTSIDE, '/api/push/subscriptions', 'POST', subBody('https://web.push.apple.com/a1'), t.alice.cookie)).statusCode).toBe(404);
+    expect((await t.from('192.168.1.10', '/api/push/subscriptions', 'POST', subBody('https://web.push.apple.com/a1'), t.alice.cookie)).statusCode).toBe(201);
     const r = t.read();
     const [token] = t.tokensOf(r.id);
 
@@ -440,8 +445,102 @@ describe('ASM_TRUSTED_NETWORKS gate', () => {
     expect((await t.from(OUTSIDE, '/assets/index-abc.js')).statusCode).toBe(200);
     expect((await t.from(OUTSIDE, '/favicon.svg')).statusCode).toBe(200);
     expect((await t.from(OUTSIDE, '/healthz')).statusCode).toBe(200);
+    for (const url of ['/sw.js', '/manifest.webmanifest', '/icons/icon-180.png', '/icons/icon-192.png', '/icons/icon-512.png']) {
+      expect((await t.from(OUTSIDE, url)).statusCode, url).toBe(200);
+    }
+    expect((await t.from(OUTSIDE, '/icons/other.png')).statusCode).toBe(404);
     expect((await t.from(OUTSIDE, `/api/approve/${token}`)).json()).toMatchObject({ status: 'pending' });
     expect((await t.from(OUTSIDE, `/api/approve/${token}/options`, 'POST')).statusCode).toBe(200);
     expect((await t.from(OUTSIDE, `/api/approve/${token}/decision`, 'POST', { decision: 'deny' })).json()).toMatchObject({ status: 'denied' });
+  });
+
+  for (const trustProxy of [1, '127.0.0.1/32']) {
+    it(`a spoofed X-Forwarded-For entry does not make a client trusted (trustProxy ${trustProxy})`, async () => {
+      const t = await gated({ trustProxy });
+      const spoofed = await t.from(`192.168.1.10, ${OUTSIDE}`, '/api/push/subscriptions', 'GET', undefined, t.alice.cookie);
+      expect(spoofed.statusCode).toBe(404);
+      expect((await t.from(`${OUTSIDE}, 192.168.1.10`, '/api/push/subscriptions', 'GET', undefined, t.alice.cookie)).statusCode).toBe(200);
+    });
+  }
+
+  it('the approval rate limit is keyed on the real client IP, not on spoofable entries', async () => {
+    const t = await gated();
+    const codes: number[] = [];
+    for (let i = 0; i < 31; i++) codes.push((await t.from(`10.0.0.${i}, ${OUTSIDE}`, `/api/approve/tok${i}`)).statusCode);
+    expect(codes[29]).toBe(404);
+    expect(codes[30]).toBe(429);
+    expect((await t.from('198.51.100.1', '/api/approve/other')).statusCode).toBe(404);
+  });
+});
+
+describe('push endpoint allowlist', () => {
+  it('only known push services are accepted; sends use a timeout', async () => {
+    const t = await setup();
+    for (const ep of ['https://evil.example/x', 'https://web.push.apple.com:8443/x', 'https://user@fcm.googleapis.com/x', 'https://push.apple.com.evil.example/x', 'https://127.0.0.1/x']) {
+      const res = await t.subscribe(t.alice, ep);
+      expect(res.statusCode, ep).toBe(400);
+      expect(res.json(), ep).toEqual({ error: 'unsupported_push_service' });
+    }
+    for (const ep of ['https://fcm.googleapis.com/fcm/send/x', 'https://web.push.apple.com/x', 'https://updates.push.services.mozilla.com/wpush/v2/x', 'https://wns2-par02p.notify.windows.com/w/?token=x']) {
+      expect((await t.subscribe(t.alice, ep)).statusCode, ep).toBe(201);
+    }
+    // Rows that bypassed validation are never contacted.
+    t.db.$client.prepare(`UPDATE push_subscriptions SET endpoint = 'https://internal.example/x' WHERE endpoint LIKE 'https://fcm%'`).run();
+    expect((await t.req(t.alice, 'POST', '/api/push/test')).json()).toEqual({ sent: 3 });
+    expect(t.push.sent.every((s) => s.opts.timeout === 10_000)).toBe(true);
+    expect(t.push.sent.some((s) => s.endpoint.includes('internal'))).toBe(false);
+  });
+
+  it('no push for disabled owners', async () => {
+    const t = await setup();
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
+    t.db.$client.prepare('UPDATE users SET disabled_at = 1 WHERE id = ?').run(t.alice.id);
+    t.read();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(t.push.sender).not.toHaveBeenCalled();
+    expect(t.db.$client.prepare('SELECT count(*) AS n FROM approve_tokens').get()).toEqual({ n: 0 });
+  });
+});
+
+describe('approval summary of update requests', () => {
+  it('shows title/envName changes, redacts description and tags', async () => {
+    const t = await setup();
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
+    const r = createUpdateRequest(t.ctx, {
+      device: t.device, secretId: t.secret.id, project: 'p', reason: 'rotate',
+      meta: { title: 'Stripe Live', description: 'internal notes', tags: ['prod'] }, value: 'new-secret-value',
+    });
+    const [token] = t.tokensOf(r.id);
+    const body = (await t.api('GET', `/api/approve/${token}`)).json();
+    ApproveSummaryDtoSchema.parse(body);
+    expect(body).toMatchObject({ kind: 'update', valueChanged: true, delivery: null });
+    expect(body.metaDiff).toEqual({
+      title: { from: 'Stripe Key', to: 'Stripe Live' },
+      description: { from: null, to: null, redacted: true },
+      tags: { from: null, to: null, redacted: true },
+    });
+    expect(JSON.stringify(body)).not.toMatch(/internal notes|prod"|new-secret-value/);
+  });
+});
+
+describe('approval tokens are never logged', () => {
+  it('request logs redact /approve/<token> and /api/approve/<token>', async () => {
+    const lines: string[] = [];
+    const logger = pino({ level: 'info' }, { write: (l: string) => void lines.push(l) });
+    const webauthn = stubWebAuthn();
+    const push = stubSender();
+    const w = await world({ app: { webauthn, pushSender: push.sender, logger } });
+    await w.req(w.alice, 'POST', '/api/push/subscriptions', subBody('https://web.push.apple.com/a1'));
+    const secret = createSecret(w.ctx, w.alice.actor, { title: 'T', value: 'v' });
+    const { deviceId } = pairDevice(w.ctx, { userId: w.alice.id, kind: 'mcp' });
+    const r = createRequest(w.ctx, { device: { id: deviceId, userId: w.alice.id, kind: 'mcp', name: 'd' }, secretId: secret.id, project: 'p', reason: 'r', delivery: 'cli' });
+    const token = push.sent.find((s) => s.payload.tag === r.id)!.payload.url!.slice('/approve/'.length);
+    await w.app.inject({ method: 'GET', url: `/api/approve/${token}` });
+    await w.app.inject({ method: 'POST', url: `/api/approve/${token}/options?x=1`, headers: { origin: ORIGIN } });
+    await w.app.inject({ method: 'GET', url: `/approve/${token}` });
+    const out = lines.join('');
+    expect(out).toContain('/api/approve/[REDACTED]/options?x=1');
+    expect(out).toContain('"/approve/[REDACTED]"');
+    expect(out).not.toContain(token);
   });
 });

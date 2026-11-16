@@ -1,7 +1,7 @@
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import { pino, type Logger } from 'pino';
 import type { Clock } from './clock.js';
-import type { Config } from './config.js';
+import { DEFAULT_VAPID_SUBJECT, type Config } from './config.js';
 import type { Db } from './db/client.js';
 import { installAuthContext } from './auth/guards.js';
 import { registerAdminRoutes } from './auth/admin.js';
@@ -12,7 +12,7 @@ import { installErrorHandler } from './errors.js';
 import cookie from '@fastify/cookie';
 import formbody from '@fastify/formbody';
 import rateLimit from '@fastify/rate-limit';
-import { HttpError } from './errors.js';
+import { HttpError, redactApproveUrl } from './errors.js';
 import { registerDeviceRoutes } from './devices/routes.js';
 import { PendingAuthorizations, registerAuthorizeRoute, registerConsentRoutes } from './oauth/authorize.js';
 import { registerClientRoutes } from './oauth/clients.js';
@@ -107,12 +107,38 @@ export function createLogger(level = process.env.LOG_LEVEL ?? 'info'): Logger {
   return pino({ level, redact: { paths: REDACT_PATHS, censor: '[REDACTED]' } });
 }
 
+/**
+ * Hop counts become a proxy-addr trust function (trust the n nearest hops). Fastify itself fails closed on numbers,
+ * which would make every request look like it came from the proxy.
+ */
+export function fastifyTrustProxy(tp: boolean | number | string): boolean | string | ((addr: string, hop: number) => boolean) {
+  if (typeof tp !== 'number') return tp;
+  return (_addr, hop) => hop < tp;
+}
+
+/** Fastify's request serializer, minus approval tokens in the URL. */
+const reqSerializer = (req: FastifyRequest) => ({
+  method: req.method,
+  url: redactApproveUrl(req.url),
+  host: req.host,
+  remoteAddress: req.ip,
+  remotePort: req.socket ? req.socket.remotePort : undefined,
+});
+
 export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
+  const baseLogger = deps.logger ?? createLogger();
   const app = Fastify({
-    loggerInstance: deps.logger ?? createLogger(),
-    trustProxy: deps.config.trustProxy,
+    // Child serializers take precedence over Fastify's defaults.
+    loggerInstance: baseLogger.child({}, { serializers: { req: reqSerializer } }),
+    trustProxy: fastifyTrustProxy(deps.config.trustProxy),
   });
   const root = app as unknown as FastifyInstance;
+  if (deps.config.trustProxy === true) {
+    root.log.warn('ASM_TRUST_PROXY=true trusts every X-Forwarded-For hop (client-spoofable); set the hop count, e.g. ASM_TRUST_PROXY=1');
+  }
+  if (deps.config.vapidSubject === DEFAULT_VAPID_SUBJECT) {
+    root.log.warn('ASM_VAPID_SUBJECT is not set; some push services (Apple) may reject the default mailto:asm@localhost');
+  }
   installErrorHandler(root);
   if (deps.config.trustedNetworks) installNetworkGate(root, deps.config.trustedNetworks);
   root.decorate('setup', createSetupState(deps.db, root.log));

@@ -52,6 +52,14 @@ async function registerPushApi(app: FastifyInstance, deps: PushDeps): Promise<vo
   );
 }
 
+/** Public page shows which fields change; values only for title and env name (description/tags are redacted). */
+const PUBLIC_DIFF_FIELDS = new Set(['title', 'envName']);
+function publicMetaDiff(diff: NonNullable<AccessRequestDto['metaDiff']>): NonNullable<ApproveSummaryDto['metaDiff']> {
+  return Object.fromEntries(
+    Object.entries(diff).map(([k, d]) => [k, PUBLIC_DIFF_FIELDS.has(k) ? { from: d!.from, to: d!.to } : { from: null, to: null, redacted: true as const }]),
+  );
+}
+
 function toSummary(dto: AccessRequestDto): ApproveSummaryDto {
   return {
     kind: dto.kind,
@@ -60,7 +68,7 @@ function toSummary(dto: AccessRequestDto): ApproveSummaryDto {
     project: dto.project,
     reason: dto.reason,
     delivery: dto.delivery,
-    ...(dto.metaDiff !== undefined ? { metaDiff: dto.metaDiff as ApproveSummaryDto['metaDiff'] } : {}),
+    ...(dto.metaDiff !== undefined ? { metaDiff: publicMetaDiff(dto.metaDiff) } : {}),
     ...(dto.valueChanged !== undefined ? { valueChanged: dto.valueChanged } : {}),
     expiresAt: dto.expiresAt,
     status: dto.status,
