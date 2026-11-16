@@ -253,6 +253,31 @@ Web-UI mit Vite: `pnpm --filter @asm/web dev` (Port 5173). Vite leitet `/api`, `
 
 `pnpm --filter @asm/server start` startet den gebauten Server (`node dist/main.js`).
 
+## CI & Releases
+
+GitHub Actions (`.github/workflows/`):
+
+- **CI** (`ci.yml`) – bei jedem Push auf `main` und jedem Pull Request: Typecheck, Unit-Tests, Web-Build,
+  CLI-Bundle, danach Playwright-e2e (Report/Traces als Artefakt bei Fehlern). Neuere PR-Pushes brechen
+  laufende Runs ab.
+- **Docker** (`docker.yml`) – baut `koehler/asm` für `linux/amd64` und `linux/arm64` und pusht nach Docker Hub:
+  - nach erfolgreicher CI auf `main` → `edge` und `sha-<kurz>`
+  - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
+  - manuell über „Run workflow“ (`workflow_dispatch`)
+- **Dependabot** – wöchentliche Updates für Actions und npm (Minor/Patch gruppiert).
+
+Benötigte Repository-Secrets: `DOCKERHUB_USERNAME` und `DOCKERHUB_TOKEN` (Docker-Hub-Access-Token mit
+Read/Write).
+
+Release:
+
+```sh
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+Hinweis: Actions-Minuten sind bei privaten Repos begrenzt; der arm64-Build läuft unter QEMU-Emulation und ist
+deutlich langsamer als amd64 (Build-Cache über `type=gha` hilft bei Folge-Builds).
+
 ## Backup
 
 - `/data/asm.db` sichern (im laufenden Betrieb z. B. mit `sqlite3 /data/asm.db ".backup /backup/asm.db"`,

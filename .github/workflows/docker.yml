@@ -1,0 +1,80 @@
+name: Docker
+
+# - tag push v*.*.*       -> run tests here, then push <version>, <major>.<minor>, latest
+# - CI succeeded on main  -> push edge + sha-<short> (tests already ran in CI)
+# - workflow_dispatch     -> run tests, then push tags matching the selected ref
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.event.workflow_run.head_branch || github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: koehler/asm
+
+jobs:
+  test:
+    if: github.event_name != 'workflow_run'
+    uses: ./.github/workflows/_test.yml
+
+  image:
+    needs: test
+    # Runs when tests passed in this workflow, or (workflow_run) when CI on a push to main succeeded.
+    if: >-
+      always() && (
+        needs.test.result == 'success' ||
+        (github.event_name == 'workflow_run' &&
+         github.event.workflow_run.conclusion == 'success' &&
+         github.event.workflow_run.event == 'push')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # workflow_run runs on the default branch HEAD; build exactly the commit CI tested.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=edge,enable=${{ !startsWith(github.ref, 'refs/tags/') }}
+            type=raw,value=sha-${{ steps.sha.outputs.short }},enable=${{ !startsWith(github.ref, 'refs/tags/') }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
