@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { appendAudit } from '../src/audit/audit.js';
+import { mergeProjects } from '../src/projects/service.js';
 import { createSecret } from '../src/secrets/service.js';
-import { world } from './helpers/fixtures.js';
+import { addDevice, world } from './helpers/fixtures.js';
 
 describe('audit routes', () => {
   it('GET /api/audit filters and paginates; users only see their own rows', async () => {
@@ -85,5 +86,26 @@ describe('audit routes', () => {
     const w = await world();
     expect((await w.req(w.alice, 'GET', '/api/audit/verify')).json()).toEqual({ ok: true });
     expect((await w.req(w.bob, 'GET', '/api/audit/verify')).statusCode).toBe(403);
+  });
+
+  it('project filter includes rows written under projects merged (transitively) into the selected one', async () => {
+    const w = await world();
+    const dev = addDevice(w.db, w.alice.id);
+    const a = createSecret(w.ctx, dev, { title: 'A', value: 'v', project: 'proj-a', reason: 'r' });
+    const b = createSecret(w.ctx, dev, { title: 'B', value: 'v', project: 'proj-b', reason: 'r' });
+    const c = createSecret(w.ctx, dev, { title: 'C', value: 'v', project: 'proj-c', reason: 'r' });
+    const other = createSecret(w.ctx, dev, { title: 'O', value: 'v', project: 'other', reason: 'r' });
+    const id = (slug: string) => (w.db.$client.prepare('SELECT id FROM projects WHERE slug = ?').get(slug) as { id: string }).id;
+    mergeProjects(w.ctx, w.alice.id, id('proj-a'), id('proj-b'));
+    mergeProjects(w.ctx, w.alice.id, id('proj-b'), id('proj-c'));
+    const secretsFor = async (slug: string) =>
+      ((await w.req(w.alice, 'GET', `/api/audit?project=${slug}&event=secret.created`)).json().items as { secretId: string }[])
+        .map((r) => r.secretId)
+        .sort();
+    expect(await secretsFor('proj-c')).toEqual([a.id, b.id, c.id].sort());
+    // A merged slug resolves to its canonical project as well.
+    expect(await secretsFor('proj-a')).toEqual([a.id, b.id, c.id].sort());
+    expect(await secretsFor('other')).toEqual([other.id]);
+    expect(await secretsFor('unknown-slug')).toEqual([]);
   });
 });

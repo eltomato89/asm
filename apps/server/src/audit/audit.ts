@@ -174,6 +174,24 @@ export interface AuditFilter {
   limit?: number;
 }
 
+/**
+ * Slugs that resolve to the same canonical project as the slug @project (follows projects.merged_into up to the root,
+ * then collects every project merged into it, transitively). Audit rows keep the slug they were written with.
+ */
+const PROJECT_FAMILY_SLUGS = `
+  WITH RECURSIVE
+    up(id, merged_into, depth) AS (
+      SELECT id, merged_into, 0 FROM projects WHERE slug = @project
+      UNION ALL SELECT p.id, p.merged_into, up.depth + 1 FROM projects p JOIN up ON p.id = up.merged_into WHERE up.depth < 100
+    ),
+    root(id) AS (SELECT id FROM up WHERE merged_into IS NULL),
+    down(id, slug, depth) AS (
+      SELECT p.id, p.slug, 0 FROM projects p JOIN root ON p.id = root.id
+      UNION ALL SELECT p.id, p.slug, down.depth + 1 FROM projects p JOIN down ON p.merged_into = down.id WHERE down.depth < 100
+    )
+  SELECT slug FROM down
+  UNION SELECT @project`;
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
@@ -192,7 +210,7 @@ export function queryAudit(db: Db, filter: AuditFilter): { items: AuditRow[]; ne
   };
   add('device_id = @deviceId', 'deviceId', filter.deviceId);
   add('secret_id = @secretId', 'secretId', filter.secretId);
-  add('project = @project', 'project', filter.project);
+  add(`project IN (${PROJECT_FAMILY_SLUGS})`, 'project', filter.project);
   add('event = @event', 'event', filter.event);
   add('ts >= @from', 'from', filter.from);
   add('ts <= @to', 'to', filter.to);
