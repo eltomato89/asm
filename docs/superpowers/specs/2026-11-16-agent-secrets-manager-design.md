@@ -37,7 +37,7 @@ docs/superpowers/specs/2026-11-16-agent-secrets-manager-design.md  (dieses Desig
 ## Datenmodell (SQLite, Volume `/data`)
 - `users` (Name, argon2-Passwort-Hash, Admin-Flag) und `passkeys` (Credential-ID, Public Key, Counter)
 - `vaults` und `vault_members` (Rolle `owner` oder `member`). Jeder Nutzer bekommt automatisch einen persönlichen Tresor.
-- `secrets`: Tresor, Titel, Beschreibung, Tags, `env_name` (z.B. `GITHUB_TOKEN`), `allow_plaintext_to_agent` (Standard aus), `current_version`, angelegt von (Nutzer oder Gerät). Dazu eine FTS5-Tabelle über Titel, Beschreibung und Tags.
+- `secrets`: Tresor, Titel, Beschreibung, Tags, `env_name` (z.B. `GITHUB_TOKEN`), `allow_plaintext_to_agent` (Standard aus), `current_version`, angelegt von (Nutzer oder Gerät), Archiv-Status (`archived_at`, archiviert von, `archive_reason`, Projekt). Dazu eine FTS5-Tabelle über Titel, Beschreibung und Tags.
 - `secret_versions`: eine Zeile pro Version mit Versionsnummer, Chiffrat und verschlüsseltem DEK (AAD = `secretId:version`), Metadaten-Schnappschuss, geändert von (Nutzer oder Gerät), Projekt, Grund und Zeitstempel. Die aktuelle Version ist immer die höchste.
 - `devices`: Nutzer, Name, Typ (`mcp` oder `cli`), Status (`pending`, `approved`, `revoked`), Zeitpunkt der letzten Nutzung, Hostname
 - `oauth_clients` und `tokens` (Hash, Ablauf, Gerät)
@@ -87,6 +87,11 @@ docs/superpowers/specs/2026-11-16-agent-secrets-manager-design.md  (dieses Desig
   - `generate: { length, alphabet }`: Der Server erzeugt den Wert, und der Agent sieht ihn nie.
   - `asm set <id|--new> --from-stdin | --from-env VAR | --from-file F | --generate`: Der Wert läuft am Agent-Kontext vorbei.
 - **Rechtegrenze:** Agenten können `allow_plaintext_to_agent` weder setzen noch ändern; das darf nur ein Mensch in der Web-Oberfläche. Agenten können keine Secrets löschen.
+- **Archivieren statt Löschen:** Agenten (und Menschen) können ein Secret **ohne Freigabe** archivieren, mit Pflichtangaben `reason` (z.B. „ausgetauscht durch sec_…“, „Service abgeräumt“) und `project`. Ein archiviertes Secret:
+  - erscheint in Suchen nur mit `include_archived` und ist in der Web-Oberfläche filterbar (Aktiv / Archiviert / Alle), mit Badge und Grund
+  - kann nicht mehr abgerufen oder geändert werden (`409 secret_archived`); offene Anfragen dazu werden verweigert, ausgestellte Grants ungültig
+  - bleibt mit allen Versionen erhalten; der Verlauf zeigt das Archivieren als Ereignis
+  - **Reaktivieren darf nur ein Mensch** in der Web-Oberfläche (Annahme: Reaktivieren gibt einen Zugang wieder frei und gehört deshalb in Menschenhand).
 - **Historie:** Jede Änderung (durch Mensch oder Agent) erzeugt eine neue Version, alte Versionen bleiben unbegrenzt erhalten. In der Web-Oberfläche hat jedes Secret einen Reiter „Verlauf“: Versionen mit Zeit, Akteur, Projekt, Grund und Metadaten-Diff. Alte Werte lassen sich nach erneuter Authentifizierung anzeigen, und ein Mensch kann eine alte Version wiederherstellen (das legt eine neue Version an).
 
 ## Web-Oberfläche (React)
@@ -144,6 +149,7 @@ Vor der Umsetzung der Seiten werden 2–3 klickbare Mockups für Dashboard, Audi
 - Klartext an Agent übergeben
 - Secret angelegt (auch durch Agent), Änderung angefragt, freigegeben, verweigert, automatisch freigegeben, geändert, gelöscht, in der Oberfläche angezeigt
 - Alte Version angezeigt oder wiederhergestellt
+- Secret archiviert (mit Grund) und reaktiviert
 - Auto-Modus an und aus
 
 Jeder Eintrag enthält Akteur (Nutzer oder Gerät), Secret, Projekt, Grund, IP und Zeitstempel.

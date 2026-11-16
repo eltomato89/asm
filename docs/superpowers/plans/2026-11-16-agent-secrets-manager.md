@@ -21,7 +21,8 @@
 - `project` und `reason` sind bei jeder Anfrage Pflicht (nicht leer, max 200 bzw. 1000 Zeichen).
 - UI-Sprache Deutsch; Code/Identifier Englisch. Design-Tokens laut Spec-Abschnitt „Visuelles Design“ (Stone-Neutrals, einzige Signalfarbe Bernstein, Geist Sans/Mono, Radius 6 px, Haarlinien).
 - IDs: Präfix + ULID (`usr_`, `vlt_`, `sec_`, `dev_`, `req_`, `grt_`, `aud_`).
-- Agenten (Bearer-Geräte) dürfen Secrets **anlegen ohne Freigabe**, **ändern nur über eine Freigabe** (Anfrage-Art `update`, gleicher Ablauf wie Abrufe inkl. Auto-Modus), **nie löschen** und **nie** `allow_plaintext_to_agent` setzen oder ändern.
+- Agenten (Bearer-Geräte) dürfen Secrets **anlegen ohne Freigabe**, **ändern nur über eine Freigabe** (Anfrage-Art `update`, gleicher Ablauf wie Abrufe inkl. Auto-Modus), **archivieren ohne Freigabe** (mit Pflicht-`reason` und `project`), **nie löschen**, **nie reaktivieren** und **nie** `allow_plaintext_to_agent` setzen oder ändern.
+- Archivierte Secrets: in Suchen nur mit `includeArchived`; Abruf, Änderung und Grant-Einlösung → `409 secret_archived`; beim Archivieren werden offene Anfragen zum Secret auf `denied` (`decided_by = 'system'`, `meta.cause = 'archived'`) gesetzt und Grants gelöscht.
 - Jede Wertänderung oder Metadaten-Änderung erzeugt eine neue Zeile in `secret_versions`; Versionen werden nie gelöscht oder überschrieben (außer beim Löschen des ganzen Secrets durch einen Menschen). AAD einer Version = `${secretId}:${version}`.
 - Push ist **nicht** Teil von v1.
 
@@ -128,7 +129,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   `sessions(id, user_id, token_hash unique, last_auth_at, expires_at, created_at)`,
   `vaults(id, name, personal_of_user_id null, created_at)`,
   `vault_members(vault_id, user_id, role 'owner'|'member', PK(vault_id,user_id))`,
-  `secrets(id, vault_id, title, description, tags json, env_name, allow_plaintext_to_agent, current_version, created_by_type 'user'|'device', created_by_id, created_at, updated_at)`,
+  `secrets(id, vault_id, title, description, tags json, env_name, allow_plaintext_to_agent, current_version, created_by_type 'user'|'device', created_by_id, archived_at null, archived_by_type null, archived_by_id null, archive_reason null, archive_project null, created_at, updated_at)`,
   `secret_versions(secret_id, version, ciphertext, iv, tag, wrapped_dek, dek_iv, dek_tag, meta_snapshot json {title,description,tags,envName}, changed_by_type, changed_by_id, project null, reason null, restored_from null, created_at, PK(secret_id, version))`,
   `secrets_fts` (FTS5: title, description, tags; Trigger für insert/update/delete),
   `devices(id, user_id null, name, kind 'mcp'|'cli', hostname, status 'pending'|'approved'|'denied'|'revoked', last_used_at, created_at)`,
@@ -155,7 +156,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 
 **Interfaces:**
 - Produces:
-  - `type AuditEvent = 'auth.login'|'auth.login_failed'|'device.pair_requested'|'device.approved'|'device.denied'|'device.revoked'|'secret.searched'|'request.created'|'request.approved'|'request.denied'|'request.auto_approved'|'request.expired'|'grant.redeemed'|'grant.redeem_denied'|'secret.plaintext_delivered'|'secret.created'|'secret.updated'|'secret.deleted'|'secret.revealed'|'secret.version_revealed'|'secret.version_restored'|'automode.enabled'|'automode.disabled'|'vault.member_added'|'vault.member_removed'`
+  - `type AuditEvent = 'auth.login'|'auth.login_failed'|'device.pair_requested'|'device.approved'|'device.denied'|'device.revoked'|'secret.searched'|'request.created'|'request.approved'|'request.denied'|'request.auto_approved'|'request.expired'|'grant.redeemed'|'grant.redeem_denied'|'secret.plaintext_delivered'|'secret.created'|'secret.updated'|'secret.deleted'|'secret.revealed'|'secret.version_revealed'|'secret.version_restored'|'secret.archived'|'secret.unarchived'|'automode.enabled'|'automode.disabled'|'vault.member_added'|'vault.member_removed'`
   - `appendAudit(db, clock, entry: { actorType; actorId; event: AuditEvent; secretId?; vaultId?; deviceId?; project?; reason?; ip?; meta?: Record<string, unknown> }): AuditRow`
   - `verifyChain(db): { ok: true } | { ok: false; brokenAtSeq: number }`
   - `queryAudit(db, filter: { userId: string; deviceId?; secretId?; project?; event?; from?; to?; cursor?; limit? }): { items: AuditRow[]; nextCursor?: string }` (nur Einträge zu Tresoren, in denen `userId` Mitglied ist, plus eigene Akteur-Einträge)
@@ -211,18 +212,22 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 - Produces:
   - `canAccessVault(db, userId, vaultId): boolean`; `listVaultsForUser(db, userId)`
   - `type SecretMeta = { id; vaultId; vaultName; title; description; tags: string[]; envName: string|null; allowPlaintextToAgent: boolean; updatedAt }`
-  - `searchSecrets(db, userId, query: string, vaultId?): SecretMeta[]` (FTS5 Prefix-Match, leerer Query → alle, max 50, nur zugängliche Tresore)
+  - `SecretMeta` zusätzlich: `archived: null | { at; by: { type; id; name }; reason; project }`
+  - `searchSecrets(db, userId, query: string, opts?: { vaultId?; includeArchived?: boolean; status?: 'active'|'archived'|'all' }): SecretMeta[]` (FTS5 Prefix-Match, leerer Query → alle, max 50, nur zugängliche Tresore)
   - `type Actor = { type: 'user'; userId } | { type: 'device'; deviceId; userId }`
   - `createSecret(ctx, actor, input: SecretInput & { value?: string; generate?: { length: number; alphabet?: 'alnum'|'hex'|'base64url'|'symbols' }; project?; reason? }): SecretMeta` – schreibt Version 1; genau eins von `value`/`generate` Pflicht; `generate.length` 16…256; Device-Actor: `project`/`reason` Pflicht, `allowPlaintextToAgent` im Input → 400 `field_not_allowed`, Standard-Tresor = persönlicher Tresor des Gerätebesitzers
   - `applySecretChange(ctx, actor, secretId, change: { meta?: Partial<SecretInput>; value?: string; generate?; project?; reason?; restoredFrom?: number }): SecretMeta` – legt Version `current_version + 1` an (Wert unverändert → bisheriger Klartext wird neu versiegelt), aktualisiert Metadaten und FTS; wird von menschlichen Updates direkt und von freigegebenen Agent-Updates (Task 9) aufgerufen
   - `deleteSecret(...)` (nur Nutzer), `revealSecret(ctx, userId, secretId, version?): string`
   - `listVersions(db, userId, secretId): SecretVersionDto[]` (`{ version, changedBy: { type, id, name }, project, reason, metaDiff, restoredFrom, createdAt }`, ohne Werte)
+  - `archiveSecret(ctx, actor: Actor, secretId, { reason: string /* 1…1000 */; project: string }): SecretMeta` – idempotent nur im Sinne von `409 already_archived`; Audit `secret.archived`; setzt offene Anfragen auf `denied` und löscht Grants (Funktion `cancelOpenForSecret` aus Task 9 wird hier noch als No-Op-Hook `onArchived` aufgerufen und in Task 9 verdrahtet)
+  - `unarchiveSecret(ctx, userId, secretId)` – nur Nutzer-Actor; Audit `secret.unarchived`
   - `restoreVersion(ctx, userId, secretId, version)` = `applySecretChange` mit Wert + Meta der alten Version und `restoredFrom`
-  - Routes: `GET/POST /api/vaults`, `POST/DELETE /api/vaults/:id/members` (nur owner), `GET /api/secrets?q=&vault=`, `POST /api/secrets`, `PATCH/DELETE /api/secrets/:id`, `POST /api/secrets/:id/reveal` (requireRecentAuth, Audit `secret.revealed`), `GET /api/secrets/:id/versions`, `POST /api/secrets/:id/versions/:v/reveal` (requireRecentAuth, Audit `secret.version_revealed`), `POST /api/secrets/:id/versions/:v/restore` (requireRecentAuth, Audit `secret.version_restored`)
+  - Routes: `GET/POST /api/vaults`, `POST/DELETE /api/vaults/:id/members` (nur owner), `GET /api/secrets?q=&vault=`, `POST /api/secrets`, `PATCH/DELETE /api/secrets/:id`, `POST /api/secrets/:id/reveal` (requireRecentAuth, Audit `secret.revealed`), `GET /api/secrets/:id/versions`, `POST /api/secrets/:id/versions/:v/reveal` (requireRecentAuth, Audit `secret.version_revealed`), `POST /api/secrets/:id/versions/:v/restore` (requireRecentAuth, Audit `secret.version_restored`), `POST /api/secrets/:id/archive {reason, project?}`, `POST /api/secrets/:id/unarchive` (requireRecentAuth); `GET /api/secrets?status=active|archived|all` (Default `active`)
   - Audit-Routes: `GET /api/audit` (Filter wie `queryAudit`), `GET /api/audit.csv`, `GET /api/audit/verify`
   - Validierung: `envName` matcht `/^[A-Z_][A-Z0-9_]*$/`; `value` max 64 KiB
 - [ ] **Step 1: Tests**: Nutzer B sieht Secrets aus A's persönlichem Tresor weder in Suche noch per ID (404); nach Hinzufügen zu geteiltem Tresor sichtbar; Suche „git“ findet „GitHub Token“ via Beschreibung; GET-Antworten enthalten nie `value`/Ciphertext-Felder; Reveal ohne Re-Auth → 401 `reauth_required`; Reveal liefert Klartext und schreibt Audit; Löschen des letzten Owners eines geteilten Tresors → 409; ungültiger `envName` → 400.
   - Versionen: Anlegen → Version 1; zwei Updates → Versionen 1–3, `revealSecret(…, 1)` liefert den ursprünglichen Wert, Liste enthält keine Werte; reines Metadaten-Update erzeugt ebenfalls eine Version mit `metaDiff`; Restore von Version 1 → Version 4 mit altem Wert und `restoredFrom: 1`; Chiffrat von Version 2 mit AAD von Version 3 → `DecryptError`.
+  - Archiv: Device-Actor archiviert mit Grund → `archived.reason` gesetzt, Suche ohne `includeArchived` findet es nicht, mit `status:'archived'` schon; ohne `reason` → 400; zweites Archivieren → 409 `already_archived`; `applySecretChange` auf archiviertes Secret → 409 `secret_archived`; `unarchiveSecret` durch Device-Actor ist nicht aufrufbar (Route nur mit Session) und durch Nutzer → wieder aktiv; Versionen bleiben unverändert.
   - Device-Actor: `createSecret` ohne `project` → 400; mit `allowPlaintextToAgent: true` → 400 `field_not_allowed` und kein Secret angelegt (Review Focus 5); `generate: {length: 32}` erzeugt 32 Zeichen, die in keiner Antwort vorkommen; Tresor ohne Mitgliedschaft des Gerätebesitzers → 404.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
 - [ ] **Step 5:** Commit `feat(server): vaults and encrypted secrets`
@@ -263,6 +268,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - `createRequest(ctx, { device, secretId, project, reason, delivery }): AccessRequestDto` – prüft Zugriff (404 sonst), Plaintext-Flag (`403 plaintext_not_allowed`), `expires_at = now + 5 min`; bei aktivem Auto-Modus für den Tresor sofort `approved`, `auto=true`, Audit `request.auto_approved`, sonst Audit `request.created` + Event
   - `decideRequest(ctx, { requestId, userId, decision: 'approve'|'deny' }): AccessRequestDto` – nur Besitzer des Geräts; prüft Tresorzugriff erneut; atomar `UPDATE … WHERE status='pending'`, sonst `409 already_decided`; bei Ablauf `410 expired`
   - `createUpdateRequest(ctx, { device, secretId, project, reason, meta?, value?, generate? }): AccessRequestDto` – `kind:'update'`; `allowPlaintextToAgent` in `meta` → 400 `field_not_allowed`; vorgeschlagener Wert wird sofort mit `seal` (AAD `req:${requestId}`) gespeichert bzw. bei `generate` serverseitig erzeugt; Auto-Modus wirkt wie bei `read`; bei Freigabe ruft `decideRequest` `applySecretChange` mit Device-Actor, Projekt und Grund auf und löscht `proposed_value_sealed`
+  - `createRequest`/`createUpdateRequest` auf archiviertes Secret → `409 secret_archived`; `cancelOpenForSecret(ctx, secretId)` setzt `pending` → `denied` (system, `meta.cause:'archived'`), löscht Grants, emittiert `request.updated`; als `onArchived`-Hook in `archiveSecret` verdrahtet
   - `AccessRequestDto` enthält `kind` und bei `update` `metaDiff` + `valueChanged: boolean` (nie den Wert)
   - `waitForRequest(ctx, requestId, deviceId, timeoutMs ≤ 60_000): Promise<AccessRequestDto>` – resolved bei Statuswechsel oder Timeout
   - `expireDue(ctx)` – Intervall alle 15 s, setzt `expired` + Audit
@@ -278,6 +284,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - **Besitzer verliert Tresormitgliedschaft nach Anfrage → Freigabe 403** (Review Focus 1).
   - Nach 5 min (FakeClock + `expireDue`) → `expired`, `decideRequest` → 410.
   - Auto-Modus 30 min an → Anfrage sofort `approved`, `auto=true`; **bei `now == enabled_until` → `pending`**; **neue `buildApp` auf derselben DB-Datei → Auto-Modus noch aktiv**; Auto-Modus auf Tresor X begrenzt → Anfrage aus Tresor Y bleibt `pending`; Dauer > `autoModeMaxMin` → 400.
+  - Archivieren während offener Lese- und Update-Anfrage → beide `denied` mit `cause:'archived'`, `waitForRequest` resolved sofort; vorhandener Grant danach nicht mehr einlösbar.
   - Update-Anfrage: vor Freigabe bleibt `current_version` unverändert; nach Freigabe neue Version mit Device als Akteur sowie Projekt/Grund; nach Verweigerung keine neue Version und `proposed_value_sealed` gelöscht; im Auto-Modus sofort angewendet; DTO enthält nie den Wert.
   - `waitForRequest` resolved unmittelbar nach `decideRequest`; SSE-Stream liefert `request.created` an den Besitzer, nicht an andere Nutzer.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
@@ -294,7 +301,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 **Interfaces:**
 - Consumes: `bearerAuth`, `searchSecrets`, `createRequest`, `waitForRequest`, `listVaultsForUser`, `open`
 - Produces: `POST/GET/DELETE /mcp` (Streamable HTTP, stateless pro Request, Device aus Bearer). Tools (zod-Inputs):
-  - `search_secrets { query: string; vault_id?: string }` → Liste `SecretMeta` (Audit `secret.searched` mit `meta.query`)
+  - `search_secrets { query: string; vault_id?: string; include_archived?: boolean }` (archivierte Treffer mit `archived.reason`) → Liste `SecretMeta` (Audit `secret.searched` mit `meta.query`)
   - `request_secret { secret_id; project; reason; delivery?: 'cli'|'plaintext' = 'cli' }` → `{ request_id, status, expires_at }` (+ Ergebnis wie unten, falls sofort approved)
   - `await_request { request_id }` → wartet ≤ 60 s; Ergebnis je Status:
     - `approved` + `cli`: `{ status, grant_id, env_name, expires_at, instructions: "Run: asm run --grant <id> -- <command>  |  asm write --grant <id> <file>" }`
@@ -303,9 +310,10 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - `create_secret { title; description; tags?; env_name?; vault_id?; project; reason; value?: string; generate?: { length; alphabet? } }` → `{ secret_id, version: 1 }` (sofort, ohne Freigabe)
   - `update_secret { secret_id; project; reason; title?; description?; tags?; env_name?; value?; generate? }` → `{ request_id, status, expires_at }`; Ergebnis über `await_request` (`approved` → `{ status, version }`)
   - Beschreibungen von `create_secret`/`update_secret`: `value` landet im Transkript; `generate` oder `asm set --from-env/--from-stdin` bevorzugen, wenn der Wert nicht ohnehin schon im Kontext ist
+  - `archive_secret { secret_id; reason; project }` → `{ secret_id, archived_at }` (sofort, ohne Freigabe; Beschreibung nennt Beispiele für Gründe: ersetzt durch anderes Secret, Service entfernt, Token widerrufen)
   - `list_vaults {}`, `whoami {}` → Gerät, Nutzer, Auto-Modus-Status
   - Tool-Beschreibungen (Englisch, für den Agenten) sagen ausdrücklich: Begründung + Projekt angeben, `cli`-Delivery bevorzugen, Werte nie ausgeben/committen.
-- [ ] **Step 1: Tests**: ohne Token → 401 mit `WWW-Authenticate`; `tools/list` enthält genau die 7 Tools (`search_secrets`, `request_secret`, `await_request`, `create_secret`, `update_secret`, `list_vaults`, `whoami`); `create_secret` mit `allow_plaintext_to_agent` im Input → Fehler `field_not_allowed` (Review Focus 5); `update_secret` → `pending`, nach Freigabe liefert `await_request` die neue Versionsnummer; Suche liefert keine Werte; Request → `pending`; nach `decideRequest` liefert `await_request` `grant_id` und **kein** `value`; Plaintext-Secret mit Flag liefert `value` und Audit-Eintrag; widerrufenes Gerät mitten in der Session → 401.
+- [ ] **Step 1: Tests**: ohne Token → 401 mit `WWW-Authenticate`; `tools/list` enthält genau die 8 Tools (`search_secrets`, `request_secret`, `await_request`, `create_secret`, `update_secret`, `archive_secret`, `list_vaults`, `whoami`); `archive_secret` ohne `reason` → Fehler; `request_secret` auf archiviertes Secret → Fehler `secret_archived`; kein Tool zum Reaktivieren oder Löschen; `create_secret` mit `allow_plaintext_to_agent` im Input → Fehler `field_not_allowed` (Review Focus 5); `update_secret` → `pending`, nach Freigabe liefert `await_request` die neue Versionsnummer; Suche liefert keine Werte; Request → `pending`; nach `decideRequest` liefert `await_request` `grant_id` und **kein** `value`; Plaintext-Secret mit Flag liefert `value` und Audit-Eintrag; widerrufenes Gerät mitten in der Session → 401.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
 - [ ] **Step 5:** Commit `feat(server): mcp endpoint with secret tools`
 
@@ -322,6 +330,8 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 - Produces (Server):
   - `POST /api/grants/:id/redeem` (bearerAuth, nur kind `cli`) → `{ secrets: [{ envName, value }] }`; prüft gleicher Nutzer, nicht abgelaufen, `uses_left > 0`, Tresorzugriff; dekrementiert atomar; Audit `grant.redeemed` mit `meta.hostname`, sonst `grant.redeem_denied` + 403/410
   - `POST /api/cli/requests` (bearerAuth) = `createRequest` für CLI-Nutzung ohne Agent
+  - `POST /api/cli/secrets/:id/archive {reason, project}` (bearerAuth) = `archiveSecret` mit Device-Actor
+  - Grant-Einlösung für archiviertes Secret → 409 `secret_archived`
   - `POST /api/cli/secrets` (bearerAuth) = `createSecret` mit Device-Actor; `POST /api/cli/secrets/:id/update` = `createUpdateRequest`
 - Produces (CLI, `commander`):
   - `asm login <url>` (Device-Flow: zeigt `user_code` + URL, pollt), speichert `{url, accessToken, refreshToken}` via `@napi-rs/keyring` (Service `asm`, Account = Host); Fallback-Datei `~/.config/asm/credentials.json` mit 0600 nur mit `--insecure-store`
@@ -329,6 +339,7 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
   - `asm run (--grant <id> | --secret <id>[=ENV]…) -- <cmd…>` → spawnt `cmd` mit zusätzlichen Env-Variablen (nur im Kindprozess), Exit-Code wird durchgereicht; `--secret` erstellt Anfrage und wartet auf Freigabe
   - `asm write --grant <id> <file>` → schreibt/merged `ENV=value`-Zeilen, Dateimodus 0600, Warnung auf stderr, falls `git check-ignore <file>` nicht greift
   - `asm set --new --title T --description D [--tags a,b] [--env NAME] [--vault ID] --project P --reason R (--from-stdin | --from-env VAR | --from-file F | --generate [LEN])` bzw. `asm set <secretId> --project P --reason R [Meta-Flags] [Wertquelle] [--wait]`; gibt nur ID/Version bzw. Anfrage-ID aus, nie den Wert
+  - `asm archive <secretId> --reason R --project P`; `asm search --archived`
   - `asm mcp-config` → druckt `claude mcp add --transport http asm <url>/mcp`
   - automatischer Token-Refresh bei 401
 - [ ] **Step 1: Tests (Server)**: Einlösung durch CLI-Gerät desselben Nutzers → Wert; **durch Gerät eines anderen Nutzers → 403 ohne Wert; zweite Einlösung → 410; nach 16 min → 410; nach Entzug der Tresormitgliedschaft → 403** (Review Focus 1, 4); MCP-Gerät (kind `mcp`) → 403.
@@ -367,14 +378,14 @@ Zeit wird überall über ein injiziertes `Clock { now(): number }` gelesen (Test
 - Produces:
   - **Anfragen**: `RequestCard` mit Satz „**{device}** möchte `{ENV|Titel}` für **{project}**“, Begründung kursiv, Zeitbalken bis `expires_at`, Buttons Verweigern (`D`) / Freigeben (`A`) für die fokussierte Karte; Live-Update per SSE; Browser-`Notification` bei neuer Anfrage, wenn Tab im Hintergrund und erlaubt; Auto-Modus-Steuerung (Dauer wählbar 15/30/60/120 min oder frei bis Maximum, optional Tresore)
   - **Anfragen** zeigen auch Änderungsanfragen: „**{device}** möchte `{ENV}` ändern“ mit Metadaten-Diff und Hinweis „Wert wird geändert“; neu von Agenten angelegte Secrets erscheinen im Aktivitäts-Feed
-  - **Secrets**: Liste mit Suche, Badge „von Agent“ bei agenten-angelegten Secrets, rechtes Panel zum Anlegen/Bearbeiten (Titel, Beschreibung, Tags, ENV-Name, Schalter „Klartext an Agenten erlauben“ mit Warnhinweis), „Anzeigen/Kopieren“ über `ReauthDialog`; Reiter **Verlauf** (`VersionTimeline`): Version, Zeit, Akteur, Projekt, Grund, Metadaten-Diff, „Wert anzeigen“ (Re-Auth) und „Wiederherstellen“ mit Bestätigung
+  - **Secrets**: Filter-Segment Aktiv / Archiviert / Alle (Default Aktiv); archivierte Einträge gedämpft mit Badge „Archiviert“ und Grund als Tooltip, Panel zeigt Archiv-Hinweis (wer, wann, Projekt, Grund) und Button „Reaktivieren“ (Re-Auth); „Archivieren“-Aktion mit Pflichtfeld Grund auch für Menschen; Liste mit Suche, Badge „von Agent“ bei agenten-angelegten Secrets, rechtes Panel zum Anlegen/Bearbeiten (Titel, Beschreibung, Tags, ENV-Name, Schalter „Klartext an Agenten erlauben“ mit Warnhinweis), „Anzeigen/Kopieren“ über `ReauthDialog`; Reiter **Verlauf** (`VersionTimeline`): Version, Zeit, Akteur, Projekt, Grund, Metadaten-Diff, „Wert anzeigen“ (Re-Auth) und „Wiederherstellen“ mit Bestätigung
   - **Tresore**: anlegen, Mitglieder hinzufügen/entfernen
   - **Geräte**: Tabelle (Name, Typ, Host, zuletzt genutzt, Status), umbenennen, widerrufen
   - **Audit-Log**: Filterleiste (Gerät, Secret, Projekt, Ereignis, Zeitraum), Zeilen als Satz + Mono-Event-Code + IP + Zeit, aufklappbar mit Details (Projekt, Grund, Meta), CSV-Export (clientseitig aus geladenen Seiten oder `GET /api/audit.csv`), Badge „Kette intakt“ via `GET /api/audit/verify`
   - **Connect** (`/connect?req=`): Consent-Seite für MCP-Kopplung (Client-Name, Redirect-Ziel, Rechte-Liste, Gerätename editierbar, Freigeben/Verweigern)
   - **Activate** (`/activate`): Eingabe des `user_code` für CLI-Kopplung
   - **Einstellungen**: Passkeys verwalten, Passwort ändern, Nutzerverwaltung (Admin)
-- [ ] **Step 1: Tests**: `RequestCard` ruft bei Taste `A` `decision:'approve'` auf; Zeitbalken-Breite proportional zur Restzeit; 409 vom Server zeigt Toast „Bereits entschieden“; Audit-Zeile zeigt Projekt und Grund; Reveal ohne Re-Auth öffnet `ReauthDialog`; Consent-Seite sendet `deny` bei „Verweigern“; Update-Karte zeigt Diff `Titel: alt → neu` und „Wert wird geändert“; `VersionTimeline` listet Versionen absteigend und ruft beim Wiederherstellen `restore` mit der gewählten Version auf.
+- [ ] **Step 1: Tests**: `RequestCard` ruft bei Taste `A` `decision:'approve'` auf; Zeitbalken-Breite proportional zur Restzeit; 409 vom Server zeigt Toast „Bereits entschieden“; Audit-Zeile zeigt Projekt und Grund; Reveal ohne Re-Auth öffnet `ReauthDialog`; Consent-Seite sendet `deny` bei „Verweigern“; Update-Karte zeigt Diff `Titel: alt → neu` und „Wert wird geändert“; Filter „Archiviert“ zeigt nur archivierte Secrets mit Grund; Archivieren-Dialog ohne Grund ist nicht absendbar; `VersionTimeline` zeigt Archiv-/Reaktivierungs-Ereignisse zwischen den Versionen und listet Versionen absteigend und ruft beim Wiederherstellen `restore` mit der gewählten Version auf.
 - [ ] **Step 2:** FAIL → **Step 3:** implementieren → **Step 4:** PASS
 - [ ] **Step 5:** Commit `feat(web): requests, secrets, vaults, devices, audit, settings`
 
