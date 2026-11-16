@@ -790,3 +790,14 @@ button { cursor: pointer; }
 @layer components {
   .search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 }
+
+/* ---------- Freigabe per Push (öffentliche Seite /approve/:token) ---------- */
+.approve-kind { margin: 0 0 10px; font-size: var(--fs-12); font-weight: 500; color: var(--amber); display: inline-flex; align-items: center; gap: 6px; }
+.approve .consent-head h1 { overflow-wrap: anywhere; }
+.approve .req-reason { margin: 0; }
+.approve .req-via { margin-top: 12px; }
+.consent .timebar { padding: 16px 28px 0; border-top: 1px solid var(--line); }
+.approve-result-actions { margin-top: 16px; }
+@media (max-width: 760px) {
+  .consent .timebar { padding-left: 20px; padding-right: 20px; }
+}

@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { AdminUsers } from '../components/settings/AdminUsers';
 import { PasskeySection } from '../components/settings/PasskeySection';
 import { PasswordSection } from '../components/settings/PasswordSection';
+import { PushSection } from '../components/settings/PushSection';
 import { api, queryKeys } from '../lib/api';
 import { useTheme, type ThemeMode } from '../lib/theme';
 
@@ -41,6 +42,7 @@ export function SettingsPage() {
 
       <PasskeySection />
       <PasswordSection />
+      <PushSection />
       {me.data?.isAdmin ? <AdminUsers /> : null}
     </>
   );

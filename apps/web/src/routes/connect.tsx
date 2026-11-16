@@ -9,13 +9,13 @@ import { api, isApiError } from '../lib/api';
 import { errorText } from '../lib/errors';
 
 /** Frame shared by the pairing pages: centered card, theme switch in the corner, revoke hint below. */
-export function PairingFrame({ children, note = true }: { children: React.ReactNode; note?: boolean }) {
+export function PairingFrame({ children, note = true, className }: { children: React.ReactNode; note?: boolean; className?: string }) {
   return (
     <main className="consent-page">
       <div className="consent-corner">
         <ThemeMenu />
       </div>
-      <section className="consent">{children}</section>
+      <section className={className ? `consent ${className}` : 'consent'}>{children}</section>
       {note ? (
         <p className="consent-note">
           Du kannst die Verbindung jederzeit unter <Link to="/devices">Geräte</Link> widerrufen. Offene Übergaben verfallen dann sofort.
