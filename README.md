@@ -253,6 +253,44 @@ Web-UI mit Vite: `pnpm --filter @asm/web dev` (Port 5173). Vite leitet `/api`, `
 
 `pnpm --filter @asm/server start` startet den gebauten Server (`node dist/main.js`).
 
+## CI & Releases
+
+GitHub Actions (`.github/workflows/`):
+
+- **CI** (`ci.yml`) – bei jedem Push auf `main` und jedem Pull Request: Typecheck, Unit-Tests, Web-Build,
+  CLI-Bundle, danach Playwright-e2e (Report/Traces als Artefakt bei Fehlern). Neuere PR-Pushes brechen
+  laufende Runs ab.
+- **Docker** (`docker.yml`) – baut `ghcr.io/eltomato89/asm` für `linux/amd64` und `linux/arm64` und pusht in die
+  GitHub Container Registry:
+  - nach erfolgreicher CI auf `main` → `edge` und `sha-<kurz>`
+  - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
+  - manuell über „Run workflow“ (`workflow_dispatch`) – nur von `main` oder einem `v*`-Tag aus
+  - Prerelease-Tags (`v1.0.0-rc.1`) bekommen nur `1.0.0-rc.1`, kein `X.Y`/`latest`
+- **Dependabot** – wöchentliche Updates für Actions und npm (Minor/Patch gruppiert).
+
+Keine zusätzlichen Secrets nötig: Der Push nutzt das automatische `GITHUB_TOKEN` (`packages: write`).
+
+Neue GHCR-Packages sind standardmäßig privat. Das Label `org.opencontainers.image.source` verknüpft das Package
+mit dem Repo (Zugriffsrechte werden vom Repo übernommen, die Sichtbarkeit nicht). Der Server muss sich daher vor dem
+Pull anmelden – mit einem Personal Access Token (classic) mit Scope `read:packages`:
+
+```sh
+echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
+docker pull ghcr.io/eltomato89/asm:latest
+```
+
+Alternativ das Package in seinen Einstellungen auf GitHub („Package settings“ → „Change visibility“) öffentlich
+machen.
+
+Release:
+
+```sh
+git tag v0.3.0 && git push origin v0.3.0
+```
+
+Hinweis: Actions-Minuten sind bei privaten Repos begrenzt; der arm64-Build läuft unter QEMU-Emulation und ist
+deutlich langsamer als amd64 (Build-Cache über `type=gha` hilft bei Folge-Builds).
+
 ## Backup
 
 - `/data/asm.db` sichern (im laufenden Betrieb z. B. mit `sqlite3 /data/asm.db ".backup /backup/asm.db"`,
