@@ -17,6 +17,8 @@ export async function createTestApp(
     logger?: AppDeps['logger'];
     webauthn?: AppDeps['webauthn'];
     mcpAwaitTimeoutMs?: number;
+    /** Built web UI folder to serve; static serving is off by default in tests. */
+    webDistDir?: string;
   } = {},
 ): Promise<{ app: FastifyInstance; db: Db; clock: FakeClock; config: Config; ctx: ServiceCtx }> {
   const clock = opts.clock ?? new FakeClock();
@@ -35,7 +37,9 @@ export async function createTestApp(
   // services called on ctx behave like the app's routes and emit to its SSE streams.
   const hooks = { ...defaultHooks };
   const events = new RequestEvents();
-  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events, mcpAwaitTimeoutMs: opts.mcpAwaitTimeoutMs });
+  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events, mcpAwaitTimeoutMs: opts.mcpAwaitTimeoutMs,
+    webDistDir: opts.webDistDir ?? null,
+  });
   const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin });
   return { app, db, clock, config, ctx };
 }

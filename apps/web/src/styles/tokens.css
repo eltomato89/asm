@@ -1,0 +1,67 @@
+/* ASM design tokens — ported 1:1 from the approved mockups (docs/mockups/styles.css).
+   Warm stone neutrals, amber as the only signal colour, green/red only for outcomes.
+   Spacing unit 4 px, radius 6 px (chips 4 px), 1 px hairlines; shadows only on overlays.
+   Theme: prefers-color-scheme, overridden by data-theme="light|dark" on <html>. */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f5f3;
+  --surface: #ffffff;
+  --sunken: #efedea;
+  --hover: #f1efec;
+  --line: #e3e0db;
+  --line-strong: #cfcac2;
+  --text: #1c1917;
+  --text-2: #57534e;
+  --text-3: #736c64;
+  --amber: #a85a06;
+  --amber-fill: #e8920f;
+  --amber-soft: #fbefd9;
+  --amber-line: #efd4a4;
+  --ok: #157a3f;
+  --ok-soft: #e3f2e8;
+  --danger: #b4231b;
+  --danger-soft: #f9e4e2;
+  --focus: #1c1917;
+  --inverse-bg: #1c1917;
+  --inverse-text: #f5f4f2;
+  --overlay: rgba(28, 25, 23, 0.32);
+  --shadow-overlay: 0 1px 2px rgba(28, 25, 23, .06), 0 12px 32px -8px rgba(28, 25, 23, .22);
+  --t-ok: #6fd39a; --t-danger: #f3877c; --t-amber: #f0b44c;
+
+  --font-sans: "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-11: 11px; --fs-12: 12px; --fs-13: 13px; --fs-14: 14px; --fs-16: 16px; --fs-20: 20px; --fs-24: 24px;
+  --u: 4px;
+  --radius: 6px;
+  --radius-sm: 4px;
+  --sidebar-w: 232px;
+  --topbar-h: 52px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #141311; --surface: #1b1a18; --sunken: #23211e; --hover: #22201d;
+    --line: #2d2a26; --line-strong: #3d3934;
+    --text: #edebe7; --text-2: #aaa49c; --text-3: #8d867d;
+    --amber: #f0b44c; --amber-fill: #e39a1b; --amber-soft: #2e2416; --amber-line: #5a4320;
+    --ok: #5dc58a; --ok-soft: #17291e; --danger: #f07a6e; --danger-soft: #331b18;
+    --focus: #edebe7; --inverse-bg: #edebe7; --inverse-text: #1c1917;
+    --overlay: rgba(0, 0, 0, .5);
+    --shadow-overlay: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px -8px rgba(0,0,0,.6);
+    --t-ok: #157a3f; --t-danger: #b4231b; --t-amber: #a85a06;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141311; --surface: #1b1a18; --sunken: #23211e; --hover: #22201d;
+  --line: #2d2a26; --line-strong: #3d3934;
+  --text: #edebe7; --text-2: #aaa49c; --text-3: #8d867d;
+  --amber: #f0b44c; --amber-fill: #e39a1b; --amber-soft: #2e2416; --amber-line: #5a4320;
+  --ok: #5dc58a; --ok-soft: #17291e; --danger: #f07a6e; --danger-soft: #331b18;
+  --focus: #edebe7; --inverse-bg: #edebe7; --inverse-text: #1c1917;
+  --overlay: rgba(0, 0, 0, .5);
+  --shadow-overlay: 0 1px 2px rgba(0,0,0,.4), 0 16px 40px -8px rgba(0,0,0,.6);
+  --t-ok: #157a3f; --t-danger: #b4231b; --t-amber: #a85a06;
+}

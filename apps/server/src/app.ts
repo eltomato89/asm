@@ -28,6 +28,7 @@ import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
 import { registerMcpRoutes } from './mcp/server.js';
 import { registerCliRoutes } from './cli-api/routes.js';
+import { DEFAULT_WEB_DIST_DIR, registerWebStatic } from './web/static.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -47,6 +48,8 @@ export type AppDeps = {
   events?: RequestEvents;
   /** Long-poll timeout of the MCP await_request tool (default MCP_AWAIT_TIMEOUT_MS; tests shorten it). */
   mcpAwaitTimeoutMs?: number;
+  /** Built web UI directory (default apps/web/dist); null disables static serving. Missing folders are skipped. */
+  webDistDir?: string | null;
 };
 
 /** Interval of the expiry sweep (requests, auto mode). */
@@ -136,5 +139,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(registerMcpRoutes, moduleDeps);
   await root.register(registerCliRoutes, moduleDeps);
   root.get('/healthz', async () => ({ status: 'ok' }));
+  const webDistDir = deps.webDistDir === undefined ? DEFAULT_WEB_DIST_DIR : deps.webDistDir;
+  if (webDistDir) await root.register(registerWebStatic, { distDir: webDistDir });
   return root;
 }

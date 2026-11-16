@@ -1,0 +1,48 @@
+@import "@fontsource/geist-sans/latin-400.css";
+@import "@fontsource/geist-sans/latin-500.css";
+@import "@fontsource/geist-sans/latin-600.css";
+@import "@fontsource/geist-mono/latin-400.css";
+@import "@fontsource/geist-mono/latin-500.css";
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./components.css";
+
+/* Tailwind theme mapped onto the tokens: only token colours exist, no default palette. */
+@theme inline {
+  --color-*: initial;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-amber: var(--amber);
+  --color-amber-fill: var(--amber-fill);
+  --color-ok: var(--ok);
+  --color-danger: var(--danger);
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --text-*: initial;
+  --text-11: 11px;
+  --text-12: 12px;
+  --text-13: 13px;
+  --text-14: 14px;
+  --text-16: 16px;
+  --text-20: 20px;
+  --text-24: 24px;
+
+  --spacing: 4px;
+  --radius-*: initial;
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-full: 9999px;
+  --shadow-*: initial;
+  --shadow-overlay: var(--shadow-overlay);
+}
