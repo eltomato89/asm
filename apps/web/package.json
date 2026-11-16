@@ -32,7 +32,7 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.3.0",
     "jsdom": "^25.0.1",
     "tailwindcss": "^4.1.12",
     "vite": "^5.4.21"
