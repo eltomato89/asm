@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit-Log – ASM</title>
+<script>(function(){try{var t=localStorage.getItem("asm-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body data-app>
+<div class="shell">
+  <aside class="sidebar" aria-label="Hauptnavigation">
+    <button class="vault-switch" type="button" aria-label="Tresor wechseln, aktuell Persönlich">
+      <span class="logo"><svg class="icon" aria-hidden="true"><use href="#i-key"/></svg></span>
+      <span><span class="v-name">Persönlich</span><br><span class="v-sub mono">asm.local</span></span>
+      <svg class="icon icon-sm" aria-hidden="true"><use href="#i-updown"/></svg>
+    </button>
+    <nav class="nav">
+      <a href="dashboard.html"><svg class="icon"><use href="#i-overview"/></svg>Übersicht</a>
+      <a href="dashboard.html"><svg class="icon"><use href="#i-inbox"/></svg>Anfragen<span class="count num" data-n="2">2</span></a>
+      <a href="#" data-stub><svg class="icon"><use href="#i-key"/></svg>Secrets</a>
+      <a href="#" data-stub><svg class="icon"><use href="#i-folder"/></svg>Projekte</a>
+      <a href="#" data-stub><svg class="icon"><use href="#i-vault"/></svg>Tresore</a>
+      <a href="connect.html"><svg class="icon"><use href="#i-laptop"/></svg>Geräte</a>
+      <a href="audit.html" aria-current="page"><svg class="icon"><use href="#i-scroll"/></svg>Audit-Log</a>
+      <div class="nav-sep" role="separator"></div>
+      <a href="#" data-stub><svg class="icon"><use href="#i-settings"/></svg>Einstellungen</a>
+    </nav>
+    <div class="sidebar-foot"><svg class="icon icon-sm"><use href="#i-lock"/></svg>Tresor entsperrt</div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <button class="icon-btn menu-btn" type="button" data-menu aria-label="Navigation öffnen"><svg class="icon"><use href="#i-menu"/></svg></button>
+      <div class="crumbs"><span class="vault-crumb">Persönlich</span><span class="sep">/</span><strong>Audit-Log</strong></div>
+      <span class="spacer"></span>
+      <div class="auto-wrap">
+        <button class="auto-seg" type="button" data-auto-pill data-seconds="761" data-total="1800" aria-haspopup="dialog" aria-expanded="false" aria-controls="auto-pop" aria-label="Auto-Modus aktiv, Restzeit">
+          <span class="auto-label">AUTO</span><span class="auto-time" data-auto-time>12:41</span>
+          <span class="auto-bar" aria-hidden="true"><span data-auto-fill style="width:42%"></span></span>
+        </button>
+        <div class="popover" id="auto-pop" role="dialog" aria-label="Auto-Modus" hidden>
+          <h3>Auto-Modus <span class="auto-time" data-auto-time>12:41</span></h3>
+          <p>Anfragen in diesen Tresoren werden ohne Rückfrage freigegeben und im Audit-Log vermerkt.</p>
+          <fieldset class="vaults">
+            <legend class="visually-hidden">Gilt für Tresore</legend>
+            <label><input type="checkbox" data-vault-all> Alle Tresore</label>
+            <label><input type="checkbox" data-vault> Persönlich</label>
+            <label><input type="checkbox" data-vault checked> Arbeit</label>
+            <label><input type="checkbox" data-vault> Kunden</label>
+          </fieldset>
+          <div class="row">
+            <button class="btn" type="button" data-auto="extend">+15 min</button>
+            <button class="btn" type="button" data-auto="stop">Beenden</button>
+          </div>
+        </div>
+      </div>
+      <button class="cmdk-btn" type="button" data-cmdk aria-label="Befehlspalette öffnen">
+        <svg class="icon icon-sm"><use href="#i-search"/></svg><span class="label">Suchen</span><span class="kbd">⌘K</span>
+      </button>
+      <button class="icon-btn" type="button" data-theme-toggle></button>
+      <span class="avatar" title="Angemeldet">JK</span>
+    </header>
+
+    <main class="content content-wide">
+      <div class="page-head">
+        <h1>Audit-Log</h1>
+        <span class="meta num">1.284 Einträge seit 2. Nov. 2026</span>
+        <div class="actions">
+          <span class="chain" title="Alle 1.284 Einträge geprüft, zuletzt um 14:02">
+            <span class="ok"><svg class="icon icon-sm" style="stroke-width:2"><use href="#i-check"/></svg>Kette intakt</span>
+            <span class="mono" data-head-hash>9f3c…e21a</span>
+          </span>
+          <button class="btn" type="button" data-export><svg class="icon icon-sm"><use href="#i-download"/></svg>Export CSV</button>
+        </div>
+      </div>
+
+      <div class="filters" role="group" aria-label="Filter">
+        <label class="filter">Gerät <select data-f="device"><option value="">Alle</option></select><svg class="icon icon-sm"><use href="#i-down"/></svg></label>
+        <label class="filter">Secret <select data-f="secret"><option value="">Alle</option></select><svg class="icon icon-sm"><use href="#i-down"/></svg></label>
+        <label class="filter">Projekt <select data-f="project"><option value="">Alle</option></select><svg class="icon icon-sm"><use href="#i-down"/></svg></label>
+        <label class="filter">Ereignis <select data-f="code"><option value="">Alle</option></select><svg class="icon icon-sm"><use href="#i-down"/></svg></label>
+        <label class="filter is-set"><svg class="icon icon-sm"><use href="#i-calendar"/></svg>Zeitraum <select data-f="range"><option value="1">Heute</option><option value="7" selected>Letzte 7 Tage</option><option value="30">Letzte 30 Tage</option></select><svg class="icon icon-sm"><use href="#i-down"/></svg></label>
+        <button class="reset" type="button" data-reset hidden>Filter zurücksetzen</button>
+      </div>
+
+      <div class="table" role="table" aria-label="Audit-Einträge">
+        <div class="thead" role="row">
+          <span></span><span role="columnheader">Ereignis</span><span role="columnheader">Code</span><span role="columnheader" class="c-ip">IP-Adresse</span><span role="columnheader" class="r">Zeit</span>
+        </div>
+        <div data-rows></div>
+        <div class="table-foot">
+          <span class="num" data-count></span>
+          <div class="pager">
+            <button class="btn" type="button" disabled style="opacity:.5;cursor:default">Zurück</button>
+            <button class="btn" type="button" data-next>Weiter</button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+</div>
+<script src="app.js"></script>
+<script>
+(function () {
+  "use strict";
+  var H = function (d) { return '<span class="host">' + d + "</span>"; };
+  var S = function (s) { return '<span class="secret">' + s + "</span>"; };
+  var P = function (p) { return '<span class="proj">' + p + "</span>"; };
+  var ME = "jk (Web-UI)";
+
+  /* Neueste zuerst. day: 0 = heute, 1 = gestern */
+  var E = [
+    { day: 0, t: "14:01:52", code: "request.auto_approved", tone: "ok", device: "claude@mbp-home", secret: "OPENAI_API_KEY", project: "billing-service", ip: "192.168.178.34",
+      s: H("claude@mbp-home") + " erhielt " + S("OPENAI_API_KEY") + " für " + P("billing-service") + " automatisch",
+      reason: "Embeddings für den Rechnungs-Import neu berechnen", req: "req_01JD7JZ8B1", meta: { mode: "auto", vault: "Arbeit", ttl_s: "60" } },
+    { day: 0, t: "13:53:10", code: "secret.created", device: "claude@mbp-office", secret: "SENTRY_DSN", project: "agent-secrets-manager", ip: "192.168.178.21",
+      s: H("claude@mbp-office") + " hat " + S("SENTRY_DSN") + " in " + P("agent-secrets-manager") + " angelegt",
+      reason: "Fehler-Tracking für den Web-Server einrichten", req: "–", meta: { source: "agent", version: "1", tags: "observability" } },
+    { day: 0, t: "13:47:05", code: "automode.enabled", tone: "amber", device: ME, secret: "", project: "billing-service", ip: "192.168.178.10",
+      s: "Du hast den Auto-Modus für Tresor Arbeit aktiviert, 30 Minuten",
+      reason: "–", req: "–", meta: { duration_min: "30", vaults: "Arbeit" } },
+    { day: 0, t: "13:39:44", code: "grant.redeemed", device: "claude@mbp-office", secret: "DATABASE_URL", project: "agent-secrets-manager", ip: "192.168.178.21",
+      s: H("claude@mbp-office") + " hat die Übergabe für " + S("DATABASE_URL") + " eingelöst",
+      reason: "Migrationen gegen die Staging-Datenbank ausführen", req: "req_01JD7HJ0C8", meta: { delivery: "cli", grant: "grt_01JD7HK9QW", uses_left: "0" } },
+    { day: 0, t: "13:38:31", code: "request.approved", tone: "ok", device: "claude@mbp-office", secret: "DATABASE_URL", project: "agent-secrets-manager", ip: "192.168.178.10",
+      s: "Du hast " + S("DATABASE_URL") + " für " + H("claude@mbp-office") + " freigegeben",
+      reason: "Migrationen gegen die Staging-Datenbank ausführen", req: "req_01JD7HJ0C8", meta: { approver: "jk", via: "web", delivery: "cli", decided_after_s: "33" }, open: true },
+    { day: 0, t: "13:37:58", code: "request.created", device: "claude@mbp-office", secret: "DATABASE_URL", project: "agent-secrets-manager", ip: "192.168.178.21",
+      s: H("claude@mbp-office") + " fragt " + S("DATABASE_URL") + " für " + P("agent-secrets-manager") + " an",
+      reason: "Migrationen gegen die Staging-Datenbank ausführen", req: "req_01JD7HJ0C8", meta: { kind: "read", expires_in_s: "300" } },
+    { day: 0, t: "12:58:02", code: "request.denied", tone: "danger", device: "claude@mbp-office", secret: "AWS_SECRET_ACCESS_KEY", project: "agent-secrets-manager", ip: "192.168.178.10",
+      s: "Du hast " + S("AWS_SECRET_ACCESS_KEY") + " für " + H("claude@mbp-office") + " verweigert",
+      reason: "S3-Bucket für Release-Artefakte prüfen", req: "req_01JD7F2V7N", meta: { approver: "jk", via: "keyboard" } },
+    { day: 0, t: "11:12:40", code: "secret.archived", device: ME, secret: "MAILGUN_API_KEY", project: "billing-service", ip: "192.168.178.10",
+      s: "Du hast " + S("MAILGUN_API_KEY") + " archiviert",
+      reason: "–", req: "–", meta: { versions: "4", restorable: "true" } },
+    { day: 0, t: "09:20:15", code: "auth.login", device: ME, secret: "", project: "", ip: "192.168.178.10",
+      s: "Du hast dich mit Passkey angemeldet",
+      reason: "–", req: "–", meta: { method: "passkey", authenticator: "iCloud-Schlüsselbund" } },
+    { day: 1, t: "22:41:09", code: "request.expired", device: "claude@mbp-home", secret: "STRIPE_SECRET_KEY", project: "billing-service", ip: "192.168.178.34",
+      s: "Anfrage von " + H("claude@mbp-home") + " für " + S("STRIPE_SECRET_KEY") + " ist abgelaufen",
+      reason: "Webhook-Signaturen lokal testen", req: "req_01JD5WQ3EE", meta: { kind: "read", waited_s: "300" } },
+    { day: 1, t: "18:03:27", code: "device.paired", tone: "ok", device: "claude@mbp-office", secret: "", project: "", ip: "192.168.178.10",
+      s: "Du hast das Gerät " + H("claude@mbp-office") + " gekoppelt",
+      reason: "–", req: "–", meta: { client: "Claude Code 2.4.1", redirect: "http://127.0.0.1:52341/callback" } },
+    { day: 1, t: "18:02:51", code: "device.pairing_requested", device: "claude@mbp-office", secret: "", project: "", ip: "192.168.178.21",
+      s: H("claude@mbp-office") + " möchte sich mit ASM verbinden",
+      reason: "–", req: "–", meta: { client: "Claude Code 2.4.1", flow: "oauth_pkce" } },
+    { day: 1, t: "17:30:00", code: "secret.updated", device: ME, secret: "STRIPE_SECRET_KEY", project: "billing-service", ip: "192.168.178.10",
+      s: "Du hast " + S("STRIPE_SECRET_KEY") + " geändert, jetzt Version 3",
+      reason: "–", req: "–", meta: { fields: "value", version: "3" } },
+    { day: 1, t: "10:15:22", code: "device.revoked", tone: "danger", device: ME, secret: "", project: "", ip: "192.168.178.10",
+      s: "Du hast den Zugriff von " + H("claude@ci-runner") + " widerrufen",
+      reason: "–", req: "–", meta: { target: "claude@ci-runner", open_grants_revoked: "2" } }
+  ];
+
+  /* deterministische Hash-Kette (nur Optik) */
+  var seed = 7;
+  function hex64() { var s = ""; for (var i = 0; i < 64; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; s += "0123456789abcdef"[(seed >> 16) & 15]; } return s; }
+  var hashes = E.map(function () { return hex64(); });
+  E.forEach(function (e, i) { e.hash = hashes[i]; e.prev = hashes[i + 1] || hex64(); e.id = 1284 - i; });
+  document.querySelector("[data-head-hash]").textContent = E[0].hash.slice(0, 4) + "…" + E[0].hash.slice(-4);
+
+  var DAYS = ["Heute", "Gestern"], DATES = ["16. Nov. 2026", "15. Nov. 2026"];
+  var rowsEl = document.querySelector("[data-rows]");
+  var f = { device: "", secret: "", project: "", code: "", range: "7" };
+
+  /* Filter-Optionen */
+  function uniq(k) { var o = {}; E.forEach(function (e) { if (e[k] && e[k] !== ME) o[e[k]] = 1; }); return Object.keys(o).sort(); }
+  ["device", "secret", "project", "code"].forEach(function (k) {
+    var sel = document.querySelector('[data-f="' + k + '"]');
+    var list = uniq(k); if (k === "device") list.unshift(ME);
+    list.forEach(function (v) { var o = document.createElement("option"); o.value = v; o.textContent = v; sel.appendChild(o); });
+  });
+  document.querySelectorAll("[data-f]").forEach(function (sel) {
+    sel.addEventListener("change", function () {
+      f[sel.dataset.f] = sel.value;
+      sel.closest(".filter").classList.toggle("is-set", !!sel.value);
+      document.querySelector("[data-reset]").hidden = !(f.device || f.secret || f.project || f.code);
+      render();
+    });
+  });
+  document.querySelector("[data-reset]").addEventListener("click", function () {
+    ["device", "secret", "project", "code"].forEach(function (k) { f[k] = ""; var s = document.querySelector('[data-f="' + k + '"]'); s.value = ""; s.closest(".filter").classList.remove("is-set"); });
+    this.hidden = true; render();
+  });
+
+  function visible() {
+    return E.filter(function (e) {
+      return (!f.device || e.device === f.device) && (!f.secret || e.secret === f.secret) && (!f.project || e.project === f.project) &&
+        (!f.code || e.code === f.code) && (f.range !== "1" || e.day === 0);
+    });
+  }
+
+  function detail(e) {
+    var meta = Object.keys(e.meta).map(function (k) { return "<span>" + k + "</span><span>" + e.meta[k] + "</span>"; }).join("");
+    return '<dl class="kv">' +
+      "<dt>Projekt</dt><dd>" + (e.project ? P(e.project) : '<span class="faint">–</span>') + "</dd>" +
+      '<dt>Grund</dt><dd>' + (e.reason !== "–" ? "<em>" + e.reason + "</em>" : '<span class="faint">–</span>') + "</dd>" +
+      "<dt>Gerät</dt><dd>" + (e.device === ME ? "Du, Web-UI" : H(e.device)) + ' <span class="faint">von ' + e.ip + "</span></dd>" +
+      "<dt>Anfrage</dt><dd>" + (e.req !== "–" ? '<span class="mono">' + e.req + "</span>" : '<span class="faint">–</span>') + "</dd>" +
+      '<dt>Meta</dt><dd><div class="meta">' + meta + "</div></dd>" +
+      '<dt>Eintrag</dt><dd class="mono num">#' + e.id + "</dd>" +
+      '<dt>Hash</dt><dd class="hash">' + e.hash + "</dd>" +
+      '<dt>Vorheriger Hash</dt><dd class="hash">' + e.prev + "</dd>" +
+      "</dl>" +
+      '<div class="detail-actions"><button class="btn" type="button" data-copy="' + e.hash + '"><svg class="icon icon-sm"><use href="#i-copy"/></svg>Hash kopieren</button>' +
+      (e.secret ? '<button class="btn btn-ghost" type="button" data-only-secret="' + e.secret + '">Nur ' + '<span class="mono">' + e.secret + "</span> zeigen</button>" : "") + "</div>";
+  }
+
+  function render() {
+    var list = visible(), html = "", lastDay = -1;
+    list.forEach(function (e) {
+      if (e.day !== lastDay) { html += '<div class="day" role="row">' + DAYS[e.day] + '<span class="faint">' + DATES[e.day] + "</span></div>"; lastDay = e.day; }
+      var dot = e.tone === "ok" ? "dot-ok" : e.tone === "danger" ? "dot-danger" : e.tone === "amber" ? "dot-amber" : "";
+      var id = "d" + e.id;
+      html += '<button class="trow" type="button" role="row" aria-expanded="' + (!!e.open) + '" aria-controls="' + id + '">' +
+        '<span class="caret"><svg class="icon icon-sm"><use href="#i-right"/></svg></span>' +
+        '<span class="s"><span class="dot ' + dot + '"></span><span>' + e.s + "</span></span>" +
+        '<span class="codecell"><span class="chip' + (/auto/.test(e.code) ? " chip-amber" : "") + '">' + e.code + "</span></span>" +
+        '<span class="ip">' + e.ip + "</span>" +
+        '<time class="r">' + e.t + "</time></button>" +
+        '<div class="detail' + (e.open ? " is-open" : "") + '" id="' + id + '" role="row">' + detail(e) + "</div>";
+    });
+    rowsEl.innerHTML = html || '<div class="empty" style="margin:16px;border-style:dashed"><strong>Keine Einträge für diese Filter</strong>Ändere den Zeitraum oder setze die Filter zurück.</div>';
+    document.querySelector("[data-count]").textContent = list.length + " von 1.284 Einträgen";
+  }
+
+  rowsEl.addEventListener("click", function (e) {
+    var copy = e.target.closest("[data-copy]");
+    if (copy) { try { navigator.clipboard.writeText(copy.dataset.copy); } catch (x) {} window.asmToast("Hash kopiert.", "ok"); return; }
+    var only = e.target.closest("[data-only-secret]");
+    if (only) { var sel = document.querySelector('[data-f="secret"]'); sel.value = only.dataset.onlySecret; sel.dispatchEvent(new Event("change")); return; }
+    var row = e.target.closest(".trow"); if (!row) return;
+    var open = row.getAttribute("aria-expanded") !== "true";
+    row.setAttribute("aria-expanded", String(open));
+    document.getElementById(row.getAttribute("aria-controls")).classList.toggle("is-open", open);
+    var en = E.filter(function (x) { return "d" + x.id === row.getAttribute("aria-controls"); })[0]; if (en) en.open = open;
+  });
+
+  document.querySelector("[data-export]").addEventListener("click", function () {
+    var rows = [["id", "zeit", "code", "geraet", "secret", "projekt", "ip", "hash"]];
+    visible().forEach(function (e) { rows.push([e.id, DATES[e.day] + " " + e.t, e.code, e.device, e.secret, e.project, e.ip, e.hash]); });
+    var csv = rows.map(function (r) { return r.map(function (c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(","); }).join("\n");
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "asm-audit-2026-11-16.csv"; a.click();
+    window.asmToast(visible().length + " Einträge als CSV exportiert.", "ok");
+  });
+  document.querySelector("[data-next]").addEventListener("click", function () { window.asmToast("Weitere Seiten sind im Mockup nicht ausgearbeitet."); });
+
+  render();
+})();
+</script>
+</body>
+</html>

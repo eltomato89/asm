@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gerät verbinden – ASM</title>
+<script>(function(){try{var t=localStorage.getItem("asm-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}})()</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="consent-corner">
+  <a class="icon-btn" href="index.html" aria-label="Zur Mockup-Übersicht" title="Zur Mockup-Übersicht"><svg class="icon"><use href="#i-overview"/></svg></a>
+  <button class="icon-btn" type="button" data-theme-toggle></button>
+</div>
+
+<main class="consent-page">
+  <section class="consent" aria-labelledby="c-title">
+    <div data-state="ask">
+      <div class="consent-head">
+        <div class="pair" aria-hidden="true">
+          <span class="mark" title="Claude Code"><svg class="icon"><use href="#i-terminal"/></svg></span>
+          <span class="link-line"><span class="ok"><svg class="icon"><use href="#i-check"/></svg></span></span>
+          <span class="mark mark-asm" title="ASM"><svg class="icon"><use href="#i-key"/></svg></span>
+        </div>
+        <h1 id="c-title">Claude Code möchte sich mit ASM verbinden</h1>
+        <p>Tresor <strong>Persönlich</strong> auf <span class="mono">asm.local</span></p>
+      </div>
+
+      <div class="consent-sec field">
+        <label for="devname">Gerätename</label>
+        <div class="input">
+          <svg class="icon icon-sm"><use href="#i-laptop"/></svg>
+          <input id="devname" type="text" value="claude@mbp-office" spellcheck="false" autocomplete="off">
+        </div>
+        <p class="help">So erscheint das Gerät in Anfragen und im Audit-Log.</p>
+      </div>
+
+      <div class="consent-sec">
+        <p class="rights-title">Dieses Gerät darf</p>
+        <ul class="rights">
+          <li><span class="ri"><svg class="icon icon-sm"><use href="#i-search"/></svg></span>
+            <span><b>Secrets suchen</b><span>Namen, Beschreibungen und Projekte, nie die Werte</span></span></li>
+          <li><span class="ri"><svg class="icon icon-sm"><use href="#i-inbox"/></svg></span>
+            <span><b>Abrufe anfragen</b><span>Jede Anfrage braucht deine Freigabe</span></span></li>
+          <li><span class="ri"><svg class="icon icon-sm"><use href="#i-pencil"/></svg></span>
+            <span><b>Secrets anlegen, Änderungen vorschlagen, archivieren</b><span>Änderungen an bestehenden Secrets gibst du einzeln frei</span></span></li>
+        </ul>
+      </div>
+
+      <div class="consent-sec">
+        <div class="redirect">Weiterleitung an <b>http://127.0.0.1:52341/callback</b></div>
+      </div>
+
+      <div class="consent-actions">
+        <button class="btn" type="button" data-consent="deny">Verweigern</button>
+        <button class="btn btn-primary" type="button" data-consent="allow">Freigeben</button>
+      </div>
+    </div>
+
+    <div class="consent-result" data-state="allow" hidden>
+      <h2><svg class="icon" style="color:var(--ok);stroke-width:2"><use href="#i-check"/></svg>Verbunden</h2>
+      <p><span class="host" data-name>claude@mbp-office</span> ist jetzt gekoppelt. Du kannst dieses Fenster schließen und im Terminal weiterarbeiten.</p>
+      <p style="margin-top:16px"><a class="btn" href="dashboard.html">Zur Übersicht</a></p>
+    </div>
+
+    <div class="consent-result" data-state="deny" hidden>
+      <h2><svg class="icon" style="color:var(--danger);stroke-width:2"><use href="#i-x"/></svg>Verbindung verweigert</h2>
+      <p>Claude Code hat keinen Zugriff erhalten. Starte die Kopplung im Terminal neu, wenn das ein Versehen war.</p>
+      <p style="margin-top:16px"><button class="btn" type="button" data-consent="reset">Erneut anzeigen</button></p>
+    </div>
+  </section>
+
+  <p class="consent-note">Du kannst die Verbindung jederzeit unter <a href="dashboard.html">Geräte</a> widerrufen. Offene Übergaben verfallen dann sofort.</p>
+</main>
+
+<script src="app.js"></script>
+<script>
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-consent]"); if (!b) return;
+  var v = b.getAttribute("data-consent"), target = v === "reset" ? "ask" : v;
+  if (v === "allow") {
+    var name = document.getElementById("devname").value.trim() || "claude@mbp-office";
+    document.querySelector("[data-name]").textContent = name;
+  }
+  document.querySelectorAll("[data-state]").forEach(function (s) { s.hidden = s.getAttribute("data-state") !== target; });
+  var focus = document.querySelector('[data-state="' + target + '"] .btn, [data-state="' + target + '"] input');
+  if (focus) focus.focus();
+});
+</script>
+</body>
+</html>
