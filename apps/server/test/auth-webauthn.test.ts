@@ -249,6 +249,25 @@ describe('passkey reauth', () => {
   });
 });
 
+describe('recent auth requirement', () => {
+  it('register options/verify and delete need a recent auth', async () => {
+    const { app, db, clock } = await boot();
+    const { cookie } = await userWithSession(app, db, clock);
+    expect((await registerPasskey(app, cookie)).statusCode).toBe(201);
+    const id = db.select().from(passkeys).get()!.id;
+    clock.advance(11 * 60_000);
+    const o = await post(app, '/api/auth/passkey/register/options', cookie);
+    expect(o.statusCode).toBe(401);
+    expect(o.json()).toEqual({ error: 'reauth_required' });
+    const v = await post(app, '/api/auth/passkey/register/verify', cookie, { response: {} });
+    expect(v.json()).toEqual({ error: 'reauth_required' });
+    const d = await app.inject({ method: 'DELETE', url: `/api/auth/passkeys/${id}`, headers: { cookie, origin: ORIGIN } });
+    expect(d.statusCode).toBe(401);
+    expect(d.json()).toEqual({ error: 'reauth_required' });
+    expect(db.select().from(passkeys).all()).toHaveLength(1);
+  });
+});
+
 describe('passkey management', () => {
   it('lists id, name, createdAt, transports only', async () => {
     const { app, db, clock } = await boot();

@@ -15,7 +15,7 @@ import { appendAudit } from '../audit/audit.js';
 import type { Clock } from '../clock.js';
 import { passkeys, users } from '../db/schema.js';
 import { HttpError } from '../errors.js';
-import { requireUser } from './guards.js';
+import { requireRecentAuth, requireUser } from './guards.js';
 import { SESSION_COOKIE_ATTRS, createSession, deleteSession, setSessionCookie, touchReauth } from './sessions.js';
 
 export const CHALLENGE_COOKIE = 'asm_webauthn';
@@ -100,6 +100,7 @@ export function registerPasskeyRoutes(
   const origin = config.publicUrl.origin;
   const challenges = new ChallengeStore(clock);
   const ipLimit = h.limited(() => '');
+  const recent = [requireUser, requireRecentAuth(clock)];
   const userLimit = h.limited((req) => req.user?.id ?? '');
 
   const CHALLENGE_ATTRS = { ...SESSION_COOKIE_ATTRS, path: '/api/auth' } as const;
@@ -138,7 +139,7 @@ export function registerPasskeyRoutes(
   }
 
   // --- registration ---
-  app.post('/api/auth/passkey/register/options', { preHandler: requireUser, config: userLimit }, async (req, reply) => {
+  app.post('/api/auth/passkey/register/options', { preHandler: recent, config: userLimit }, async (req, reply) => {
     h.checkOrigin(req);
     const user = req.user!;
     const options = await adapter.generateRegistrationOptions({
@@ -154,7 +155,7 @@ export function registerPasskeyRoutes(
     return options;
   });
 
-  app.post('/api/auth/passkey/register/verify', { preHandler: requireUser, config: userLimit }, async (req, reply) => {
+  app.post('/api/auth/passkey/register/verify', { preHandler: recent, config: userLimit }, async (req, reply) => {
     h.checkOrigin(req);
     const body = registerVerifyBody.parse(req.body);
     const user = req.user!;
@@ -252,7 +253,7 @@ export function registerPasskeyRoutes(
     userPasskeys(req.user!.id).map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, transports: p.transports })),
   );
 
-  app.delete('/api/auth/passkeys/:id', { preHandler: requireUser }, async (req) => {
+  app.delete('/api/auth/passkeys/:id', { preHandler: recent }, async (req) => {
     const { id } = z.object({ id: z.string().min(1).max(64) }).parse(req.params);
     const userId = req.user!.id;
     const row = db.select().from(passkeys).where(and(eq(passkeys.id, id), eq(passkeys.userId, userId))).get();
