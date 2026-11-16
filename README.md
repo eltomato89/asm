@@ -260,14 +260,25 @@ GitHub Actions (`.github/workflows/`):
 - **CI** (`ci.yml`) – bei jedem Push auf `main` und jedem Pull Request: Typecheck, Unit-Tests, Web-Build,
   CLI-Bundle, danach Playwright-e2e (Report/Traces als Artefakt bei Fehlern). Neuere PR-Pushes brechen
   laufende Runs ab.
-- **Docker** (`docker.yml`) – baut `koehler/asm` für `linux/amd64` und `linux/arm64` und pusht nach Docker Hub:
+- **Docker** (`docker.yml`) – baut `ghcr.io/eltomato89/asm` für `linux/amd64` und `linux/arm64` und pusht in die
+  GitHub Container Registry:
   - nach erfolgreicher CI auf `main` → `edge` und `sha-<kurz>`
   - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
   - manuell über „Run workflow“ (`workflow_dispatch`)
 - **Dependabot** – wöchentliche Updates für Actions und npm (Minor/Patch gruppiert).
 
-Benötigte Repository-Secrets: `DOCKERHUB_USERNAME` und `DOCKERHUB_TOKEN` (Docker-Hub-Access-Token mit
-Read/Write).
+Keine zusätzlichen Secrets nötig: Der Push nutzt das automatische `GITHUB_TOKEN` (`packages: write`).
+
+Das Package ist standardmäßig privat (erbt die Sichtbarkeit des Repos). Der Server muss sich daher vor dem
+Pull anmelden – mit einem Personal Access Token (classic) mit Scope `read:packages`:
+
+```sh
+echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
+docker pull ghcr.io/eltomato89/asm:latest
+```
+
+Alternativ das Package in seinen Einstellungen auf GitHub („Package settings“ → „Change visibility“) öffentlich
+machen.
 
 Release:
 

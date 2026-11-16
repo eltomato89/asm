@@ -12,9 +12,5 @@ runs:
         cache: pnpm
     - name: Install dependencies
       shell: bash
-      # pnpm 11 ignores these keys in .npmrc and npm_config_* env; pnpm_config_* env vars are honored.
-      env:
-        pnpm_config_fetch_retries: "5"
-        pnpm_config_fetch_timeout: "120000"
-        pnpm_config_network_concurrency: "8"
+      # Fetch retries/timeout/concurrency come from pnpm-workspace.yaml (shared with the Docker build).
       run: pnpm install --frozen-lockfile
