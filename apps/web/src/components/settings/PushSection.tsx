@@ -159,7 +159,7 @@ export function PushSection() {
         )}
 
         {support === 'ios-install' ? (
-          <p className="help">Auf dem iPhone zuerst über Teilen → Zum Home-Bildschirm installieren und von dort öffnen.</p>
+          <p className="help">Auf iPhone/iPad (ab iOS 16.4) zuerst über Teilen → Zum Home-Bildschirm installieren und von dort öffnen.</p>
         ) : support === 'unsupported' ? (
           <p className="help">Dieser Browser unterstützt keine Push-Benachrichtigungen.</p>
         ) : thisBrowserActive ? (

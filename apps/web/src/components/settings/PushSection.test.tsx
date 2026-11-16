@@ -66,8 +66,23 @@ describe('PushSection', () => {
     fakePush();
     mockFetch((c) => (c.path === '/api/push/subscriptions' ? { body: { items: [] } } : undefined));
     renderWithProviders(<PushSection />);
-    expect(await screen.findByText('Auf dem iPhone zuerst über Teilen → Zum Home-Bildschirm installieren und von dort öffnen.')).toBeInTheDocument();
+    expect(await screen.findByText('Auf iPhone/iPad (ab iOS 16.4) zuerst über Teilen → Zum Home-Bildschirm installieren und von dort öffnen.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Benachrichtigungen aktivieren' })).toBeNull();
+  });
+
+  it('on iPhone as home-screen app (standalone) shows the subscribe form', async () => {
+    setUA(UA_IPHONE);
+    fakePush();
+    Object.defineProperty(navigator, 'standalone', { configurable: true, value: true });
+    try {
+      mockFetch((c) => (c.path === '/api/push/subscriptions' ? { body: { items: [] } } : undefined));
+      renderWithProviders(<PushSection />);
+      expect(await screen.findByRole('button', { name: 'Benachrichtigungen aktivieren' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Gerätename')).toHaveValue('iPhone');
+      expect(screen.queryByText(/Zum Home-Bildschirm/)).toBeNull();
+    } finally {
+      delete (navigator as { standalone?: boolean }).standalone;
+    }
   });
 
   it('subscribes on click: permission → VAPID key → pushManager.subscribe → POST', async () => {

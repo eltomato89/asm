@@ -63,26 +63,43 @@ self.addEventListener('notificationclick', function (event) {
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
       var origin = self.location.origin;
-      var client = null;
+      var approve = null;
+      var other = null;
       for (var i = 0; i < list.length; i++) {
+        var path;
         try {
-          if (new URL(list[i].url).origin === origin) {
-            client = list[i];
-            break;
-          }
+          var u = new URL(list[i].url);
+          if (u.origin !== origin) continue;
+          path = u.pathname;
         } catch (e) {
-          // ignore clients with unparsable URLs
+          continue; // ignore clients with unparsable URLs
         }
+        if (!approve && path.indexOf('/approve/') === 0) approve = list[i];
+        else if (!other) other = list[i];
       }
-      if (!client) return self.clients.openWindow(url);
-      return Promise.resolve(client.focus())
-        .then(function (focused) {
-          var c = focused || client;
-          return typeof c.navigate === 'function' ? c.navigate(url) : self.clients.openWindow(url);
-        })
-        .catch(function () {
-          return self.clients.openWindow(url);
+      // Navigate a client, then focus it; rejects when the client cannot be navigated.
+      var reuse = function (client) {
+        if (typeof client.navigate !== 'function') return Promise.reject(new Error('no navigate'));
+        return Promise.resolve(client.navigate(url)).then(function (navigated) {
+          var c = navigated || client;
+          return typeof c.focus === 'function' ? c.focus() : c;
         });
+      };
+      // Fallback only: take over another open ASM window when no new window could be opened.
+      var openOrReuseOther = function () {
+        return Promise.resolve(self.clients.openWindow(url))
+          .catch(function () {
+            return null;
+          })
+          .then(function (win) {
+            if (win || !other) return win;
+            return reuse(other).catch(function () {
+              return null;
+            });
+          });
+      };
+      if (approve) return reuse(approve).catch(openOrReuseOther);
+      return openOrReuseOther();
     }),
   );
 });

@@ -6,12 +6,14 @@ const LOCAL_KEY = 'asm-push-sub';
 /** Registers /sw.js for the whole origin; silently does nothing where service workers are unavailable. */
 export function registerServiceWorker(): void {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
+  // The public approve page (reachable from outside) needs no worker; registering there would be pointless traffic.
+  if (window.location.pathname.startsWith('/approve/')) return;
   navigator.serviceWorker.register(SW_URL, { scope: '/' }).catch(() => {
     // Not fatal: push is optional (e.g. blocked by the browser or served without https).
   });
 }
 
-const isIOS = (): boolean => {
+export const isIOS = (): boolean => {
   const ua = navigator.userAgent;
   // iPadOS reports a Mac user agent; touch points tell them apart.
   return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);

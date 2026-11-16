@@ -798,6 +798,8 @@ button { cursor: pointer; }
 .approve .req-via { margin-top: 12px; }
 .consent .timebar { padding: 16px 28px 0; border-top: 1px solid var(--line); }
 .approve-result-actions { margin-top: 16px; }
+.approve .consent-result h1 { margin: 0; font-size: var(--fs-16); font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.approve .approve-title { margin-top: 6px; color: var(--text-3); }
 @media (max-width: 760px) {
   .consent .timebar { padding-left: 20px; padding-right: 20px; }
 }

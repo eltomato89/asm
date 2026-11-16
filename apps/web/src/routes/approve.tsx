@@ -1,5 +1,6 @@
 import { startAuthentication } from '@simplewebauthn/browser';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Check, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ApproveDetails, ApproveSentence, ApproveTimeBar, secretName } from '../components/approve/ApproveDetails';
 import { Button } from '../components/ui/Button';
@@ -7,9 +8,10 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { decisionErrorText } from '../lib/errors';
+import { isIOS } from '../lib/push';
 import type { ApproveSummaryDto } from '../lib/push-types';
 import { useNow } from '../lib/time';
-import { PairingFrame, PairingResult } from './connect';
+import { PairingFrame } from './connect';
 
 type Decision = 'approve' | 'deny';
 
@@ -28,35 +30,47 @@ export function approveErrorText(e: unknown): string {
 /** Codes after which the token is worthless: the page switches to the neutral "no longer valid" state. */
 const FINAL_CODES = ['already_decided', 'expired', 'not_found', 'device_inactive'];
 
-function Gone() {
+/** Face ID on iPhone/iPad, a generic passkey everywhere else. */
+const approveLabel = () => (isIOS() ? 'Mit Face ID freigeben' : 'Mit Passkey freigeben');
+
+/** Final/neutral states share one frame with the page title as h1 (like the open request). */
+function ApproveResult({ icon, title, children }: { icon?: 'ok' | 'no'; title: string; children: React.ReactNode }) {
   return (
     <PairingFrame note={false} className="approve">
       <div className="consent-result" role="status">
-        <h2>Diese Anfrage ist nicht mehr gültig.</h2>
-        <p>Sie wurde bereits entschieden oder ist abgelaufen. Du kannst dieses Fenster schließen.</p>
+        <h1>
+          {icon === 'ok' ? <Check className="icon" strokeWidth={2} style={{ color: 'var(--ok)' }} aria-hidden /> : null}
+          {icon === 'no' ? <X className="icon" strokeWidth={2} style={{ color: 'var(--danger)' }} aria-hidden /> : null}
+          {title}
+        </h1>
+        {children}
       </div>
     </PairingFrame>
   );
 }
 
+function Gone() {
+  return (
+    <ApproveResult title="Diese Anfrage ist nicht mehr gültig.">
+      <p>Sie wurde bereits entschieden oder ist abgelaufen. Du kannst dieses Fenster schließen.</p>
+    </ApproveResult>
+  );
+}
+
 function Decided({ summary: s }: { summary: ApproveSummaryDto }) {
   const name = secretName(s);
-  return (
-    <PairingFrame note={false} className="approve">
-      {s.status === 'approved' ? (
-        <PairingResult ok title="Freigegeben">
-          <p>
-            <span className="host">{s.device.name}</span> {s.kind === 'update' ? `darf ${name} ändern.` : `erhält ${name}.`} Du kannst dieses Fenster schließen.
-          </p>
-        </PairingResult>
-      ) : (
-        <PairingResult ok={false} title="Verweigert">
-          <p>
-            <span className="host">{s.device.name}</span> erhält keinen Zugriff auf {name}. Du kannst dieses Fenster schließen.
-          </p>
-        </PairingResult>
-      )}
-    </PairingFrame>
+  return s.status === 'approved' ? (
+    <ApproveResult icon="ok" title="Freigegeben">
+      <p>
+        <span className="host">{s.device.name}</span> {s.kind === 'update' ? `darf ${name} ändern.` : `erhält ${name}.`} Du kannst dieses Fenster schließen.
+      </p>
+    </ApproveResult>
+  ) : (
+    <ApproveResult icon="no" title="Verweigert">
+      <p>
+        <span className="host">{s.device.name}</span> erhält keinen Zugriff auf {name}. Du kannst dieses Fenster schließen.
+      </p>
+    </ApproveResult>
   );
 }
 
@@ -99,15 +113,12 @@ export function ApprovePage({ token }: { token: string }) {
   if (summary.isError) {
     if (isApiError(summary.error) && (summary.error.status === 404 || summary.error.status === 410)) return <Gone />;
     return (
-      <PairingFrame note={false} className="approve">
-        <div className="consent-result" role="status">
-          <h2>Anfrage konnte nicht geladen werden</h2>
-          <p>Prüfe die Verbindung und lade die Seite neu.</p>
-          <p className="approve-result-actions">
-            <Button onClick={() => window.location.reload()}>Neu laden</Button>
-          </p>
-        </div>
-      </PairingFrame>
+      <ApproveResult title="Anfrage konnte nicht geladen werden">
+        <p>Prüfe die Verbindung und lade die Seite neu.</p>
+        <p className="approve-result-actions">
+          <Button onClick={() => window.location.reload()}>Neu laden</Button>
+        </p>
+      </ApproveResult>
     );
   }
 
@@ -126,7 +137,7 @@ export function ApprovePage({ token }: { token: string }) {
         <div className="consent-actions">
           <Button disabled>Verweigern</Button>
           <Button variant="primary" disabled>
-            Mit Face ID freigeben
+            {approveLabel()}
           </Button>
         </div>
       </PairingFrame>
@@ -150,6 +161,7 @@ export function ApprovePage({ token }: { token: string }) {
         <h1>
           <ApproveSentence summary={s} />
         </h1>
+        {s.secret.envName && s.secret.title && s.secret.title !== s.secret.envName ? <p className="approve-title">{s.secret.title}</p> : null}
       </div>
       <ApproveDetails summary={s} />
       <ApproveTimeBar left={left} total={firstSeen.current} />
@@ -158,7 +170,7 @@ export function ApprovePage({ token }: { token: string }) {
           Verweigern
         </Button>
         <Button variant="primary" onClick={() => decide.mutate('approve')} disabled={busy}>
-          Mit Face ID freigeben
+          {approveLabel()}
         </Button>
       </div>
     </PairingFrame>

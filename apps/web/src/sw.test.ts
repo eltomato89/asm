@@ -9,7 +9,7 @@ const ORIGIN = 'https://asm.example.de';
 
 type Client = { url: string; focus: ReturnType<typeof vi.fn>; navigate: ReturnType<typeof vi.fn> };
 
-function loadWorker(clients: Client[] = []) {
+function loadWorker(clients: Client[] = [], opts: { openWindow?: unknown } = { openWindow: { url: 'new' } }) {
   const handlers: Record<string, (e: unknown) => void> = {};
   const self = {
     location: { origin: ORIGIN },
@@ -21,7 +21,7 @@ function loadWorker(clients: Client[] = []) {
     clients: {
       claim: vi.fn(async () => undefined),
       matchAll: vi.fn(async () => clients),
-      openWindow: vi.fn(async () => null),
+      openWindow: vi.fn(async () => opts.openWindow ?? null),
     },
   };
   runInNewContext(SOURCE, { self, URL, Promise });
@@ -80,30 +80,57 @@ describe('service worker', () => {
     },
   );
 
-  it('notificationclick focuses an open ASM window and navigates it', async () => {
-    const other = client('https://other.example/');
-    const mine = client(`${ORIGIN}/settings`);
-    const w = loadWorker([other, mine]);
+  it('notificationclick reuses a window already on /approve/: navigate, then focus', async () => {
+    const foreign = client('https://other.example/approve/x');
+    const settings = client(`${ORIGIN}/settings`);
+    const approve = client(`${ORIGIN}/approve/old`);
+    const w = loadWorker([foreign, settings, approve]);
     const n = await w.click({ url: '/approve/tok_1' });
     expect(n.close).toHaveBeenCalled();
-    expect(other.focus).not.toHaveBeenCalled();
-    expect(mine.focus).toHaveBeenCalled();
-    expect(mine.navigate).toHaveBeenCalledWith('/approve/tok_1');
+    expect(approve.navigate).toHaveBeenCalledWith('/approve/tok_1');
+    expect(approve.focus).toHaveBeenCalled();
+    expect(approve.navigate.mock.invocationCallOrder[0]).toBeLessThan(approve.focus.mock.invocationCallOrder[0]!);
+    expect(settings.navigate).not.toHaveBeenCalled();
+    expect(foreign.navigate).not.toHaveBeenCalled();
     expect(w.self.clients.openWindow).not.toHaveBeenCalled();
   });
 
-  it('notificationclick opens a new window without an open client', async () => {
-    const w = loadWorker([]);
+  it('opens a new window instead of taking over another ASM page', async () => {
+    const settings = client(`${ORIGIN}/settings`);
+    const w = loadWorker([settings]);
+    await w.click({ url: '/approve/tok_1' });
+    expect(w.self.clients.openWindow).toHaveBeenCalledWith('/approve/tok_1');
+    expect(settings.navigate).not.toHaveBeenCalled();
+  });
+
+  it('navigates another ASM window only when no window could be opened', async () => {
+    const settings = client(`${ORIGIN}/settings`);
+    const w = loadWorker([settings], { openWindow: null });
+    await w.click({ url: '/approve/tok_1' });
+    expect(w.self.clients.openWindow).toHaveBeenCalledWith('/approve/tok_1');
+    expect(settings.navigate).toHaveBeenCalledWith('/approve/tok_1');
+    expect(settings.focus).toHaveBeenCalled();
+  });
+
+  it('opens a window when the approve client cannot navigate (missing navigate)', async () => {
+    const approve = { url: `${ORIGIN}/approve/old`, focus: vi.fn(async () => null) } as unknown as Client;
+    const w = loadWorker([approve]);
     await w.click({ url: '/approve/tok_1' });
     expect(w.self.clients.openWindow).toHaveBeenCalledWith('/approve/tok_1');
   });
 
-  it('falls back to openWindow when navigating the client fails, and sanitizes the URL', async () => {
-    const mine = client(`${ORIGIN}/`);
-    mine.navigate.mockRejectedValueOnce(new TypeError('not controlled'));
-    const w = loadWorker([mine]);
+  it('opens a window when navigating fails, and sanitizes the URL', async () => {
+    const approve = client(`${ORIGIN}/approve/old`);
+    approve.navigate.mockRejectedValueOnce(new TypeError('not controlled'));
+    const w = loadWorker([approve]);
     await w.click({ url: 'https://evil.example/' });
-    expect(mine.navigate).toHaveBeenCalledWith('/');
+    expect(approve.navigate).toHaveBeenCalledWith('/');
     expect(w.self.clients.openWindow).toHaveBeenCalledWith('/');
+  });
+
+  it('opens a new window without any open client', async () => {
+    const w = loadWorker([]);
+    await w.click({ url: '/approve/tok_1' });
+    expect(w.self.clients.openWindow).toHaveBeenCalledWith('/approve/tok_1');
   });
 });
