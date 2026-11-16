@@ -1,0 +1,23 @@
+{
+  "name": "@asm/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "asm": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@asm/shared": "workspace:*",
+    "@napi-rs/keyring": "^2.1.2",
+    "commander": "^15.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}

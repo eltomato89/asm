@@ -27,6 +27,7 @@ import { registerProjectRoutes } from './projects/routes.js';
 import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
 import { registerMcpRoutes } from './mcp/server.js';
+import { registerCliRoutes } from './cli-api/routes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -133,6 +134,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(registerOAuthServer, oauthDeps);
   await root.register(registerDeviceApi, oauthDeps);
   await root.register(registerMcpRoutes, moduleDeps);
+  await root.register(registerCliRoutes, moduleDeps);
   root.get('/healthz', async () => ({ status: 'ok' }));
   return root;
 }
