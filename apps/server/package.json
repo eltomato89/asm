@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/main.ts",
+    "generate-key": "tsx src/scripts/generate-key.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
