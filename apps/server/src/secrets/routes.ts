@@ -65,9 +65,11 @@ export async function registerSecretRoutes(app: FastifyInstance, deps: ModuleDep
     return { ok: true };
   });
 
-  app.post('/api/secrets/:id/reveal', { preHandler: recent }, async (req) => {
+  // Plaintext responses must never be stored by browsers or intermediaries.
+  app.post('/api/secrets/:id/reveal', { preHandler: recent }, async (req, reply) => {
     const { id } = idParams.parse(req.params);
-    return { value: revealSecret(ctx, userActor(req), id, undefined, reqInfo(req)) };
+    const value = revealSecret(ctx, userActor(req), id, undefined, reqInfo(req));
+    return reply.header('cache-control', 'no-store').send({ value });
   });
 
   app.get('/api/secrets/:id/versions', { preHandler: requireUser }, async (req) => {
@@ -75,9 +77,10 @@ export async function registerSecretRoutes(app: FastifyInstance, deps: ModuleDep
     return listHistory(ctx.db, req.user!.id, id);
   });
 
-  app.post('/api/secrets/:id/versions/:v/reveal', { preHandler: recent }, async (req) => {
+  app.post('/api/secrets/:id/versions/:v/reveal', { preHandler: recent }, async (req, reply) => {
     const { id, v } = versionParams.parse(req.params);
-    return { value: revealSecret(ctx, userActor(req), id, v, reqInfo(req)) };
+    const value = revealSecret(ctx, userActor(req), id, v, reqInfo(req));
+    return reply.header('cache-control', 'no-store').send({ value });
   });
 
   app.post('/api/secrets/:id/versions/:v/restore', { preHandler: recent }, async (req) => {

@@ -77,6 +77,13 @@ describe('mcp: transport and auth', () => {
     expect(ok.statusCode).toBe(200);
   });
 
+  it('MCP responses are not cacheable (cache-control: no-store)', async () => {
+    const { inject, dev } = await setup();
+    const res = await inject({ authorization: `Bearer ${dev.accessToken}` });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
   it('rejects devices of kind cli with 403 forbidden_device_kind', async () => {
     const { w, inject } = await setup();
     const cli = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli' });
@@ -315,6 +322,45 @@ describe('mcp: read requests', () => {
     expect(r.data.grant_id).toMatch(/^grt_/);
     expect(r.data.instructions).toBe(INSTRUCTIONS(r.data.grant_id as string));
     expect(r.data).not.toHaveProperty('value');
+  });
+
+  it('auto mode + plaintext: request_secret returns the value once (audited); await_request → value_already_delivered', async () => {
+    const { w, call, plain } = await setup();
+    enableAutoMode(w.ctx, w.alice.id, 30);
+    const r = await call('request_secret', { secret_id: plain.id, reason: 'configure tool', delivery: 'plaintext', ...P });
+    expect(r).toMatchObject({ isError: false, data: { status: 'approved', value: PLAIN_VALUE } });
+    expect(r.data.request_id).toMatch(/^req_/);
+    expect(r.data).not.toHaveProperty('grant_id');
+    const delivered = auditRows(w.db, 'secret.plaintext_delivered');
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toMatchObject({ secret_id: plain.id, actor_type: 'device' });
+    const again = await call('await_request', { request_id: r.data.request_id });
+    expect(again).toMatchObject({ isError: true, data: { status: 'approved', error: 'value_already_delivered' } });
+    expect(again.text).not.toContain(PLAIN_VALUE);
+    expect(auditRows(w.db, 'secret.plaintext_delivered')).toHaveLength(1);
+  });
+
+  it("another user's device cannot see or use alice's secret or request ids (not_found, no metadata)", async () => {
+    const { w, call, secret, connect } = await setup();
+    const aliceReq = await call('request_secret', { secret_id: secret.id, reason: 'x', ...P });
+    const bobDev = pairDevice(w.ctx, { userId: w.bob.id, kind: 'mcp', name: 'bob-laptop' });
+    const bob = await connect(bobDev.accessToken);
+    const attempts: [string, Record<string, unknown>][] = [
+      ['request_secret', { secret_id: secret.id, reason: 'x', ...P }],
+      ['request_secret', { secret_id: secret.id, reason: 'x', delivery: 'plaintext', ...P }],
+      ['update_secret', { secret_id: secret.id, reason: 'x', title: 'pwned', ...P }],
+      ['archive_secret', { secret_id: secret.id, reason: 'x', ...P }],
+      ['await_request', { request_id: aliceReq.data.request_id }],
+    ];
+    for (const [tool, args] of attempts) {
+      const r = await call(tool, args, bob);
+      expect(r, tool).toEqual({ isError: true, data: { error: 'not_found' }, text: JSON.stringify({ error: 'not_found' }) });
+      for (const leak of ['Stripe', 'STRIPE_KEY', secret.vaultId, SECRET_VALUE]) expect(r.text).not.toContain(leak);
+    }
+    const found = await call('search_secrets', { query: 'stripe', ...P }, bob);
+    expect(found.data.secrets).toEqual([]);
+    expect(w.db.$client.prepare('SELECT count(*) AS n FROM access_requests WHERE device_id = ?').get(bobDev.deviceId)).toEqual({ n: 0 });
+    expect(w.db.$client.prepare('SELECT title, archived_at FROM secrets WHERE id = ?').get(secret.id)).toEqual({ title: 'Stripe Key', archived_at: null });
   });
 
   it('request_secret on an archived secret → secret_archived', async () => {

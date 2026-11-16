@@ -117,6 +117,10 @@ describe('secrets: access and routes', () => {
     const ok = await w.req(w.alice, 'POST', `/api/secrets/${s.id}/reveal`);
     expect(ok.statusCode).toBe(200);
     expect(ok.json()).toEqual({ value: 'hunter2-value' });
+    expect(ok.headers['cache-control']).toBe('no-store');
+    const v1 = await w.req(w.alice, 'POST', `/api/secrets/${s.id}/versions/1/reveal`);
+    expect(v1.json()).toEqual({ value: 'hunter2-value' });
+    expect(v1.headers['cache-control']).toBe('no-store');
     const ev = auditRows(w.db, 'secret.revealed');
     expect(ev).toHaveLength(1);
     expect(ev[0]).toMatchObject({ actor_type: 'user', actor_id: w.alice.id, secret_id: s.id, vault_id: s.vaultId });

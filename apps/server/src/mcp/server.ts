@@ -68,9 +68,11 @@ export async function registerMcpRoutes(app: FastifyInstance, deps: McpDeps): Pr
       // ServerResponse 'close' also fires when the client disconnects early (IncomingMessage 'close' fires once the body is read).
       res.on('close', () => {
         if (!res.writableFinished) abort.abort();
-        void transport.close();
-        void server.close();
+        // Server.close() also closes the connected transport; never let a close failure become an unhandled rejection.
+        server.close().catch(() => {});
       });
+      // Hijacked: Fastify's reply headers are bypassed, so set it on the raw response (tool results may carry plaintext).
+      res.setHeader('cache-control', 'no-store');
       try {
         await server.connect(transport);
         await transport.handleRequest(req.raw, res, req.body);
