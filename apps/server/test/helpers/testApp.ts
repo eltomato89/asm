@@ -5,6 +5,7 @@ import { FakeClock } from '../../src/clock.js';
 import type { Config } from '../../src/config.js';
 import { openDb, type Db } from '../../src/db/client.js';
 import { createServiceCtx, defaultHooks, type ServiceCtx } from '../../src/context.js';
+import { RequestEvents } from '../../src/requests/events.js';
 
 export const TEST_KEY = Buffer.alloc(32, 7);
 
@@ -23,9 +24,11 @@ export async function createTestApp(
   };
   const db = openDb(opts.dbPath ?? ':memory:');
   const logger = opts.logger ?? pino({ level: 'silent' });
-  // Shared hooks object: tests may swap hooks on ctx and the app's routes see the change.
+  // Shared hooks object (buildApp installs the request hooks into it) and events bus:
+  // services called on ctx behave like the app's routes and emit to its SSE streams.
   const hooks = { ...defaultHooks };
-  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks });
-  const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks });
+  const events = new RequestEvents();
+  const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events });
+  const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin });
   return { app, db, clock, config, ctx };
 }

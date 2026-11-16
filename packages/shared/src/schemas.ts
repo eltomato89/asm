@@ -145,3 +145,52 @@ export const ProjectDetailSchema = z.strictObject({
   ),
 });
 export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
+
+// ---------- access requests / auto mode ----------
+export const RequestKindSchema = z.enum(['read', 'update']);
+export const RequestStatusSchema = z.enum(['pending', 'approved', 'denied', 'expired']);
+export const DeliverySchema = z.enum(['cli', 'plaintext']);
+export const DecisionSchema = z.enum(['approve', 'deny']);
+
+/** Proposed metadata change of an update request (field -> {from, to}); never contains the value. */
+export const RequestMetaDiffSchema = z.partialRecord(z.enum(['title', 'description', 'tags', 'envName']), MetaFieldDiff);
+export type RequestMetaDiff = z.infer<typeof RequestMetaDiffSchema>;
+
+export const AccessRequestDtoSchema = z.strictObject({
+  id: z.string(),
+  kind: RequestKindSchema,
+  status: RequestStatusSchema,
+  secret: z.strictObject({ id: z.string(), title: z.string(), envName: z.string().nullable(), vaultId: z.string(), vaultName: z.string() }),
+  device: z.strictObject({ id: z.string(), name: z.string(), kind: z.enum(['mcp', 'cli']) }),
+  project: z.string(),
+  reason: z.string(),
+  delivery: DeliverySchema.nullable(),
+  auto: z.boolean(),
+  /** null while pending and for auto approvals; type 'system' for expiry/cancellation. */
+  decidedBy: z
+    .strictObject({ type: z.enum(['user', 'system']), id: z.string().nullable(), name: z.string().nullable() })
+    .nullable(),
+  /** Only for kind 'update'. */
+  metaDiff: RequestMetaDiffSchema.optional(),
+  /** Only for kind 'update': whether a new value is proposed (the value itself is never exposed). */
+  valueChanged: z.boolean().optional(),
+  createdAt: z.number(),
+  decidedAt: z.number().nullable(),
+  expiresAt: z.number(),
+});
+export type AccessRequestDto = z.infer<typeof AccessRequestDtoSchema>;
+
+export const AutoModeDtoSchema = z.strictObject({
+  active: z.boolean(),
+  /** null when inactive. */
+  enabledUntil: z.number().nullable(),
+  defaultDurationMin: z.number().int(),
+  /** null = all vaults. */
+  vaultIds: z.array(z.string()).nullable(),
+});
+export type AutoModeDto = z.infer<typeof AutoModeDtoSchema>;
+
+export const AutoModeInputSchema = z.strictObject({
+  minutes: z.number().int().min(1).optional(),
+  vaultIds: z.array(z.string().min(1).max(100)).min(1).max(100).nullable().optional(),
+});

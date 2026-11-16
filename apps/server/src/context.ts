@@ -1,5 +1,6 @@
 import type { Clock } from './clock.js';
 import type { Db } from './db/client.js';
+import { RequestEvents } from './requests/events.js';
 
 /** Cross-module callbacks; later tasks wire real implementations (e.g. Task 9 cancels requests/grants). */
 export type ServiceHooks = {
@@ -9,7 +10,16 @@ export type ServiceHooks = {
   onVaultMemberRemoved: (ctx: ServiceCtx, vaultId: string, userId: string) => void;
 };
 
-export type ServiceCtx = { db: Db; clock: Clock; kek: Buffer; hooks: ServiceHooks };
+export type ServiceCtx = {
+  db: Db;
+  clock: Clock;
+  kek: Buffer;
+  hooks: ServiceHooks;
+  /** Per-user live events (one emitter per app). */
+  events: RequestEvents;
+  /** Upper bound for auto mode duration in minutes (ASM_AUTO_MODE_MAX_MIN). */
+  autoModeMaxMin: number;
+};
 
 export type Actor = { type: 'user'; userId: string } | { type: 'device'; deviceId: string; userId: string };
 
@@ -21,8 +31,24 @@ export const defaultHooks: ServiceHooks = {
   onVaultMemberRemoved: () => {},
 };
 
-export function createServiceCtx(deps: { db: Db; clock: Clock; kek: Buffer; hooks?: ServiceHooks }): ServiceCtx {
-  return { db: deps.db, clock: deps.clock, kek: deps.kek, hooks: deps.hooks ?? { ...defaultHooks } };
+export const DEFAULT_AUTO_MODE_MAX_MIN = 240;
+
+export function createServiceCtx(deps: {
+  db: Db;
+  clock: Clock;
+  kek: Buffer;
+  hooks?: ServiceHooks;
+  events?: RequestEvents;
+  autoModeMaxMin?: number;
+}): ServiceCtx {
+  return {
+    db: deps.db,
+    clock: deps.clock,
+    kek: deps.kek,
+    hooks: deps.hooks ?? { ...defaultHooks },
+    events: deps.events ?? new RequestEvents(),
+    autoModeMaxMin: deps.autoModeMaxMin ?? DEFAULT_AUTO_MODE_MAX_MIN,
+  };
 }
 
 /** Audit actor fields for an Actor. */

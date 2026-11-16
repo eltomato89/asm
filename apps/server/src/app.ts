@@ -19,7 +19,10 @@ import { PollTracker, registerActivateRoutes, registerDeviceAuthorizationRoute }
 import { registerMetadataRoutes } from './oauth/metadata.js';
 import { registerTokenRoute } from './oauth/token.js';
 import { registerAuditRoutes } from './audit/routes.js';
-import { createServiceCtx, type ServiceCtx, type ServiceHooks } from './context.js';
+import { createServiceCtx, defaultHooks, type ServiceCtx, type ServiceHooks } from './context.js';
+import type { RequestEvents } from './requests/events.js';
+import { registerRequestRoutes } from './requests/routes.js';
+import { expireDue, requestHooks } from './requests/service.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
@@ -36,9 +39,14 @@ export type AppDeps = {
   clock: Clock;
   logger?: Logger;
   webauthn?: WebAuthnAdapter;
-  /** Cross-module service hooks (defaults are no-ops; Task 9 wires the real ones). */
+  /** Cross-module service hooks object; buildApp installs the request hooks into it (shared with test contexts). */
   hooks?: ServiceHooks;
+  /** Live event bus; pass one to share it with a test ServiceCtx. */
+  events?: RequestEvents;
 };
+
+/** Interval of the expiry sweep (requests, auto mode). */
+export const EXPIRY_SWEEP_MS = 15_000;
 
 /** Deps passed to domain route modules. */
 export type ModuleDeps = AppDeps & { ctx: ServiceCtx };
@@ -95,12 +103,28 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(cookie);
   installAuthContext(root, { db: deps.db, clock: deps.clock, publicOrigin: deps.config.publicUrl.origin });
   await root.register(registerAuthRoutes, deps);
-  const ctx = createServiceCtx({ db: deps.db, clock: deps.clock, kek: deps.config.masterKey, hooks: deps.hooks });
+  const hooks = Object.assign(deps.hooks ?? { ...defaultHooks }, requestHooks);
+  const ctx = createServiceCtx({
+    db: deps.db, clock: deps.clock, kek: deps.config.masterKey, hooks, events: deps.events, autoModeMaxMin: deps.config.autoModeMaxMin,
+  });
   const moduleDeps: ModuleDeps = { ...deps, ctx };
   await root.register(registerVaultRoutes, moduleDeps);
   await root.register(registerSecretRoutes, moduleDeps);
   await root.register(registerProjectRoutes, moduleDeps);
   await root.register(registerAuditRoutes, moduleDeps);
+  await root.register(registerRequestRoutes, moduleDeps);
+  let sweep: NodeJS.Timeout | undefined;
+  root.addHook('onReady', async () => {
+    sweep = setInterval(() => {
+      try {
+        expireDue(ctx);
+      } catch (err) {
+        root.log.error({ errName: (err as Error).name }, 'expiry sweep failed');
+      }
+    }, EXPIRY_SWEEP_MS);
+    sweep.unref();
+  });
+  root.addHook('onClose', async () => clearInterval(sweep));
   const oauthDeps: OAuthDeps = { ...moduleDeps, pending: new PendingAuthorizations(deps.clock), polls: new PollTracker() };
   await root.register(registerOAuthServer, oauthDeps);
   await root.register(registerDeviceApi, oauthDeps);
