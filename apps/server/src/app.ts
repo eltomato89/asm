@@ -29,6 +29,7 @@ import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
 import { registerMcpRoutes } from './mcp/server.js';
 import { registerCliRoutes } from './cli-api/routes.js';
+import { registerCliDistRoutes } from './cli-dist/routes.js';
 import { DEFAULT_WEB_DIST_DIR, registerWebStatic } from './web/static.js';
 
 declare module 'fastify' {
@@ -140,6 +141,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(registerDeviceApi, oauthDeps);
   await root.register(registerMcpRoutes, moduleDeps);
   await root.register(registerCliRoutes, moduleDeps);
+  await root.register(registerCliDistRoutes, { cliDir: deps.config.cliDir, origin: deps.config.publicUrl.origin });
   root.get('/healthz', async () => ({ status: 'ok' }));
   const webDistDir = deps.webDistDir === undefined ? DEFAULT_WEB_DIST_DIR : deps.webDistDir;
   if (webDistDir) await root.register(registerWebStatic, { distDir: webDistDir });

@@ -70,6 +70,7 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
 | `ASM_AUTO_MODE_MAX_MIN` | Maximale Dauer des Auto-Modus. | `240` |
 | `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
 | `PORT` | HTTP-Port. | `8080` |
+| `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |
 
 ## Reverse Proxy
 
@@ -94,7 +95,36 @@ vorschlagen und archivieren. `asm mcp-config` gibt den passenden Befehl für dei
 
 ## CLI
 
-Installation aus dem Repository (Node ≥ 22):
+Installation direkt vom eigenen ASM-Server (Voraussetzung: Node ≥ 22, dazu `curl` oder `wget`; kein sudo,
+kein GitHub- oder npm-Zugang nötig):
+
+```sh
+curl -fsSL https://asm.example.com/cli/install.sh | sh
+# ohne curl:  wget -qO- https://asm.example.com/cli/install.sh | sh
+asm login https://asm.example.com
+```
+
+Das Skript lädt das CLI-Bundle (`/cli/asm.mjs`), prüft SHA-256 und Größe gegen `/cli/asm.json` (dafür wird
+`sha256sum`, `shasum` oder `openssl` benötigt) und installiert es nach `~/.local/share/asm/asm.mjs`
+(anderer Ort: `ASM_HOME`). Der Befehl `~/.local/bin/asm` (anderes Verzeichnis: `ASM_INSTALL_DIR`) wird als
+Symlink darauf angelegt; die Endung `.mjs` sorgt dafür, dass Node die Datei immer als ES-Modul lädt. Ein
+vorhandenes `asm` – auch ein Symlink auf einen Repo-Build – wird ersetzt. Liegt das Verzeichnis nicht im
+`PATH`, gibt das Skript einen Hinweis aus. Beispiel mit eigenen Pfaden:
+
+```sh
+curl -fsSL https://asm.example.com/cli/install.sh | ASM_HOME=/opt/asm ASM_INSTALL_DIR=$HOME/bin sh
+```
+
+Die CLI-Version passt so immer zur Server-Version; `asm update` holt später das aktuelle Bundle vom Server
+(ebenfalls mit Hash-Prüfung), `asm --version` zeigt die installierte Version. Deinstallieren: beide entfernen,
+`rm ~/.local/bin/asm ~/.local/share/asm/asm.mjs`.
+
+Tokens speichert die CLI im OS-Schlüsselbund: unter macOS in der Keychain (`security`), unter Linux über
+`secret-tool` (libsecret, z. B. Paket `libsecret-tools`). Steht keins davon zur Verfügung (etwa auf einem
+Server ohne Desktop-Session), speichert `asm --insecure-store login …` die Tokens stattdessen in einer Datei mit
+Rechten 0600.
+
+Für Entwickler – aus dem Repo bauen:
 
 ```sh
 pnpm install
@@ -103,7 +133,8 @@ ln -s "$PWD/apps/cli/dist/index.js" ~/.local/bin/asm     # Verzeichnis muss im P
 ```
 
 Das Build ist reines JavaScript (kein `tsx`, kein Type-Stripping); `node apps/cli/dist/index.js` funktioniert
-ebenso.
+ebenso. `pnpm --filter @asm/cli bundle` erzeugt das Einzeldatei-Bundle `apps/cli/dist-bundle/asm.mjs` (+ `asm.json`),
+das ein lokal gestarteter Server automatisch unter `/cli/` ausliefert (sonst `ASM_CLI_DIR` setzen).
 
 Nutzung:
 

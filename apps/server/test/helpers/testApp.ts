@@ -29,6 +29,7 @@ export async function createTestApp(
     autoModeMaxMin: 240,
     dataDir: ':memory:',
     port: 0,
+    cliDir: null,
     ...opts.config,
   };
   const db = openDb(opts.dbPath ?? ':memory:');

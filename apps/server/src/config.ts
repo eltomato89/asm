@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { SAFE_ORIGIN } from './cli-dist/install-script.js';
 
 export class ConfigError extends Error {
   constructor(message: string) {
@@ -14,7 +16,20 @@ export type Config = {
   autoModeMaxMin: number;
   dataDir: string;
   port: number;
+  /** Directory with the CLI bundle (asm.mjs + asm.json) served under /cli; null = not available. */
+  cliDir: string | null;
 };
+
+/** CLI bundle location inside the Docker image. */
+export const IMAGE_CLI_DIR = '/app/cli';
+/** Local CLI bundle (apps/cli/dist-bundle), relative to apps/server/{src,dist}. */
+export const REPO_CLI_DIR = fileURLToPath(new URL('../../cli/dist-bundle', import.meta.url));
+
+function defaultCliDir(exists: (p: string) => boolean): string | null {
+  if (exists(IMAGE_CLI_DIR)) return IMAGE_CLI_DIR;
+  if (exists(REPO_CLI_DIR)) return REPO_CLI_DIR;
+  return null;
+}
 
 function parseKey(raw: string, source: string): Buffer {
   const trimmed = raw.trim();
@@ -34,6 +49,7 @@ function parseInt10(raw: string | undefined, def: number, name: string): number 
 export function loadConfig(
   env: NodeJS.ProcessEnv,
   readFile: (p: string) => string = (p) => readFileSync(p, 'utf8'),
+  exists: (p: string) => boolean = existsSync,
 ): Config {
   let masterKey: Buffer;
   if (env.ASM_MASTER_KEY_FILE) {
@@ -61,6 +77,8 @@ export function loadConfig(
     throw new ConfigError('ASM_PUBLIC_URL must use http: or https:');
   }
   if (!publicUrl.hostname) throw new ConfigError('ASM_PUBLIC_URL must have a hostname');
+  // The origin is embedded into /cli/install.sh; refuse anything beyond plain URL characters.
+  if (!SAFE_ORIGIN.test(publicUrl.origin)) throw new ConfigError('ASM_PUBLIC_URL contains unsupported characters in its host');
   const isLocal = publicUrl.hostname === 'localhost' || publicUrl.hostname === '127.0.0.1';
   if (publicUrl.protocol === 'http:' && !isLocal) {
     throw new ConfigError('ASM_PUBLIC_URL must use https: (http: is only allowed for localhost/127.0.0.1)');
@@ -73,5 +91,6 @@ export function loadConfig(
     autoModeMaxMin: parseInt10(env.ASM_AUTO_MODE_MAX_MIN, 240, 'ASM_AUTO_MODE_MAX_MIN'),
     dataDir: env.ASM_DATA_DIR || '/data',
     port: parseInt10(env.PORT, 8080, 'PORT'),
+    cliDir: env.ASM_CLI_DIR || defaultCliDir(exists),
   };
 }
