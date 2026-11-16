@@ -22,7 +22,7 @@ function insertSecret(db: Db, id = 'sec_1') {
 }
 
 const fts = (db: Db, q: string): string[] =>
-  (db.$client.prepare('SELECT s.id FROM secrets_fts f JOIN secrets s ON s.rowid = f.rowid WHERE secrets_fts MATCH ?').all(q) as { id: string }[]).map((r) => r.id);
+  (db.$client.prepare('SELECT secret_id AS id FROM secrets_fts WHERE secrets_fts MATCH ?').all(q) as { id: string }[]).map((r) => r.id);
 
 describe('openDb', () => {
   it('creates all tables', () => {
@@ -43,6 +43,16 @@ describe('openDb', () => {
     db.$client.prepare("DELETE FROM secrets WHERE id = 'sec_1'").run();
     expect(fts(db, 'github')).toEqual([]);
     expect(fts(db, 'staging')).toEqual([]);
+  });
+
+  it('survives VACUUM with correct secret_id', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    insertSecret(db, 'sec_1');
+    insertSecret(db, 'sec_2');
+    db.$client.prepare("DELETE FROM secrets WHERE id = 'sec_1'").run();
+    db.$client.exec('VACUUM');
+    expect(fts(db, 'github')).toEqual(['sec_2']);
   });
 
   it('enforces foreign keys', () => {

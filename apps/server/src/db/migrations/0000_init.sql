@@ -228,17 +228,17 @@ CREATE TABLE `vaults` (
 );
 
 --> statement-breakpoint
-CREATE VIRTUAL TABLE `secrets_fts` USING fts5(title, description, tags, content='secrets', content_rowid='rowid');
+CREATE VIRTUAL TABLE `secrets_fts` USING fts5(secret_id UNINDEXED, title, description, tags);
 --> statement-breakpoint
 CREATE TRIGGER `secrets_fts_ai` AFTER INSERT ON `secrets` BEGIN
-  INSERT INTO `secrets_fts`(rowid, title, description, tags) VALUES (new.rowid, new.title, new.description, new.tags);
+  INSERT INTO `secrets_fts`(secret_id, title, description, tags) VALUES (new.id, new.title, new.description, new.tags);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `secrets_fts_ad` AFTER DELETE ON `secrets` BEGIN
-  INSERT INTO `secrets_fts`(`secrets_fts`, rowid, title, description, tags) VALUES ('delete', old.rowid, old.title, old.description, old.tags);
+  DELETE FROM `secrets_fts` WHERE secret_id = old.id;
 END;
 --> statement-breakpoint
 CREATE TRIGGER `secrets_fts_au` AFTER UPDATE OF title, description, tags ON `secrets` BEGIN
-  INSERT INTO `secrets_fts`(`secrets_fts`, rowid, title, description, tags) VALUES ('delete', old.rowid, old.title, old.description, old.tags);
-  INSERT INTO `secrets_fts`(rowid, title, description, tags) VALUES (new.rowid, new.title, new.description, new.tags);
+  DELETE FROM `secrets_fts` WHERE secret_id = old.id;
+  INSERT INTO `secrets_fts`(secret_id, title, description, tags) VALUES (new.id, new.title, new.description, new.tags);
 END;
