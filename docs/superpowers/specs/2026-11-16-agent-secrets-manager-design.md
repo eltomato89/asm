@@ -37,7 +37,8 @@ docs/superpowers/specs/2026-11-16-agent-secrets-manager-design.md  (dieses Desig
 ## Datenmodell (SQLite, Volume `/data`)
 - `users` (Name, argon2-Passwort-Hash, Admin-Flag) und `passkeys` (Credential-ID, Public Key, Counter)
 - `vaults` und `vault_members` (Rolle `owner` oder `member`). Jeder Nutzer bekommt automatisch einen persönlichen Tresor.
-- `secrets`: Tresor, Titel, Beschreibung, Tags, `env_name` (z.B. `GITHUB_TOKEN`), `allow_plaintext_to_agent` (Standard aus), Chiffrat, verschlüsselter DEK. Dazu eine FTS5-Tabelle über Titel, Beschreibung und Tags.
+- `secrets`: Tresor, Titel, Beschreibung, Tags, `env_name` (z.B. `GITHUB_TOKEN`), `allow_plaintext_to_agent` (Standard aus), `current_version`, angelegt von (Nutzer oder Gerät). Dazu eine FTS5-Tabelle über Titel, Beschreibung und Tags.
+- `secret_versions`: eine Zeile pro Version mit Versionsnummer, Chiffrat und verschlüsseltem DEK (AAD = `secretId:version`), Metadaten-Schnappschuss, geändert von (Nutzer oder Gerät), Projekt, Grund und Zeitstempel. Die aktuelle Version ist immer die höchste.
 - `devices`: Nutzer, Name, Typ (`mcp` oder `cli`), Status (`pending`, `approved`, `revoked`), Zeitpunkt der letzten Nutzung, Hostname
 - `oauth_clients` und `tokens` (Hash, Ablauf, Gerät)
 - `access_requests`: Secret, Gerät, Projekt, Grund, Status (`pending`, `approved`, `denied`, `expired`), Entscheider, `auto` (ja/nein), Übergabeart
@@ -78,10 +79,20 @@ docs/superpowers/specs/2026-11-16-agent-secrets-manager-design.md  (dieses Desig
 - `asm run` setzt die Variable nur im Kindprozess.
 - `asm write` legt Dateien mit Rechten 0600 an und warnt, wenn die Datei nicht in `.gitignore` steht.
 
+## Agent-Schreibzugriff und Versionshistorie
+- **Anlegen ohne Rückfrage:** `create_secret` (MCP) bzw. `asm set --new` (CLI) mit Titel, Beschreibung (wofür das Secret ist), Tags, ENV-Name, optional Tresor (Standard: persönlicher Tresor des Gerätebesitzers, sonst muss der Besitzer Mitglied sein), `project` und `reason` als Pflichtfelder. Audit-Eintrag; das Dashboard zeigt „Neu von Agent angelegt“ live an.
+- **Ändern mit Freigabe:** `update_secret` erzeugt eine Anfrage der Art `update` mit der vorgeschlagenen Änderung, verschlüsselt gespeichert. Sie läuft über denselben Weg wie Abrufe: Karte im Dashboard mit Metadaten-Diff und dem Hinweis „Wert wird geändert“, oder automatisch im Auto-Modus. Erst nach Freigabe entsteht die neue Version.
+- **Wege für den Wert** (beide erlaubt):
+  - direkt als `value` im MCP-Aufruf. Der Wert steht dann im Transkript, die Tool-Beschreibung weist darauf hin.
+  - `generate: { length, alphabet }`: Der Server erzeugt den Wert, und der Agent sieht ihn nie.
+  - `asm set <id|--new> --from-stdin | --from-env VAR | --from-file F | --generate`: Der Wert läuft am Agent-Kontext vorbei.
+- **Rechtegrenze:** Agenten können `allow_plaintext_to_agent` weder setzen noch ändern; das darf nur ein Mensch in der Web-Oberfläche. Agenten können keine Secrets löschen.
+- **Historie:** Jede Änderung (durch Mensch oder Agent) erzeugt eine neue Version, alte Versionen bleiben unbegrenzt erhalten. In der Web-Oberfläche hat jedes Secret einen Reiter „Verlauf“: Versionen mit Zeit, Akteur, Projekt, Grund und Metadaten-Diff. Alte Werte lassen sich nach erneuter Authentifizierung anzeigen, und ein Mensch kann eine alte Version wiederherstellen (das legt eine neue Version an).
+
 ## Web-Oberfläche (React)
 - **Dashboard:** offene Anfragen (Projekt, Grund, Gerät, Secret) mit den Knöpfen **Freigeben** und **Verweigern**, live per SSE, mit Browser-Benachrichtigung bei offenem Tab.
 - **Auto-Modus:** Schalter mit Restlaufzeit-Countdown und einstellbarer Dauer (Standard 30 min, Maximum vom Admin festgelegt).
-- **Secrets:** Liste und Suche, Anlegen und Bearbeiten (Titel, Beschreibung, Tags, ENV-Name, Klartext-Erlaubnis), Wert anzeigen und kopieren nach erneuter Authentifizierung.
+- **Secrets:** Liste und Suche, Anlegen und Bearbeiten (Titel, Beschreibung, Tags, ENV-Name, Klartext-Erlaubnis), Wert anzeigen und kopieren nach erneuter Authentifizierung, Reiter „Verlauf“ mit allen Versionen und Wiederherstellen. Kennzeichnung „von Agent angelegt“.
 - **Tresore:** Mitglieder verwalten.
 - **Geräte:** offene Kopplungen freigeben oder verweigern, Geräte umbenennen und widerrufen.
 - **Audit-Log:** Filter nach Agent bzw. Gerät, Secret, Projekt, Zeitraum und Ergebnis. Anzeige von Projekt und Grund. CSV-Export und Prüfung der Hash-Kette.
@@ -131,7 +142,8 @@ Vor der Umsetzung der Seiten werden 2–3 klickbare Mockups für Dashboard, Audi
 - Anfrage gestellt, freigegeben, verweigert, automatisch freigegeben, verfallen
 - Grant eingelöst (Gerät und Hostname)
 - Klartext an Agent übergeben
-- Secret angelegt, geändert, gelöscht, in der Oberfläche angezeigt
+- Secret angelegt (auch durch Agent), Änderung angefragt, freigegeben, verweigert, automatisch freigegeben, geändert, gelöscht, in der Oberfläche angezeigt
+- Alte Version angezeigt oder wiederhergestellt
 - Auto-Modus an und aus
 
 Jeder Eintrag enthält Akteur (Nutzer oder Gerät), Secret, Projekt, Grund, IP und Zeitstempel.
