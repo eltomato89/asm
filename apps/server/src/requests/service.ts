@@ -16,6 +16,7 @@ import type { Actor, RequestInfo, ServiceCtx, ServiceHooks } from '../context.js
 import { open, seal, type Sealed } from '../crypto/envelope.js';
 import type { Db } from '../db/client.js';
 import type { MetaSnapshot } from '../db/schema.js';
+import { ZodError } from 'zod';
 import { HttpError, ValidationError } from '../errors.js';
 import type { DeviceIdentity } from '../oauth/bearer.js';
 import { recordUsage, touchProject } from '../projects/service.js';
@@ -32,6 +33,43 @@ const SYSTEM = 'system';
 
 export type RequestStatus = AccessRequestDto['status'];
 export type SystemCause = 'archived' | 'member_removed' | 'device_inactive';
+
+/** Raised inside a decision transaction when applying an approved update fails (carries the error code only). */
+class ApplyFailed extends Error {
+  constructor(readonly errorCode: string) {
+    super('apply_failed');
+    this.name = 'ApplyFailed';
+  }
+}
+
+/** Expected domain errors become ApplyFailed; anything else (bugs, decrypt failures) propagates unchanged. */
+function applyOrFail(fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    if (err instanceof HttpError || err instanceof ValidationError) throw new ApplyFailed(err.code);
+    if (err instanceof ZodError) throw new ApplyFailed('invalid_request');
+    throw err;
+  }
+}
+
+/** pending → denied after a failed apply (cause 'apply_failed'); decidedBy = approver user id or 'system' (auto). */
+function denyApplyFailed(ctx: ServiceCtx, r: RequestRow, decidedBy: string, errorCode: string, info: RequestInfo): boolean {
+  const res = ctx.db.$client
+    .prepare(
+      `UPDATE access_requests SET status = 'denied', decided_by = ?, decided_at = ?, proposed_value_sealed = NULL
+        WHERE id = ? AND status = 'pending'`,
+    )
+    .run(decidedBy, ctx.clock.now(), r.id);
+  if (res.changes === 0) return false;
+  const system = decidedBy === SYSTEM;
+  appendAudit(ctx.db, ctx.clock, {
+    actorType: system ? 'system' : 'user', actorId: system ? null : decidedBy, event: 'request.denied',
+    secretId: r.secret_id, vaultId: r.vault_id, deviceId: r.device_id, project: r.project, reason: r.reason, ip: system ? undefined : info.ip,
+    meta: { requestId: r.id, kind: r.kind, cause: 'apply_failed', error: errorCode },
+  });
+  return true;
+}
 
 /** Stored in access_requests.proposed_meta for update requests (no values). */
 type ProposedMeta = { diff: RequestMetaDiff; valueChanged: boolean };
@@ -204,9 +242,18 @@ function insertAndSettle(
     appendAudit(db, ctx.clock, { actorType: 'device', actorId: r.device.id, event: 'request.created', ip: info.ip, meta: auditMeta, ...common });
     return;
   }
-  db.$client.prepare(`UPDATE access_requests SET status = 'approved', auto = 1, decided_at = ? WHERE id = ?`).run(now, r.id);
-  applyApproval(ctx, loadRow(db, r.id)!);
-  appendAudit(db, ctx.clock, { actorType: 'system', actorId: null, event: 'request.auto_approved', meta: auditMeta, ...common });
+  try {
+    // Savepoint: a failed apply rolls back only the approval, not the inserted request.
+    db.$client.transaction(() => {
+      db.$client.prepare(`UPDATE access_requests SET status = 'approved', auto = 1, decided_at = ? WHERE id = ?`).run(now, r.id);
+      applyOrFail(() => applyApproval(ctx, loadRow(db, r.id)!));
+      appendAudit(db, ctx.clock, { actorType: 'system', actorId: null, event: 'request.auto_approved', meta: auditMeta, ...common });
+    })();
+  } catch (err) {
+    if (!(err instanceof ApplyFailed)) throw err;
+    appendAudit(db, ctx.clock, { actorType: 'device', actorId: r.device.id, event: 'request.created', ip: info.ip, meta: auditMeta, ...common });
+    denyApplyFailed(ctx, loadRow(db, r.id)!, SYSTEM, err.errorCode, info);
+  }
 }
 
 function requireAccessibleActive(ctx: ServiceCtx, userId: string, secretId: string) {
@@ -315,6 +362,22 @@ export function decideRequest(
     }
   }
 
+  try {
+    decideTxn(ctx, row, decision, userId, info);
+  } catch (err) {
+    if (!(err instanceof ApplyFailed)) throw err;
+    // The change was rolled back; record the failed approval as a denial in a second transaction.
+    const denied = db.$client.transaction(() => denyApplyFailed(ctx, row, userId, err.errorCode, info))();
+    if (denied) emitRequest(ctx, 'request.updated', requestId);
+    throw new HttpError(409, 'apply_failed', undefined, { cause: err.errorCode });
+  }
+  emitRequest(ctx, 'request.updated', requestId);
+  return getRequestDto(db, requestId);
+}
+
+function decideTxn(ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny', userId: string, info: RequestInfo): void {
+  const { db } = ctx;
+  const requestId = row.id;
   db.$client.transaction(() => {
     const now = ctx.clock.now();
     const status = decision === 'approve' ? 'approved' : 'denied';
@@ -333,15 +396,13 @@ export function decideRequest(
       if (cur && (cur.status === 'expired' || (cur.status === 'pending' && cur.expires_at <= now))) throw new HttpError(410, 'expired');
       throw new HttpError(409, 'already_decided');
     }
-    if (decision === 'approve') applyApproval(ctx, row);
+    if (decision === 'approve') applyOrFail(() => applyApproval(ctx, row));
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: userId, event: decision === 'approve' ? 'request.approved' : 'request.denied',
       secretId: row.secret_id, vaultId: row.vault_id, deviceId: row.device_id, project: row.project, reason: row.reason, ip: info.ip,
       meta: { requestId, kind: row.kind },
     });
   })();
-  emitRequest(ctx, 'request.updated', requestId);
-  return getRequestDto(db, requestId);
 }
 
 /**

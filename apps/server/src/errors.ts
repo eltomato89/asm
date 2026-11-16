@@ -7,6 +7,8 @@ export class HttpError extends Error {
     readonly statusCode: number,
     readonly code: string,
     message?: string,
+    /** Extra response fields (error codes only — never values). */
+    readonly details?: Record<string, string>,
   ) {
     super(message ?? code);
     this.name = 'HttpError';
@@ -41,7 +43,7 @@ export function installErrorHandler(app: FastifyInstance): void {
         .header('cache-control', 'no-store')
         .send(err.description ? { error: err.error, error_description: err.description } : { error: err.error });
     }
-    if (err instanceof HttpError) return reply.status(err.statusCode).send({ error: err.code });
+    if (err instanceof HttpError) return reply.status(err.statusCode).send({ ...err.details, error: err.code });
     if (err instanceof ZodError) return reply.status(400).send({ error: 'invalid_request' });
     if (err instanceof ValidationError) return reply.status(400).send({ error: err.code });
     if (err instanceof AuditCursorError) return reply.status(400).send({ error: 'invalid_cursor' });

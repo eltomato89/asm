@@ -84,7 +84,7 @@ export function disableAutoMode(ctx: ServiceCtx, userId: string, info: RequestIn
     db.$client.transaction(() => {
       db.$client.prepare('UPDATE auto_mode SET enabled_until = NULL WHERE user_id = ?').run(userId);
       appendAudit(db, ctx.clock, {
-        actorType: wasActive ? 'user' : 'system', actorId: userId, event: 'automode.disabled', ip: wasActive ? info.ip : undefined,
+        actorType: 'user', actorId: userId, event: 'automode.disabled', ip: wasActive ? info.ip : undefined,
         meta: { cause: wasActive ? 'manual' : 'expired' },
       });
     })();
@@ -107,8 +107,8 @@ export function expireAutoModes(ctx: ServiceCtx): void {
         .prepare('UPDATE auto_mode SET enabled_until = NULL WHERE user_id = ? AND enabled_until IS NOT NULL AND enabled_until <= ?')
         .run(user_id, now);
       if (res.changes === 0) continue;
-      // System actor; actor_id names the affected user.
-      appendAudit(db, ctx.clock, { actorType: 'system', actorId: user_id, event: 'automode.disabled', meta: { cause: 'expired' } });
+      // User actor (with cause 'expired') so the affected user sees it via the audit actor rule.
+      appendAudit(db, ctx.clock, { actorType: 'user', actorId: user_id, event: 'automode.disabled', meta: { cause: 'expired' } });
       expired.push(user_id);
     }
   })();

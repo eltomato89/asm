@@ -1,20 +1,39 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AutoModeDtoSchema } from '@asm/shared';
 import { FakeClock } from '../src/clock.js';
 import { HttpError, ValidationError } from '../src/errors.js';
 import type { DeviceIdentity } from '../src/oauth/bearer.js';
 import { disableAutoMode, enableAutoMode, getAutoMode } from '../src/requests/automode.js';
 import { grantIdForRequest } from '../src/requests/grants.js';
-import { createRequest, expireDue } from '../src/requests/service.js';
+import { queryAudit } from '../src/audit/audit.js';
+import { createRequest, createUpdateRequest, expireDue } from '../src/requests/service.js';
+import { listVersions } from '../src/secrets/versions.js';
 import { createSecret } from '../src/secrets/service.js';
 import { createVault } from '../src/vaults/service.js';
 import { ORIGIN, addUser, auditRows, pairDevice, world } from './helpers/fixtures.js';
 import { createTestApp } from './helpers/testApp.js';
 
 const MIN = 60_000;
+
+// Lets a test make the next applySecretChange fail (the real one cannot fail right after a fresh diff).
+const failApply = vi.hoisted(() => ({ next: false }));
+vi.mock('../src/secrets/service.js', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../src/secrets/service.js')>();
+  const { ValidationError: VE } = await import('../src/errors.js');
+  return {
+    ...mod,
+    applySecretChange: (...args: Parameters<typeof mod.applySecretChange>) => {
+      if (failApply.next) {
+        failApply.next = false;
+        throw new VE('no_changes');
+      }
+      return mod.applySecretChange(...args);
+    },
+  };
+});
 
 async function rejects(p: unknown, status: number, code?: string) {
   let err: unknown;
@@ -76,9 +95,26 @@ describe('auto mode', () => {
     expect(w.db.$client.prepare('SELECT enabled_until FROM auto_mode').get()).toEqual({ enabled_until: null });
     const row = auditRows(w.db, 'automode.disabled')[0]!;
     expect(JSON.parse(String(row.meta))).toMatchObject({ cause: 'expired' });
+    expect(row).toMatchObject({ actor_type: 'user', actor_id: w.alice.id });
+    expect(queryAudit(w.db, { userId: w.alice.id, event: 'automode.disabled' }).items).toHaveLength(1);
+    expect(queryAudit(w.db, { userId: w.bob.id, event: 'automode.disabled' }).items).toHaveLength(0);
     expect(seen).toEqual([{ type: 'automode.changed', data: expect.objectContaining({ active: false }) }]);
     expireDue(w.ctx);
     expect(auditRows(w.db, 'automode.disabled')).toHaveLength(1);
+  });
+
+  it('auto-approved update whose apply fails -> denied (cause apply_failed), no new version, value cleared', async () => {
+    const { w, secret, dev } = await setup();
+    enableAutoMode(w.ctx, w.alice.id, 30);
+    failApply.next = true;
+    const r = createUpdateRequest(w.ctx, { device: dev, secretId: secret.id, project: 'p', reason: 'r', value: 'new-v' });
+    expect(r).toMatchObject({ status: 'denied', auto: false, decidedBy: { type: 'system' } });
+    expect(listVersions(w.db, w.alice.id, secret.id)).toHaveLength(1);
+    expect(w.db.$client.prepare('SELECT proposed_value_sealed AS s FROM access_requests').get()).toEqual({ s: null });
+    expect(auditRows(w.db, 'request.auto_approved')).toHaveLength(0);
+    const denied = auditRows(w.db, 'request.denied');
+    expect(denied[0]).toMatchObject({ actor_type: 'system', vault_id: secret.vaultId, secret_id: secret.id });
+    expect(JSON.parse(String(denied[0]!.meta))).toMatchObject({ cause: 'apply_failed', error: 'no_changes' });
   });
 
   it('limited to vault X -> request from vault Y stays pending', async () => {

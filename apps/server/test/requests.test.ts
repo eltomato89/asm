@@ -13,7 +13,7 @@ import {
   expireDue,
   waitForRequest,
 } from '../src/requests/service.js';
-import { archiveSecret, createSecret, getSecretMeta, openVersion } from '../src/secrets/service.js';
+import { applySecretChange, archiveSecret, createSecret, getSecretMeta, openVersion } from '../src/secrets/service.js';
 import { listVersions } from '../src/secrets/versions.js';
 import { addMember, createVault, removeMember } from '../src/vaults/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, allKeys, auditRows, pairDevice, world, type TestUser } from './helpers/fixtures.js';
@@ -329,6 +329,34 @@ describe('requests: update', () => {
     decideRequest(w.ctx, { requestId: dto.id, userId: w.alice.id, decision: 'deny' });
     expect(listVersions(w.db, w.alice.id, secret.id)).toHaveLength(1);
     expect(w.db.$client.prepare('SELECT status, proposed_value_sealed AS s FROM access_requests').get()).toEqual({ status: 'denied', s: null });
+  });
+
+  it('apply failure on approval -> 409 apply_failed {cause}, request denied by approver, value cleared, event emitted', async () => {
+    const { w, secret, mcp } = await setup();
+    const dto = createUpdateRequest(w.ctx, { device: mcp, secretId: secret.id, project: 'p', reason: 'r', meta: { title: 'Renamed' } });
+    // A human makes the same change first: applying the request now yields no_changes.
+    applySecretChange(w.ctx, w.alice.actor, secret.id, { meta: { title: 'Renamed' } });
+    const events: unknown[] = [];
+    w.ctx.events.subscribe(w.alice.id, (e) => events.push(e));
+    const res = await w.req(w.alice, 'POST', `/api/requests/${dto.id}/decision`, { decision: 'approve' });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toEqual({ error: 'apply_failed', cause: 'no_changes' });
+    expect(w.db.$client.prepare('SELECT status, decided_by, proposed_value_sealed AS s FROM access_requests').get()).toEqual({
+      status: 'denied', decided_by: w.alice.id, s: null,
+    });
+    expect(listVersions(w.db, w.alice.id, secret.id)).toHaveLength(2);
+    const denied = auditRows(w.db, 'request.denied');
+    expect(denied).toHaveLength(1);
+    expect(denied[0]).toMatchObject({ actor_type: 'user', actor_id: w.alice.id, vault_id: secret.vaultId, secret_id: secret.id });
+    expect(JSON.parse(String(denied[0]!.meta))).toMatchObject({ cause: 'apply_failed', error: 'no_changes' });
+    expect(auditRows(w.db, 'request.approved')).toHaveLength(0);
+    expect(events).toEqual([{ type: 'request.updated', data: expect.objectContaining({ id: dto.id, status: 'denied' }) }]);
+
+    // With a value proposal and an archived secret (hook bypassed): cause secret_archived, value cleared.
+    const d2 = createUpdateRequest(w.ctx, { device: mcp, secretId: secret.id, project: 'p', reason: 'r', value: 'new-v' });
+    w.db.$client.prepare('UPDATE secrets SET archived_at = 1 WHERE id = ?').run(secret.id);
+    await rejects(() => decideRequest(w.ctx, { requestId: d2.id, userId: w.alice.id, decision: 'approve' }), 409, 'apply_failed');
+    expect(w.db.$client.prepare('SELECT status, proposed_value_sealed AS s FROM access_requests WHERE id = ?').get(d2.id)).toEqual({ status: 'denied', s: null });
   });
 
   it('meta-only update applies the metadata and keeps the value', async () => {
