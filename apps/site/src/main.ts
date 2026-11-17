@@ -1,22 +1,49 @@
 import './styles.css';
+import darkDesktopMp4 from './assets/demo-dark-desktop.mp4';
+import darkDesktopWebm from './assets/demo-dark-desktop.webm';
+import darkMobileMp4 from './assets/demo-dark-mobile.mp4';
+import darkMobileWebm from './assets/demo-dark-mobile.webm';
+import lightDesktopMp4 from './assets/demo-light-desktop.mp4';
+import lightDesktopWebm from './assets/demo-light-desktop.webm';
+import lightMobileMp4 from './assets/demo-light-mobile.mp4';
+import lightMobileWebm from './assets/demo-light-mobile.webm';
 
-// Hero demo (src/assets/demo.mp4/.webm, poster demo-poster.webp): a short muted loop. With reduced
-// motion it stops on the poster, which shows the finished run.
+// Hero demo: the <picture> shows the still for the visitor's colour scheme and layout (also without
+// JS and with reduced motion). The matching loop plays on top of it and fades in once it runs.
+const DEMO = {
+  light: { desktop: [lightDesktopMp4, lightDesktopWebm], mobile: [lightMobileMp4, lightMobileWebm] },
+  dark: { desktop: [darkDesktopMp4, darkDesktopWebm], mobile: [darkMobileMp4, darkMobileWebm] },
+} as const;
+const dark = matchMedia('(prefers-color-scheme: dark)');
+const mobile = matchMedia('(max-width: 599px)');
 const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
-const demo = document.querySelector<HTMLVideoElement>('video[data-demo]');
-function applyMotion() {
-  if (!demo) return;
+const video = document.querySelector<HTMLVideoElement>('video[data-demo]');
+let current = '';
+
+function updateDemo() {
+  if (!video) return;
   if (reducedMotion.matches) {
-    demo.pause();
-    demo.removeAttribute('autoplay');
-    demo.controls = true;
-  } else {
-    demo.controls = false;
-    void demo.play().catch(() => { /* autoplay refused: the poster stays */ });
+    video.pause();
+    video.style.opacity = '0';
+    return;
   }
+  const [mp4, webm] = DEMO[dark.matches ? 'dark' : 'light'][mobile.matches ? 'mobile' : 'desktop'];
+  if (mp4 !== current) {
+    current = mp4;
+    video.style.opacity = '0';
+    video.replaceChildren(...([[mp4, 'video/mp4'], [webm, 'video/webm']] as const).map(([src, type]) => {
+      const source = document.createElement('source');
+      source.src = src;
+      source.type = type;
+      return source;
+    }));
+    video.load();
+  }
+  void video.play().catch(() => { /* autoplay refused: the still stays */ });
 }
-applyMotion();
-reducedMotion.addEventListener('change', applyMotion);
+video?.addEventListener('playing', () => { video.style.opacity = '1'; });
+updateDemo();
+for (const q of [dark, mobile, reducedMotion]) q.addEventListener('change', updateDemo);
 
 const year = document.querySelector('[data-year]');
 if (year) year.textContent = String(new Date().getFullYear());

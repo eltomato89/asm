@@ -10,7 +10,6 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "screenshots": "node scripts/screenshots.ts",
-    "poster": "node scripts/poster.ts",
     "verify": "node scripts/verify.ts"
   },
   "devDependencies": {

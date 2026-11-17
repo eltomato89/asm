@@ -8,7 +8,8 @@
   ASM demo animation: Claude Code requests a secret, the owner approves it on the phone, the CLI injects it.
   Deterministic: render(t) draws the state at time t (seconds). Plays and loops in real time on its own;
   ?t=<sec> freezes one frame, ?static=1 disables playback (used by render.mjs, which calls window.asmDemo.render).
-  Embed: an <iframe> or this file's markup; the stage scales to the width of its container.
+  ?theme=light|dark and ?layout=desktop|mobile pick a variant. Without them, the theme follows prefers-color-scheme
+  and the layout follows the width (mobile below 600 px). Desktop stage 880 x 580, mobile 390 x 750; it scales to the width.
 -->
 <style>
 @font-face { font-family: "Geist Sans"; font-weight: 400; font-display: block; src: url(fonts/geist-sans-latin-400-normal.woff2) format("woff2"); }
@@ -28,20 +29,38 @@
   --term-amber: #f0b44c; --term-ok: #5dc58a; --term-user: #2a2724;
   --sans: "Geist Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --term-border: transparent; --bezel: #292524; --bezel-line: #44403c;
+  --shadow: 0 1px 2px rgba(28,25,23,.18), 0 18px 40px -16px rgba(28,25,23,.45);
+  --banner-bg: rgba(246,245,243,.96); --banner-text: #1c1917; --banner-text-3: #736c64;
 }
+/* Dark: ASM dark tokens; terminal and phone lift off the stage with a hairline and a deeper shadow. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #141311; --surface: #1b1a18; --sunken: #23211e; --line: #2d2a26; --line-strong: #3d3934;
+  --text: #edebe7; --text-2: #aaa49c; --text-3: #8d867d;
+  --amber: #f0b44c; --amber-fill: #e39a1b; --ok: #5dc58a;
+  --desk: #0f0e0d;
+  --term-bg: #1b1a18; --term-bar: #23211e; --term-user: #2a2724; --term-border: #2d2a26;
+  --bezel: #23211e; --bezel-line: #3d3934;
+  --shadow: 0 1px 2px rgba(0,0,0,.5), 0 18px 44px -14px rgba(0,0,0,.8);
+  --banner-bg: rgba(45,42,38,.97); --banner-text: #edebe7; --banner-text-3: #aaa49c;
+}
+:root[data-layout="mobile"] .only-d, :root[data-layout="desktop"] .only-m { display: none !important; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--desk); }
 body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 
-/* The stage is designed at 880 x 500 and scaled to its container. */
-.asm-demo { position: relative; width: 100%; aspect-ratio: 880 / 500; overflow: hidden; background: var(--desk); }
-.stage { position: absolute; left: 0; top: 0; width: 880px; height: 500px; transform-origin: 0 0; }
+/* The stage is designed at 880 x 580 and scaled to its container. */
+.asm-demo { position: relative; width: 100%; aspect-ratio: 880 / 580; overflow: hidden; background: var(--desk); }
+.stage { position: absolute; left: 0; top: 0; width: 880px; height: 580px; transform-origin: 0 0; }
+:root[data-layout="mobile"] .asm-demo { aspect-ratio: 390 / 750; }
+:root[data-layout="mobile"] .stage { width: 390px; height: 750px; }
 
 /* ---------- Terminal ---------- */
 .term {
-  position: absolute; left: 20px; top: 14px; width: 548px; height: 472px;
+  position: absolute; left: 20px; top: 14px; width: 548px; height: 552px;
   background: var(--term-bg); border-radius: 10px; overflow: hidden;
-  box-shadow: 0 1px 2px rgba(28,25,23,.18), 0 18px 40px -16px rgba(28,25,23,.45);
+  border: 1px solid var(--term-border); box-shadow: var(--shadow);
   color: var(--term-text); font-family: var(--mono); font-size: 12.5px; line-height: 19px;
   font-feature-settings: "liga" 0;
 }
@@ -49,7 +68,13 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 .term-bar .dots { display: flex; gap: 6px; }
 .term-bar .dots i { width: 10px; height: 10px; border-radius: 50%; background: #3d3934; display: block; }
 .term-bar .title { flex: 1; text-align: center; margin-right: 46px; font-family: var(--sans); font-size: 12px; color: var(--term-3); }
-.term-body { position: absolute; left: 0; right: 0; top: 30px; bottom: 0; padding: 14px 16px; }
+.term-body { position: absolute; left: 0; right: 0; top: 30px; bottom: 0; }
+.log-wrap { position: absolute; left: 8px; right: 8px; top: 14px; bottom: 78px; padding: 0 8px; overflow: hidden; }
+:root[data-layout="mobile"] .term { left: 12px; top: 12px; width: 366px; height: 344px; font-size: 12px; line-height: 18px; }
+:root[data-layout="mobile"] .log-wrap { left: 6px; right: 6px; top: 0; padding-top: 12px; bottom: 60px; -webkit-mask-image: linear-gradient(#000, #000); }
+:root[data-layout="mobile"] .log-wrap.scrolled { -webkit-mask-image: linear-gradient(transparent 4px, #000 22px); mask-image: linear-gradient(transparent 4px, #000 22px); }
+:root[data-layout="mobile"] .prompt { left: 12px; right: 12px; bottom: 12px; height: 36px; }
+:root[data-layout="mobile"] .hint { display: none; }
 .log > div { white-space: pre; }
 .gap { height: 10px; }
 .gap.s { height: 6px; }
@@ -75,13 +100,14 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 
 /* ---------- Phone ---------- */
 .phone {
-  position: absolute; left: 588px; top: 14px; width: 272px; height: 472px;
-  background: #292524; border-radius: 40px; padding: 8px;
-  box-shadow: inset 0 0 0 1px #44403c, 0 18px 40px -16px rgba(28,25,23,.5);
+  position: absolute; left: 588px; top: 14px; width: 272px; height: 552px;
+  background: var(--bezel); border-radius: 40px; padding: 8px;
+  box-shadow: inset 0 0 0 1px var(--bezel-line), var(--shadow);
 }
+:root[data-layout="mobile"] .phone { left: 59px; top: 372px; }
 .screen { position: relative; width: 100%; height: 100%; border-radius: 32px; overflow: hidden; background: #2f2b28; }
 .island { position: absolute; z-index: 9; top: 9px; left: 50%; width: 74px; height: 21px; margin-left: -37px; border-radius: 11px; background: #0c0a09; }
-.status { position: absolute; z-index: 8; top: 10px; left: 26px; right: 22px; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: #f5f4f2; }
+.status { position: absolute; z-index: 8; top: 10px; left: 26px; right: 22px; --on-page: var(--text); display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: #f5f4f2; }
 .status .batt { width: 20px; height: 10px; border: 1.2px solid currentColor; border-radius: 3px; padding: 1px; opacity: .9; margin-top: 2px; }
 .status .batt i { display: block; height: 100%; width: 70%; background: currentColor; border-radius: 1px; }
 
@@ -91,13 +117,13 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
 
 .banner {
   position: absolute; left: 8px; right: 8px; top: 168px;
-  background: rgba(246,245,243,.96); color: var(--text); border-radius: 18px; padding: 11px 12px;
+  background: var(--banner-bg); color: var(--banner-text); border-radius: 18px; padding: 11px 12px;
   display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; text-align: left;
 }
-.app-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--text); display: grid; place-items: center; }
+.app-icon { width: 34px; height: 34px; border-radius: 8px; background: #1c1917; box-shadow: inset 0 0 0 1px rgba(255,255,255,.12); display: grid; place-items: center; }
 .app-icon svg { width: 18px; height: 18px; }
 .banner .row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; line-height: 1.25; }
-.banner .row span { font-weight: 400; color: var(--text-3); font-size: 12px; }
+.banner .row span { font-weight: 400; color: var(--banner-text-3); font-size: 12px; }
 .banner .msg { font-size: 13px; line-height: 1.3; }
 
 .touch { position: absolute; z-index: 20; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(28,25,23,.28); border: 2px solid rgba(255,255,255,.75); pointer-events: none; }
@@ -148,30 +174,38 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
   <section class="term" aria-hidden="true">
     <div class="term-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">my-app — Claude Code</div></div>
     <div class="term-body">
-      <div class="log">
+      <div class="log-wrap"><div class="log" id="log">
         <div data-at="1.75" class="user"><span class="p">&gt; </span>deploy the release</div>
         <div data-at="1.75" class="gap"></div>
         <div data-at="2.2"><span class="b"></span>I'll publish v1.4.0 to npm.</div>
         <div data-at="2.55" data-until="3.4">  <svg class="spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="#3d3934" stroke-width="2"/><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="#f0b44c" stroke-width="2" stroke-linecap="round"/></svg> <span class="mid">Logging in to registry.npmjs.org…</span></div>
         <div data-at="3.4"><span class="dim">  ⎿ </span><span class="mid">Logging in to registry.npmjs.org…</span></div>
         <div data-at="3.4" class="gap s"></div>
-        <div data-at="3.4"><span class="b"></span>Needs NPM_TOKEN — requesting it from ASM.</div>
+        <div data-at="3.4" class="only-d"><span class="b"></span>Needs NPM_TOKEN — requesting it from ASM.</div>
+        <div data-at="3.4" class="only-m"><span class="b"></span>Needs NPM_TOKEN, asking ASM.</div>
         <div data-at="3.4" class="gap"></div>
         <div data-at="3.65"><span class="b tool"></span><span class="name">asm · request_secret</span> <span class="dim">(MCP)</span></div>
         <div data-at="3.65"><span class="dim">  ⎿ </span><span class="key">secret </span> NPM_TOKEN</div>
         <div data-at="3.65">     <span class="key">project</span> my-app</div>
         <div data-at="3.65">     <span class="key">reason </span> "Publish v1.4.0 to npm"</div>
-        <div data-at="4.15" data-until="8.85" id="waiting">  <svg class="spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="#3d3934" stroke-width="2"/><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="#f0b44c" stroke-width="2" stroke-linecap="round"/></svg> <span class="mid">Waiting for approval…</span></div>
-        <div data-at="8.85">  <span class="ok">✓ Approved</span> <span class="dim">grant grt_7Kq2X, value not sent to the agent</span></div>
+        <div data-at="4.15" data-until="8.85">  <svg class="spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="#3d3934" stroke-width="2"/><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="#f0b44c" stroke-width="2" stroke-linecap="round"/></svg> <span class="mid">Waiting for approval…</span></div>
+        <div data-at="8.85" class="only-d">  <span class="ok">✓ Approved</span> <span class="dim">grant grt_7Kq2X, value not sent to the agent</span></div>
+        <div data-at="8.85" class="only-m">  <span class="ok">✓ Approved</span> <span class="dim">value not sent to the agent</span></div>
         <div data-at="8.85" class="gap"></div>
-        <div data-at="9.45"><span class="b tool"></span><span class="name">Bash</span>(asm run --grant grt_7Kq2X -- npm publish)</div>
-        <div data-at="9.85"><span class="dim">  ⎿ </span><span class="mid">npm notice Publishing to registry.npmjs.org</span></div>
-        <div data-at="10.35">     + my-app@1.4.0</div>
+        <div data-at="9.45" class="only-d"><span class="b tool"></span><span class="name">Bash</span>(asm run --grant grt_7Kq2X -- npm publish)</div>
+        <div data-at="9.45" class="only-m"><span class="b tool"></span><span class="name">Bash</span>(asm run --grant grt_7Kq2X</div>
+        <div data-at="9.45" class="only-m">       -- npm publish)</div>
+        <div data-at="9.85" class="only-d"><span class="dim">  ⎿ </span><span class="mid">npm notice Publishing to registry.npmjs.org</span></div>
+        <div data-at="10.35" class="only-d">     + my-app@1.4.0</div>
+        <div data-at="10.1" class="only-m"><span class="dim">  ⎿ </span>+ my-app@1.4.0</div>
         <div data-at="10.35" class="gap"></div>
-        <div data-at="11.05"><span class="b"></span>Published my-app@1.4.0. asm injected NPM_TOKEN</div>
-        <div data-at="11.05">   into the npm process only. Its value never</div>
-        <div data-at="11.05">   appeared in this conversation.</div>
-      </div>
+        <div data-at="11.05" class="only-d"><span class="b"></span>Published my-app@1.4.0. asm injected NPM_TOKEN</div>
+        <div data-at="11.05" class="only-d">   into the npm process only. Its value never</div>
+        <div data-at="11.05" class="only-d">   appeared in this conversation.</div>
+        <div data-at="11.05" class="only-m"><span class="b"></span>Published my-app@1.4.0. NPM_TOKEN</div>
+        <div data-at="11.05" class="only-m">   went to npm only. Its value never</div>
+        <div data-at="11.05" class="only-m">   appeared in this conversation.</div>
+      </div></div>
       <div class="prompt"><span class="p">&gt;</span><span><span id="typed"></span><span class="cursor" id="cursor"></span></span></div>
       <div class="hint">Claude Code</div>
     </div>
@@ -234,6 +268,7 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
   const ease = (x) => 1 - Math.pow(1 - x, 3);
   const lines = [...document.querySelectorAll('[data-at]')];
   const spins = [...document.querySelectorAll('.spin')];
+  const logEl = $('log'), logWrap = logEl.parentElement;
   const el = {
     typed: $('typed'), cursor: $('cursor'), lock: $('lock'), banner: $('banner'), page: $('page'),
     pending: $('pending'), result: $('result'), fill: $('fill'), left: $('left'), btn: $('approveBtn'),
@@ -254,6 +289,10 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
       const at = +line.dataset.at, until = line.dataset.until ? +line.dataset.until : Infinity;
       line.style.display = t >= at && t < until ? '' : 'none';
     }
+    // Scroll like a terminal once the transcript is taller than the window.
+    const over = Math.max(0, logEl.offsetHeight + parseFloat(getComputedStyle(logWrap).paddingTop) - logWrap.clientHeight);
+    logEl.style.transform = `translateY(${-over}px)`;
+    logWrap.classList.toggle('scrolled', over > 0);
     for (const s of spins) s.style.transform = `rotate(${(t * 400) % 360}deg)`;
 
     // Phone: lock screen, push banner, tap, approve page, Face ID, result.
@@ -264,7 +303,7 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
     const pageIn = ease(ramp(t, 5.85, 6.25));
     el.page.style.transform = `translateY(${(1 - pageIn) * 100}%)`;
     el.page.style.visibility = pageIn > 0 ? 'visible' : 'hidden';
-    el.status.style.color = pageIn > 0.6 ? '#1c1917' : '#f5f4f2';
+    el.status.style.color = pageIn > 0.6 ? 'var(--on-page)' : '#f5f4f2';
 
     const total = 298, shown = 5.85;
     const left = Math.max(0, total - Math.max(0, Math.floor(t - shown)));
@@ -296,23 +335,32 @@ body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
     el.fade.style.opacity = Math.max(ramp(t, DURATION - 0.45, DURATION - 0.1), 1 - ramp(t, 0, 0.3));
   }
 
-  // Scale the 880 x 500 stage to the container width.
-  const root = document.querySelector('.asm-demo'), stage = $('stage');
-  const fit = () => { stage.style.transform = `scale(${root.clientWidth / 880})`; };
-  new ResizeObserver(fit).observe(root);
-  fit();
-
+  // Variant: URL params win; otherwise follow the colour scheme and the container width.
   const params = new URLSearchParams(location.search);
-  window.asmDemo = { render, duration: DURATION };
-  if (params.has('t')) { render(+params.get('t')); return; }
-  if (params.has('static')) { render(0.5); return; }
+  const html = document.documentElement, root = document.querySelector('.asm-demo'), stage = $('stage');
+  const dark = matchMedia('(prefers-color-scheme: dark)');
+  const setTheme = () => { html.dataset.theme = params.get('theme') ?? (dark.matches ? 'dark' : 'light'); };
+  let lastT = 0;
+  const fit = () => {
+    html.dataset.layout = params.get('layout') ?? (root.clientWidth < 600 ? 'mobile' : 'desktop');
+    stage.style.transform = `scale(${root.clientWidth / (html.dataset.layout === 'mobile' ? 390 : 880)})`;
+    render(lastT);
+  };
+  setTheme();
+  dark.addEventListener('change', setTheme);
+  new ResizeObserver(fit).observe(root);
+  const draw = (t) => { lastT = t; render(t); };
+  window.asmDemo = { render: draw, duration: DURATION };
+  fit();
+  if (params.has('t')) { draw(+params.get('t')); return; }
+  if (params.has('static')) { draw(0.5); return; }
 
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (reduced) { render(7.0); return; } // a single frame: request waiting, approve page open
+  if (reduced) { draw(7.0); return; } // a single frame: request waiting, approve page open
   let start = null;
   const tick = (now) => {
     start ??= now;
-    if (!document.hidden) render((now - start) / 1000);
+    if (!document.hidden) draw((now - start) / 1000);
     requestAnimationFrame(tick);
   };
   document.fonts.ready.then(() => requestAnimationFrame(tick));

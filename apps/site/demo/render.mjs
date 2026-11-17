@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// Renders apps/site/demo/index.html frame by frame (deterministic timeline) and encodes
-//   apps/site/src/assets/demo.gif  (README, 880 px wide)
-//   apps/site/src/assets/demo.mp4  (landing page, H.264)
-//   apps/site/src/assets/demo.webm (landing page, VP9)
-// Usage: node apps/site/demo/render.mjs [--fps 15] [--keep-frames]
+// Renders apps/site/demo/index.html frame by frame (deterministic timeline) in every variant and encodes, into
+// apps/site/src/assets/:
+//   demo-{light,dark}-{desktop,mobile}.mp4   H.264, 2x resolution, 30 fps (landing page)
+//   demo-{light,dark}-{desktop,mobile}.webm  VP9, same
+//   demo-{light,dark}-{desktop,mobile}.webp  poster: the approve page moment
+//   demo.gif                                  light desktop, 880 px wide, 15 fps (README)
+// Usage: node apps/site/demo/render.mjs [--only light-desktop,dark-mobile] [--keep-frames]
 // Needs Playwright's Chromium (root devDependency @playwright/test) and ffmpeg on PATH (or $FFMPEG).
 import { chromium } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,50 +18,73 @@ const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(here, '../src/assets');
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(`--${name}`); return i >= 0 ? args[i + 1] : def; };
-const FPS = Number(opt('fps', 15));
-const VIDEO_FPS = 30;
+const FPS = 30; // video frame rate; the GIF takes every second frame
+const GIF_FPS = 15;
 const SCALE = 2;
-const W = 880, H = 500;
+const POSTER_T = 7.0; // approve page open, request waiting
+const LAYOUTS = { desktop: { w: 880, h: 580 }, mobile: { w: 390, h: 750 } };
+const VARIANTS = ['light-desktop', 'dark-desktop', 'light-mobile', 'dark-mobile'];
+const only = opt('only', null)?.split(',');
 const ffmpeg = process.env.FFMPEG ?? 'ffmpeg';
 const keep = args.includes('--keep-frames');
-
-async function capture(dir, fps) {
-  const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: SCALE });
-  await page.goto(`${pathToFileURL(join(here, 'index.html')).href}?static=1`);
-  await page.evaluate(() => document.fonts.ready);
-  const duration = await page.evaluate(() => window.asmDemo.duration);
-  const frames = Math.round(duration * fps);
-  for (let i = 0; i < frames; i++) {
-    await page.evaluate((t) => window.asmDemo.render(t), i / fps);
-    await page.screenshot({ path: join(dir, `f${String(i).padStart(4, '0')}.png`), clip: { x: 0, y: 0, width: W, height: H } });
-  }
-  await browser.close();
-  return frames;
-}
 
 const run = (...a) => execFileSync(ffmpeg, ['-y', '-loglevel', 'error', ...a], { stdio: 'inherit' });
 const size = (f) => `${(statSync(f).size / 1024 / 1024).toFixed(2)} MB`;
 
-const gifDir = mkdtempSync(join(tmpdir(), 'asm-demo-gif-'));
-const vidDir = mkdtempSync(join(tmpdir(), 'asm-demo-vid-'));
-try {
-  const n = await capture(gifDir, FPS);
-  console.log(`captured ${n} frames at ${FPS} fps`);
-  const scale = `scale=${W}:-1:flags=lanczos`;
-  run('-framerate', String(FPS), '-i', join(gifDir, 'f%04d.png'),
-    '-vf', `${scale},split[a][b];[a]palettegen=max_colors=128:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
-    '-loop', '0', join(out, 'demo.gif'));
-  console.log(`demo.gif ${size(join(out, 'demo.gif'))}`);
+/** Captures all frames of one variant as PNGs (2x) and writes its WebP poster. */
+async function capture(browser, theme, layout, dir, posterFile) {
+  const { w, h } = LAYOUTS[layout];
+  const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: SCALE });
+  await page.goto(`${pathToFileURL(join(here, 'index.html')).href}?static=1&theme=${theme}&layout=${layout}`);
+  await page.evaluate(() => document.fonts.ready);
+  const duration = await page.evaluate(() => window.asmDemo.duration);
+  const frames = Math.round(duration * FPS);
+  const clip = { x: 0, y: 0, width: w, height: h };
+  for (let i = 0; i < frames; i++) {
+    await page.evaluate((t) => window.asmDemo.render(t), i / FPS);
+    await page.screenshot({ path: join(dir, `f${String(i).padStart(4, '0')}.png`), clip });
+  }
+  // Poster: Chromium's canvas encodes WebP, so no extra image tooling is needed.
+  await page.evaluate((t) => window.asmDemo.render(t), POSTER_T);
+  const png = (await page.screenshot({ clip })).toString('base64');
+  const webp = await page.evaluate(async (b64) => {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    c.getContext('2d').drawImage(img, 0, 0);
+    return c.toDataURL('image/webp', 0.82).split(',')[1];
+  }, png);
+  writeFileSync(posterFile, Buffer.from(webp, 'base64'));
+  await page.close();
+  return frames;
+}
 
-  await capture(vidDir, VIDEO_FPS);
-  const vin = ['-framerate', String(VIDEO_FPS), '-i', join(vidDir, 'f%04d.png')];
-  run(...vin, '-vf', 'scale=1760:-2:flags=lanczos', '-c:v', 'libx264', '-preset', 'slow', '-crf', '20', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', join(out, 'demo.mp4'));
-  console.log(`demo.mp4 ${size(join(out, 'demo.mp4'))}`);
-  run(...vin, '-vf', 'scale=1760:-2:flags=lanczos', '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '34', '-row-mt', '1', join(out, 'demo.webm'));
-  console.log(`demo.webm ${size(join(out, 'demo.webm'))}`);
+const browser = await chromium.launch();
+try {
+  for (const variant of VARIANTS.filter((v) => !only || only.includes(v))) {
+    const [theme, layout] = variant.split('-');
+    const name = `demo-${variant}`;
+    const dir = mkdtempSync(join(tmpdir(), `asm-${name}-`));
+    try {
+      const n = await capture(browser, theme, layout, dir, join(out, `${name}.webp`));
+      const vin = ['-framerate', String(FPS), '-i', join(dir, 'f%04d.png')];
+      run(...vin, '-c:v', 'libx264', '-preset', 'slow', '-crf', '22', '-tune', 'animation', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', join(out, `${name}.mp4`));
+      run(...vin, '-c:v', 'libvpx-vp9', '-b:v', '0', '-crf', '42', '-deadline', 'good', '-cpu-used', '2', '-row-mt', '1', '-pix_fmt', 'yuv420p', join(out, `${name}.webm`));
+      console.log(`${name}: ${n} frames, mp4 ${size(join(out, `${name}.mp4`))}, webm ${size(join(out, `${name}.webm`))}, poster ${size(join(out, `${name}.webp`))}`);
+
+      if (variant === 'light-desktop') {
+        run(...vin, '-vf', `fps=${GIF_FPS},scale=${LAYOUTS.desktop.w}:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128:stats_mode=full[p];[b][p]paletteuse=dither=none:diff_mode=rectangle`,
+          '-loop', '0', join(out, 'demo.gif'));
+        console.log(`demo.gif ${size(join(out, 'demo.gif'))}`);
+      }
+    } finally {
+      if (keep) console.log(`frames kept in ${dir}`);
+      else rmSync(dir, { recursive: true, force: true });
+    }
+  }
 } finally {
-  if (keep) console.log(`frames kept in ${gifDir}`);
-  else rmSync(gifDir, { recursive: true, force: true });
-  rmSync(vidDir, { recursive: true, force: true });
+  await browser.close();
 }

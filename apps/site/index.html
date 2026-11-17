@@ -59,14 +59,18 @@
             <p class="mt-4 text-[13px] text-text-3">Runs in one Docker container on your own server. Open source under the Apache License 2.0.</p>
           </div>
 
-          <figure class="mt-12 overflow-hidden rounded-xl border bg-[#e9e6e1] sm:mt-16" style="box-shadow: var(--shadow-frame)">
-            <video data-demo muted loop playsinline autoplay preload="auto" width="1760" height="1000"
-              poster="./src/assets/demo-poster.webp"
-              aria-label="Claude Code asks ASM for NPM_TOKEN with the project my-app and the reason 'Publish v1.4.0 to npm'. The request is approved on a phone, then asm run injects the token into npm publish. The value never appears in the conversation."
-              class="block aspect-[1760/1000] h-auto w-full">
-              <source src="./src/assets/demo.mp4" type="video/mp4" />
-              <source src="./src/assets/demo.webm" type="video/webm" />
-            </video>
+          <!-- Demo (demo/): a still per colour scheme and layout, with the matching loop on top (src/main.ts). -->
+          <figure class="demo-frame relative mt-10 overflow-hidden rounded-xl border sm:mt-16" style="box-shadow: var(--shadow-frame)">
+            <picture>
+              <source media="(max-width: 599px) and (prefers-color-scheme: dark)" srcset="./src/assets/demo-dark-mobile.webp" width="780" height="1500" />
+              <source media="(max-width: 599px)" srcset="./src/assets/demo-light-mobile.webp" width="780" height="1500" />
+              <source media="(prefers-color-scheme: dark)" srcset="./src/assets/demo-dark-desktop.webp" width="1760" height="1160" />
+              <img src="./src/assets/demo-light-desktop.webp" width="1760" height="1160" decoding="async" fetchpriority="high"
+                alt="Claude Code asks ASM for NPM_TOKEN with the project my-app and the reason 'Publish v1.4.0 to npm'. The request is approved on a phone with Face ID, then asm run injects the token into npm publish. The value never appears in the conversation."
+                class="block h-auto w-full" />
+            </picture>
+            <video data-demo muted loop playsinline preload="none" aria-hidden="true" tabindex="-1"
+              class="pointer-events-none absolute inset-0 size-full object-cover opacity-0"></video>
             <figcaption class="sr-only">Demo: an agent requests a secret, you approve it on your phone, and the CLI hands it to the process.</figcaption>
           </figure>
         </div>

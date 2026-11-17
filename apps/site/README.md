@@ -21,14 +21,10 @@ Source: **GitHub Actions**.
 
 ## Hero demo
 
-`src/assets/demo.mp4` / `demo.webm` (and `demo.gif` for the README) come from `demo/`. The page shows
-`src/assets/demo-poster.webp` before the video plays and, with reduced motion, instead of it. After
-changing the demo, regenerate the poster (needs ffmpeg; `DEMO_POSTER_AT=<seconds>` picks the frame,
-default shortly before the end):
-
-```sh
-pnpm --filter @asm/site poster
-```
+The hero shows the demo from `demo/` in four variants, `src/assets/demo-{light,dark}-{desktop,mobile}`
+(`.mp4`, `.webm` and a `.webp` still each). A `<picture>` picks the still by colour scheme and width
+(mobile below 600 px), so it works without JavaScript and with reduced motion; `src/main.ts` plays the
+matching loop on top of it and switches when the scheme or width changes.
 
 ## Screenshots
 
@@ -40,13 +36,19 @@ pnpm exec playwright install chromium   # once
 pnpm --filter @asm/site screenshots
 ```
 
-`scripts/screenshots.ts` builds shared/server/web (`SITE_SHOTS_SKIP_BUILD=1` skips that), starts the
-built server on a temp data dir with a test-only master key (port 18766 or `SITE_SHOTS_PORT`), creates
-the admin `alex` through the setup API, a second user, the shared vaults "Infrastructure" and "Shop"
-and a few secrets, pairs two simulated Claude Code devices through the real OAuth flow and lets them
-search, request, propose a change, create and archive secrets over MCP. Some requests are approved or
-denied, two stay pending. It then captures the requests page, the secrets list and the audit log at
-1280×800 (2×) in light and dark and writes WebP. `SITE_SHOTS_KEEP=1` keeps the server running.
+`scripts/screenshots.ts` builds shared/server/web (`SITE_SHOTS_SKIP_BUILD=1` skips that) and starts the
+built server on a temp data dir with a test-only master key as `https://asm.example.com`: a small HTTPS
+proxy with a throwaway self-signed certificate (openssl) sits in front of it, and Chromium resolves
+`asm.example.com` to that proxy (`--host-resolver-rules`). Ports 18766 and 18767, or `SITE_SHOTS_PORT`
+and `SITE_SHOTS_PORT + 1`. While seeding, the server's clock (`Date.now`, through a preload controlled
+over IPC) moves through the past day, so the UI shows realistic relative times and client IPs.
+
+It creates the admin `alex` through the setup API, a second user, the shared vaults "Infrastructure"
+and "Shop" and a few secrets, pairs two simulated Claude Code devices through the real OAuth flow and
+lets them search, request, propose a change, create and archive secrets over MCP. Some requests are
+approved or denied, two stay pending. It then captures the requests page, the secrets list and the
+audit log at 1280×800 (2×) in light and dark and writes WebP; it fails if a page shows `localhost` or a
+local port. `SITE_SHOTS_KEEP=1` keeps the server running.
 
 ## Checks
 

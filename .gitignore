@@ -12,3 +12,6 @@ playwright-report/
 /secrets/
 asm_master_key*
 /.claude/worktrees/
+
+# verify.ts output
+apps/site/site-preview-*.png
