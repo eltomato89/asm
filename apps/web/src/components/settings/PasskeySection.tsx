@@ -1,6 +1,6 @@
 import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { KeyRound, Pencil, Trash2 } from 'lucide-react';
+import { KeyRound, Pencil, Trash } from 'lucide-react';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
 import { api, isApiError, queryKeys, type Passkey } from '../../lib/api';
 import { errorText } from '../../lib/errors';
@@ -149,7 +149,7 @@ function PasskeyItem({ passkey: p, onRemove }: { passkey: Passkey; onRemove: () 
         <Pencil className="icon icon-sm" strokeWidth={1.5} aria-hidden />
       </IconButton>
       <IconButton label={`Passkey ${p.name} entfernen`} className="icon-btn-sm" onClick={onRemove}>
-        <Trash2 className="icon icon-sm" strokeWidth={1.5} aria-hidden />
+        <Trash className="icon icon-sm" strokeWidth={1.5} aria-hidden />
       </IconButton>
     </li>
   );

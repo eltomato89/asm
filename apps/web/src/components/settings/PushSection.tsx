@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+import { Trash } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, queryKeys } from '../../lib/api';
 import { errorText } from '../../lib/errors';
@@ -151,7 +151,7 @@ export function PushSection() {
                   )}
                 </span>
                 <IconButton label={`${s.deviceName} entfernen`} className="icon-btn-sm" disabled={remove.isPending} onClick={() => remove.mutate(s)}>
-                  <Trash2 className="icon icon-sm" strokeWidth={1.5} aria-hidden />
+                  <Trash className="icon icon-sm" strokeWidth={1.5} aria-hidden />
                 </IconButton>
               </li>
             ))}
