@@ -11,7 +11,7 @@ const archived = makeSecret({
   id: 'sec_2',
   title: 'Mailgun',
   envName: 'MAILGUN_API_KEY',
-  archived: { at: T0, by: { type: 'user', id: 'usr_1', name: 'jana' }, reason: 'Anbieter gewechselt', project: 'billing' },
+  archived: { at: T0, by: { type: 'user', id: 'usr_1', name: 'jana' }, reason: 'Switched provider', project: 'billing' },
 });
 
 const user = { type: 'user' as const, id: 'usr_1', name: 'jana' };
@@ -22,7 +22,7 @@ const history: SecretHistory = {
     { version: 3, changedBy: user, project: null, reason: null, metaDiff: {}, restoredFrom: 1, createdAt: T0 + 1000 },
   ],
   events: [
-    { type: 'archived', at: T0 - 500, by: user, reason: 'vorübergehend ungenutzt', project: 'asm' },
+    { type: 'archived', at: T0 - 500, by: user, reason: 'temporarily unused', project: 'asm' },
     { type: 'unarchived', at: T0, by: user },
   ],
 };
@@ -47,26 +47,26 @@ function secretsServer(extra: Parameters<typeof appServer>[0] = () => undefined)
 }
 
 describe('secrets page', () => {
-  it('filter „Archiviert“ shows only archived secrets with their reason', async () => {
+  it('filter "Archived" shows only archived secrets with their reason', async () => {
     const { calls } = secretsServer();
     const u = userEvent.setup();
     renderApp('/secrets');
     expect(await screen.findByText('GITHUB_TOKEN')).toBeInTheDocument();
-    await u.click(screen.getByRole('button', { name: 'Archiviert' }));
+    await u.click(screen.getByRole('button', { name: 'Archived' }));
     expect(await screen.findByText('MAILGUN_API_KEY')).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText('GITHUB_TOKEN')).toBeNull());
     const row = screen.getByText('MAILGUN_API_KEY').closest('tr')!;
-    expect(within(row).getByText('Archiviert')).toHaveAttribute('title', 'Anbieter gewechselt');
+    expect(within(row).getByText('Archived')).toHaveAttribute('title', 'Switched provider');
     expect(calls.some((c) => c.path === '/api/secrets' && query(c).get('status') === 'archived')).toBe(true);
   });
 
-  it('panel shows „Genutzt von“ with the projects and last access', async () => {
+  it('panel shows "Used by" with the projects and last access', async () => {
     secretsServer();
     renderApp('/secrets?selected=sec_1');
     const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
-    const used = await within(panel).findByRole('region', { name: 'Genutzt von' });
+    const used = await within(panel).findByRole('region', { name: 'Used by' });
     expect(await within(used).findByText('agent-secrets-manager')).toBeInTheDocument();
-    expect(within(used).getByText(/vor|gerade/)).toBeInTheDocument();
+    expect(within(used).getByText(/ago|just now/)).toBeInTheDocument();
   });
 
   it('reveal without recent auth opens the ReauthDialog', async () => {
@@ -74,11 +74,11 @@ describe('secrets page', () => {
     const u = userEvent.setup();
     renderApp('/secrets?selected=sec_1');
     const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
-    await u.click(await within(panel).findByRole('button', { name: 'Anzeigen' }));
-    expect(await screen.findByRole('dialog', { name: 'Bestätige, dass du es bist' })).toBeInTheDocument();
+    await u.click(await within(panel).findByRole('button', { name: 'Reveal' }));
+    expect(await screen.findByRole('dialog', { name: 'Confirm it’s you' })).toBeInTheDocument();
   });
 
-  it('reveals the value after re-auth, masked again on „Verbergen“', async () => {
+  it('reveals the value after re-auth, masked again on "Hide"', async () => {
     let fresh = false;
     secretsServer((c) => {
       if (c.path === '/api/auth/reauth/password') {
@@ -91,16 +91,16 @@ describe('secrets page', () => {
     const u = userEvent.setup();
     renderApp('/secrets?selected=sec_1');
     const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
-    await u.click(await within(panel).findByRole('button', { name: 'Anzeigen' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Bestätige, dass du es bist' });
-    const pw = within(dialog).queryByLabelText('Passwort') ?? (await (async () => {
-      await u.click(within(dialog).getByRole('button', { name: 'Stattdessen Passwort eingeben' }));
-      return within(dialog).getByLabelText('Passwort');
+    await u.click(await within(panel).findByRole('button', { name: 'Reveal' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Confirm it’s you' });
+    const pw = within(dialog).queryByLabelText('Password') ?? (await (async () => {
+      await u.click(within(dialog).getByRole('button', { name: 'Enter password instead' }));
+      return within(dialog).getByLabelText('Password');
     })());
     await u.type(pw, 'mein-passwort');
-    await u.click(within(dialog).getByRole('button', { name: 'Bestätigen' }));
+    await u.click(within(dialog).getByRole('button', { name: 'Confirm' }));
     expect(await within(panel).findByText('ghp_geheim')).toBeInTheDocument();
-    await u.click(within(panel).getByRole('button', { name: 'Verbergen' }));
+    await u.click(within(panel).getByRole('button', { name: 'Hide' }));
     expect(within(panel).queryByText('ghp_geheim')).toBeNull();
   });
 
@@ -118,14 +118,14 @@ describe('secrets page', () => {
     await screen.findByRole('complementary', { name: /OPENAI_API_KEY/ });
     await u.click(await screen.findByText('GITHUB_TOKEN', { selector: '.name' }));
     const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
-    await u.click(await within(panel).findByRole('button', { name: 'Anzeigen' }));
+    await u.click(await within(panel).findByRole('button', { name: 'Reveal' }));
     expect(await within(panel).findByText('ghp_geheim')).toBeInTheDocument();
     expect(queryClient.getQueryData(['secrets', 'one', 'sec_3'])).toBeTruthy();
     await u.click(screen.getByText('OPENAI_API_KEY', { selector: '.name' }));
     const next = await screen.findByRole('complementary', { name: /OPENAI_API_KEY/ });
     expect(within(next).queryByText('ghp_geheim')).toBeNull();
     expect(screen.queryByText('ghp_geheim')).toBeNull();
-    expect(within(next).getByLabelText('Wert von OPENAI_API_KEY')).toHaveTextContent('••••');
+    expect(within(next).getByLabelText('Value of OPENAI_API_KEY')).toHaveTextContent('••••');
   });
 
   it('archive dialog cannot be submitted without a reason', async () => {
@@ -133,16 +133,16 @@ describe('secrets page', () => {
     const u = userEvent.setup();
     renderApp('/secrets?selected=sec_1');
     const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
-    await u.click(await within(panel).findByRole('button', { name: 'Archivieren' }));
-    const dialog = await screen.findByRole('dialog', { name: /archivieren/ });
-    const submit = within(dialog).getByRole('button', { name: 'Archivieren' });
+    await u.click(await within(panel).findByRole('button', { name: 'Archive' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Archive / });
+    const submit = within(dialog).getByRole('button', { name: 'Archive' });
     expect(submit).toBeDisabled();
-    await u.type(within(dialog).getByLabelText('Grund'), '   ');
+    await u.type(within(dialog).getByLabelText('Reason'), '   ');
     expect(submit).toBeDisabled();
-    await u.type(within(dialog).getByLabelText('Grund'), 'Nicht mehr benötigt');
+    await u.type(within(dialog).getByLabelText('Reason'), 'No longer needed');
     expect(submit).toBeEnabled();
     await u.click(submit);
-    await waitFor(() => expect(calls.find((c) => c.path === '/api/secrets/sec_1/archive')?.body).toEqual({ reason: 'Nicht mehr benötigt' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/secrets/sec_1/archive')?.body).toEqual({ reason: 'No longer needed' }));
   });
 });
 
@@ -158,24 +158,24 @@ describe('secrets list paging and form', () => {
     const u = userEvent.setup();
     renderApp('/secrets');
     await screen.findByText('GITHUB_TOKEN', { selector: '.name' });
-    expect(screen.queryByText('von Agent')).toBeNull();
-    await u.click(screen.getByRole('button', { name: 'Mehr laden' }));
+    expect(screen.queryByText('by agent')).toBeNull();
+    await u.click(screen.getByRole('button', { name: 'Load more' }));
     const row = (await screen.findByText('SENTRY_DSN', { selector: '.name' })).closest('tr')!;
-    expect(within(row).getByText('von Agent')).toBeInTheDocument();
+    expect(within(row).getByText('by agent')).toBeInTheDocument();
     expect(calls.some((c) => c.path === '/api/secrets' && query(c).get('cursor') === 'c1')).toBe(true);
-    expect(screen.queryByRole('button', { name: 'Mehr laden' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
   });
 
   it('creating a secret sends the value but leaves nothing of it in the mutation cache', async () => {
     const { calls } = secretsServer((c) => (c.path === '/api/secrets' && c.method === 'POST' ? { status: 201, body: makeSecret({ id: 'sec_new', envName: 'NEW_KEY', title: 'Neu' }) } : c.path === '/api/secrets/sec_new' ? { body: makeSecret({ id: 'sec_new', envName: 'NEW_KEY', title: 'Neu' }) } : undefined));
     const u = userEvent.setup();
     const { queryClient } = renderApp('/secrets');
-    await u.click(await screen.findByRole('button', { name: 'Neues Secret' }));
-    const form = await screen.findByRole('form', { name: 'Secret anlegen' });
-    await u.type(within(form).getByLabelText('Titel'), 'Neu');
-    await u.type(within(form).getByLabelText('ENV-Name'), 'new_key');
-    await u.type(within(form).getByLabelText('Wert eingeben'), 'super-geheim-123');
-    await u.click(within(form).getByRole('button', { name: 'Secret anlegen' }));
+    await u.click(await screen.findByRole('button', { name: 'New secret' }));
+    const form = await screen.findByRole('form', { name: 'Create secret' });
+    await u.type(within(form).getByLabelText('Title'), 'Neu');
+    await u.type(within(form).getByLabelText('Env name'), 'new_key');
+    await u.type(within(form).getByLabelText('Enter value'), 'super-geheim-123');
+    await u.click(within(form).getByRole('button', { name: 'Create secret' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST' && c.path === '/api/secrets')?.body).toMatchObject({ title: 'Neu', envName: 'NEW_KEY', value: 'super-geheim-123' }));
     await screen.findByRole('complementary', { name: /NEW_KEY/ });
     const cached = JSON.stringify([queryClient.getMutationCache().getAll().map((m) => m.state), queryClient.getQueryCache().getAll().map((q) => q.state.data)]);
@@ -189,18 +189,18 @@ describe('VersionTimeline', () => {
     const u = userEvent.setup();
     renderApp('/secrets?selected=sec_1');
     const panel = await screen.findByRole('complementary', { name: /GITHUB_TOKEN/ });
-    await u.click(within(panel).getByRole('tab', { name: 'Verlauf' }));
-    const list = await within(panel).findByRole('list', { name: 'Verlauf' });
+    await u.click(within(panel).getByRole('tab', { name: 'History' }));
+    const list = await within(panel).findByRole('list', { name: 'History' });
     const items = within(list).getAllByRole('listitem').map((li) => li.getAttribute('data-entry'));
     expect(items).toEqual(['v3', 'unarchived', 'archived', 'v2', 'v1']);
-    expect(within(list).getByText(/vorübergehend ungenutzt/)).toBeInTheDocument();
-    expect(list).toHaveTextContent('Titel: GitHub→GitHub Releases');
-    expect(list).toHaveTextContent('wiederhergestellt aus Version 1');
+    expect(within(list).getByText(/temporarily unused/)).toBeInTheDocument();
+    expect(list).toHaveTextContent('Title: GitHub→GitHub Releases');
+    expect(list).toHaveTextContent('restored from version 1');
 
     const v2 = within(list).getAllByRole('listitem').find((li) => li.getAttribute('data-entry') === 'v2')!;
-    await u.click(within(v2).getByRole('button', { name: 'Wiederherstellen' }));
-    const dialog = await screen.findByRole('dialog', { name: /Version 2 wiederherstellen/ });
-    await u.click(within(dialog).getByRole('button', { name: 'Wiederherstellen' }));
+    await u.click(within(v2).getByRole('button', { name: 'Restore' }));
+    const dialog = await screen.findByRole('dialog', { name: /Restore version 2/ });
+    await u.click(within(dialog).getByRole('button', { name: 'Restore' }));
     await waitFor(() => expect(calls.some((c) => c.method === 'POST' && c.path === '/api/secrets/sec_1/versions/2/restore')).toBe(true));
   });
 });

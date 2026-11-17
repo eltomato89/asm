@@ -24,6 +24,8 @@ describe('validateSecretForm', () => {
       { creating: true },
     );
     expect(Object.keys(e).sort()).toEqual(['description', 'envName', 'tags', 'title', 'value']);
+    expect(e.title).toBe('Enter a title.');
+    expect(e.description).toBe('At most 4000 characters.');
     expect(validateSecretForm({ ...base, tags: Array.from({ length: 21 }, (_, i) => `t${i}`).join(' ') }, { creating: true }).tags).toBeTruthy();
     expect(validateSecretForm({ ...base, tags: 'a'.repeat(41) }, { creating: true }).tags).toBeTruthy();
     expect(validateSecretForm({ ...base, envName: 'GITHUB_TOKEN', tags: 'prod-eu ci.deploy Ümlaut' }, { creating: true })).toEqual({});

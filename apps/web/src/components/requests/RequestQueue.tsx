@@ -1,6 +1,7 @@
 import type { AccessRequestDto } from '@asm/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
+import { t } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
 import { decisionErrorText } from '../../lib/errors';
 import { useShortcut } from '../../lib/shortcuts';
@@ -41,10 +42,9 @@ export function RequestQueue({ requests }: { requests: AccessRequestDto[] }) {
     onMutate: ({ request, decision }) => setLeaving((m) => ({ ...m, [request.id]: decision })),
     onSuccess: (_dto, { request, decision }) => {
       const name = request.secret.envName ?? request.secret.title;
+      const nameNode = <span className="mono">{name}</span>;
       toast(
-        <>
-          {decision === 'approve' ? 'Freigegeben' : 'Verweigert'}: <span className="mono">{name}</span> für {request.device.name}
-        </>,
+        decision === 'approve' ? t.requests.toastApproved(nameNode, request.device.name) : t.requests.toastDenied(nameNode, request.device.name),
         decision === 'approve' ? 'ok' : 'danger',
       );
     },
@@ -101,8 +101,8 @@ export function RequestQueue({ requests }: { requests: AccessRequestDto[] }) {
       ))}
       {visible.length === 0 ? (
         <div className="empty">
-          <strong>Keine offenen Anfragen</strong>
-          Neue Anfragen von Agents erscheinen hier, sobald sie eintreffen.
+          <strong>{t.requests.emptyTitle}</strong>
+          {t.requests.emptyBody}
         </div>
       ) : null}
     </div>

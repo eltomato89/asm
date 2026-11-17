@@ -1,5 +1,6 @@
 import { ChevronRight, Copy } from 'lucide-react';
 import { Fragment, useId } from 'react';
+import { t } from '../../i18n';
 import type { AuditRow as AuditRowDto } from '../../lib/api';
 import { formatAbsolute, formatTime } from '../../lib/format';
 import type { Names } from '../../lib/names';
@@ -37,9 +38,9 @@ export function AuditRow({ row: r, names, open, onToggle, onOnlySecret }: Props)
   const copyHash = async () => {
     try {
       await navigator.clipboard.writeText(r.hash);
-      toast('Hash kopiert.', 'ok');
+      toast(t.audit.row.hashCopied, 'ok');
     } catch {
-      toast('Kopieren nicht möglich.', 'danger');
+      toast(t.audit.row.copyFailed, 'danger');
     }
   };
 
@@ -64,29 +65,29 @@ export function AuditRow({ row: r, names, open, onToggle, onOnlySecret }: Props)
           {formatTime(r.ts)}
         </time>
       </button>
-      <div className={open ? 'detail is-open' : 'detail'} id={detailId} role="region" aria-label={`Details zu Eintrag ${r.seq}`}>
+      <div className={open ? 'detail is-open' : 'detail'} id={detailId} role="region" aria-label={t.audit.row.details(r.seq)}>
         {open ? (
           <>
             <dl className="kv">
-              <dt>Projekt</dt>
+              <dt>{t.audit.project}</dt>
               <dd>{r.project ? <span className="proj">{r.project}</span> : dash}</dd>
-              <dt>Grund</dt>
+              <dt>{t.audit.row.reason}</dt>
               <dd>{r.reason ? <em>{r.reason}</em> : dash}</dd>
-              <dt>Gerät</dt>
-              <dd>{r.deviceId ? <span className="host">{deviceName ?? r.deviceId}</span> : r.actorType === 'user' ? (r.actorId === names.meId ? 'Du, Web-UI' : 'Web-UI') : dash}</dd>
-              <dt>IP-Adresse</dt>
+              <dt>{t.audit.device}</dt>
+              <dd>{r.deviceId ? <span className="host">{deviceName ?? r.deviceId}</span> : r.actorType === 'user' ? (r.actorId === names.meId ? t.audit.row.youWebUi : t.audit.row.webUi) : dash}</dd>
+              <dt>{t.audit.ipAddress}</dt>
               <dd className="mono">{r.ip ?? '–'}</dd>
               {r.secretId ? (
                 <>
-                  <dt>Secret</dt>
+                  <dt>{t.audit.row.secret}</dt>
                   <dd>
                     <span className="secret">{secretName ?? r.secretId}</span>
                   </dd>
                 </>
               ) : null}
-              <dt>Anfrage</dt>
+              <dt>{t.audit.row.request}</dt>
               <dd>{requestId ? <span className="mono">{requestId}</span> : dash}</dd>
-              <dt>Meta</dt>
+              <dt>{t.audit.row.meta}</dt>
               <dd>
                 {meta.length ? (
                   <div className="meta">
@@ -101,23 +102,23 @@ export function AuditRow({ row: r, names, open, onToggle, onOnlySecret }: Props)
                   dash
                 )}
               </dd>
-              <dt>Zeit</dt>
+              <dt>{t.audit.time}</dt>
               <dd className="num">{formatAbsolute(r.ts)}</dd>
-              <dt>Eintrag</dt>
+              <dt>{t.audit.row.entry}</dt>
               <dd className="mono num">#{r.seq}</dd>
-              <dt>Hash</dt>
+              <dt>{t.audit.row.hash}</dt>
               <dd className="hash">{r.hash}</dd>
-              <dt>Vorheriger Hash</dt>
+              <dt>{t.audit.row.prevHash}</dt>
               <dd className="hash">{r.prevHash}</dd>
             </dl>
             <div className="detail-actions">
               <Button onClick={() => void copyHash()}>
                 <Copy className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-                Hash kopieren
+                {t.audit.row.copyHash}
               </Button>
               {r.secretId && onOnlySecret ? (
                 <Button variant="ghost" onClick={() => onOnlySecret(r.secretId!)}>
-                  Nur <span className="mono">{secretName ?? r.secretId}</span> zeigen
+                  {t.audit.row.onlySecret(<span className="mono">{secretName ?? r.secretId}</span>)}
                 </Button>
               ) : null}
             </div>

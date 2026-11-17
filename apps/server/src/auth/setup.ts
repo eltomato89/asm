@@ -67,7 +67,7 @@ export async function createUser(
     db.$client.transaction(() => {
       if (opts.onlyIfNoUsers && countUsers(db) > 0) throw new HttpError(409, 'already_setup');
       db.insert(users).values({ id, username, passwordHash, isAdmin: input.isAdmin, createdAt: now }).run();
-      db.insert(vaults).values({ id: vaultId, name: 'Persönlich', personalOfUserId: id, createdAt: now }).run();
+      db.insert(vaults).values({ id: vaultId, name: 'Personal', personalOfUserId: id, createdAt: now }).run();
       db.insert(vaultMembers).values({ vaultId, userId: id, role: 'owner' }).run();
     })();
   } catch (e) {

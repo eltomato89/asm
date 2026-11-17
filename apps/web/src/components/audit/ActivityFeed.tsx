@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { t } from '../../i18n';
 import { api, queryKeys, type AuditFilter } from '../../lib/api';
 import { useNames } from '../../lib/names';
 import { useEventSubscription } from '../../lib/sse';
@@ -9,7 +10,7 @@ import { describeAudit, isAutoEvent, toneDot } from './describe';
 
 const FEED_FILTER: AuditFilter = { limit: 20 };
 
-/** "Letzte Aktivität": the newest audit entries as sentences with event chips; refreshed by live events. */
+/** "Recent activity": the newest audit entries as sentences with event chips; refreshed by live events. */
 export function ActivityFeed({ filter = FEED_FILTER }: { filter?: AuditFilter }) {
   const qc = useQueryClient();
   const names = useNames();
@@ -18,7 +19,7 @@ export function ActivityFeed({ filter = FEED_FILTER }: { filter?: AuditFilter })
 
   if (feed.isPending) {
     return (
-      <ul className="feed" aria-busy="true" aria-label="Aktivität wird geladen">
+      <ul className="feed" aria-busy="true" aria-label={t.audit.feed.loading}>
         {[0, 1, 2].map((i) => (
           <li key={i}>
             <span className="dot" />
@@ -30,12 +31,12 @@ export function ActivityFeed({ filter = FEED_FILTER }: { filter?: AuditFilter })
       </ul>
     );
   }
-  if (feed.isError) return <p className="empty">Die Aktivität konnte nicht geladen werden.</p>;
+  if (feed.isError) return <p className="empty">{t.audit.feed.loadFailed}</p>;
   if (feed.data.items.length === 0) {
     return (
       <div className="empty">
-        <strong>Noch keine Aktivität</strong>
-        Abrufe, Freigaben und Änderungen erscheinen hier.
+        <strong>{t.audit.feed.emptyTitle}</strong>
+        {t.audit.feed.emptyBody}
       </div>
     );
   }

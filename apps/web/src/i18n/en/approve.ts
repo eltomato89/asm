@@ -1,1 +1,22 @@
-export const approve = {};
+export const approve = {
+  cancelled: 'Confirmation cancelled. Nothing was approved.',
+  verificationFailed: 'Verification failed',
+  noPasskey: "There's no passkey on your account. Add one under Settings on your home network.",
+  badOrigin: 'This page was opened from an unexpected address. Open the link from the notification again.',
+  invalidRequest: 'Invalid request. Reload the page and try again.',
+  withFaceId: 'Approve with Face ID',
+  withPasskey: 'Approve with passkey',
+  goneTitle: 'This request is no longer valid.',
+  goneBody: 'It was already decided or has expired. You can close this window.',
+  approvedTitle: 'Approved',
+  deniedTitle: 'Denied',
+  mayChange: (name: string) => `may change ${name}.`,
+  receives: (name: string) => `receives ${name}.`,
+  noAccess: (name: string) => `gets no access to ${name}.`,
+  closeWindow: 'You can close this window.',
+  loadFailedTitle: "Couldn't load the request",
+  loadFailedBody: 'Check the connection and reload the page.',
+  loading: 'Loading request',
+  /** Shown when a redacted field changes: "<label> will change". */
+  fieldChanges: (label: string) => `${label} will change`,
+};

@@ -243,7 +243,7 @@ describe('users', () => {
     expect(u.username).toBe('alice');
     const vaults = db.$client.prepare('SELECT * FROM vaults WHERE personal_of_user_id = ?').all(u.id) as { id: string; name: string }[];
     expect(vaults).toHaveLength(1);
-    expect(vaults[0]!.name).toBe('Persönlich');
+    expect(vaults[0]!.name).toBe('Personal');
     const members = db.$client.prepare('SELECT role FROM vault_members WHERE vault_id = ? AND user_id = ?').all(vaults[0]!.id, u.id);
     expect(members).toEqual([{ role: 'owner' }]);
     await app.close();

@@ -6,6 +6,7 @@ import { ApproveDetails, ApproveSentence, ApproveTimeBar, secretName } from '../
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
+import { t } from '../i18n';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { decisionErrorText } from '../lib/errors';
 import { isIOS } from '../lib/push';
@@ -17,13 +18,13 @@ type Decision = 'approve' | 'deny';
 
 /** Toast text for a failed decision on the public approve page. */
 export function approveErrorText(e: unknown): string {
-  if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return 'Bestätigung abgebrochen. Nichts wurde freigegeben.';
-  if (isApiError(e, 'verification_failed')) return 'Bestätigung fehlgeschlagen';
-  if (isApiError(e, 'no_passkey')) return 'Für dein Konto ist kein Passkey hinterlegt – lege im Heimnetz unter Einstellungen einen an.';
-  if (isApiError(e, 'forbidden')) return 'Dafür fehlen dir die Rechte.';
-  if (isApiError(e, 'bad_origin')) return 'Diese Seite wurde über eine unerwartete Adresse geöffnet. Öffne den Link aus der Benachrichtigung erneut.';
-  if (isApiError(e, 'invalid_request')) return 'Ungültige Anfrage. Lade die Seite neu und versuche es erneut.';
-  if (isApiError(e, 'rate_limited')) return 'Zu viele Versuche. Warte eine Minute und versuche es erneut.';
+  if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return t.approve.cancelled;
+  if (isApiError(e, 'verification_failed')) return t.approve.verificationFailed;
+  if (isApiError(e, 'no_passkey')) return t.approve.noPasskey;
+  if (isApiError(e, 'forbidden')) return t.errors.forbidden;
+  if (isApiError(e, 'bad_origin')) return t.approve.badOrigin;
+  if (isApiError(e, 'invalid_request')) return t.approve.invalidRequest;
+  if (isApiError(e, 'rate_limited')) return t.errors.rateLimited;
   return decisionErrorText(e);
 }
 
@@ -31,7 +32,7 @@ export function approveErrorText(e: unknown): string {
 const FINAL_CODES = ['already_decided', 'expired', 'not_found', 'device_inactive'];
 
 /** Face ID on iPhone/iPad, a generic passkey everywhere else. */
-const approveLabel = () => (isIOS() ? 'Mit Face ID freigeben' : 'Mit Passkey freigeben');
+const approveLabel = () => (isIOS() ? t.approve.withFaceId : t.approve.withPasskey);
 
 /** Final/neutral states share one frame with the page title as h1 (like the open request). */
 function ApproveResult({ icon, title, children }: { icon?: 'ok' | 'no'; title: string; children: React.ReactNode }) {
@@ -51,8 +52,8 @@ function ApproveResult({ icon, title, children }: { icon?: 'ok' | 'no'; title: s
 
 function Gone() {
   return (
-    <ApproveResult title="Diese Anfrage ist nicht mehr gültig.">
-      <p>Sie wurde bereits entschieden oder ist abgelaufen. Du kannst dieses Fenster schließen.</p>
+    <ApproveResult title={t.approve.goneTitle}>
+      <p>{t.approve.goneBody}</p>
     </ApproveResult>
   );
 }
@@ -60,15 +61,15 @@ function Gone() {
 function Decided({ summary: s }: { summary: ApproveSummaryDto }) {
   const name = secretName(s);
   return s.status === 'approved' ? (
-    <ApproveResult icon="ok" title="Freigegeben">
+    <ApproveResult icon="ok" title={t.approve.approvedTitle}>
       <p>
-        <span className="host">{s.device.name}</span> {s.kind === 'update' ? `darf ${name} ändern.` : `erhält ${name}.`} Du kannst dieses Fenster schließen.
+        <span className="host">{s.device.name}</span> {s.kind === 'update' ? t.approve.mayChange(name) : t.approve.receives(name)} {t.approve.closeWindow}
       </p>
     </ApproveResult>
   ) : (
-    <ApproveResult icon="no" title="Verweigert">
+    <ApproveResult icon="no" title={t.approve.deniedTitle}>
       <p>
-        <span className="host">{s.device.name}</span> erhält keinen Zugriff auf {name}. Du kannst dieses Fenster schließen.
+        <span className="host">{s.device.name}</span> {t.approve.noAccess(name)} {t.approve.closeWindow}
       </p>
     </ApproveResult>
   );
@@ -113,10 +114,10 @@ export function ApprovePage({ token }: { token: string }) {
   if (summary.isError) {
     if (isApiError(summary.error) && (summary.error.status === 404 || summary.error.status === 410)) return <Gone />;
     return (
-      <ApproveResult title="Anfrage konnte nicht geladen werden">
-        <p>Prüfe die Verbindung und lade die Seite neu.</p>
+      <ApproveResult title={t.approve.loadFailedTitle}>
+        <p>{t.approve.loadFailedBody}</p>
         <p className="approve-result-actions">
-          <Button onClick={() => window.location.reload()}>Neu laden</Button>
+          <Button onClick={() => window.location.reload()}>{t.common.reload}</Button>
         </p>
       </ApproveResult>
     );
@@ -125,7 +126,7 @@ export function ApprovePage({ token }: { token: string }) {
   if (summary.isPending) {
     return (
       <PairingFrame note={false} className="approve">
-        <div className="consent-head" aria-busy="true" aria-label="Anfrage wird geladen">
+        <div className="consent-head" aria-busy="true" aria-label={t.approve.loading}>
           <Skeleton width="30%" style={{ margin: '0 auto 14px' }} />
           <Skeleton width="85%" height={24} style={{ margin: '0 auto' }} />
           <Skeleton width="55%" height={24} style={{ margin: '8px auto 0' }} />
@@ -135,7 +136,7 @@ export function ApprovePage({ token }: { token: string }) {
           <Skeleton width="40%" style={{ marginTop: 12 }} />
         </div>
         <div className="consent-actions">
-          <Button disabled>Verweigern</Button>
+          <Button disabled>{t.requests.deny}</Button>
           <Button variant="primary" disabled>
             {approveLabel()}
           </Button>
@@ -156,7 +157,7 @@ export function ApprovePage({ token }: { token: string }) {
       <div className="consent-head">
         <p className="approve-kind">
           <span className="dot dot-amber" aria-hidden />
-          {s.kind === 'update' ? 'Änderung' : 'Abruf'}
+          {s.kind === 'update' ? t.requests.kindUpdate : t.requests.kindRead}
         </p>
         <h1>
           <ApproveSentence summary={s} />
@@ -167,7 +168,7 @@ export function ApprovePage({ token }: { token: string }) {
       <ApproveTimeBar left={left} total={firstSeen.current} />
       <div className="consent-actions">
         <Button onClick={() => decide.mutate('deny')} disabled={busy}>
-          Verweigern
+          {t.requests.deny}
         </Button>
         <Button variant="primary" onClick={() => decide.mutate('approve')} disabled={busy}>
           {approveLabel()}

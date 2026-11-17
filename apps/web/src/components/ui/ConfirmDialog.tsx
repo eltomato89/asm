@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Button } from './Button';
 import { Dialog } from './Dialog';
+import { t } from '../../i18n';
 import { Input } from './Input';
 
 type Props = {
@@ -32,7 +33,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
       description={description}
       actions={
         <>
-          <Button onClick={() => onOpenChange(false)}>Abbrechen</Button>
+          <Button onClick={() => onOpenChange(false)}>{t.common.cancel}</Button>
           <Button variant={danger ? 'danger' : 'primary'} disabled={!ok || busy} onClick={onConfirm}>
             {confirmLabel}
           </Button>
@@ -42,7 +43,7 @@ export function ConfirmDialog({ open, onOpenChange, title, description, confirmL
       {children}
       {typeToConfirm !== undefined ? (
         <Input
-          label={`Zum Bestätigen „${typeToConfirm}“ eingeben`}
+          label={t.layout.typeToConfirm(typeToConfirm)}
           mono
           autoComplete="off"
           spellCheck={false}

@@ -11,7 +11,7 @@ describe('SecretValue', () => {
     const reveal = vi.fn(async () => ({ value: 'geheim-a' }));
     renderWithProviders(<SecretValue identity="sec_a" reveal={reveal} />);
     expect(screen.queryByText('geheim-a')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Anzeigen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal' }));
     await flush();
     expect(screen.getByText('geheim-a')).toBeInTheDocument();
     act(() => vi.advanceTimersByTime(REVEAL_TTL_MS - 1));
@@ -19,7 +19,7 @@ describe('SecretValue', () => {
     act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByText('geheim-a')).toBeNull();
     // needs a new reveal afterwards
-    fireEvent.click(screen.getByRole('button', { name: 'Anzeigen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal' }));
     await flush();
     expect(reveal).toHaveBeenCalledTimes(2);
   });
@@ -27,7 +27,7 @@ describe('SecretValue', () => {
   it('clears its timer on unmount', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const { unmount } = renderWithProviders(<SecretValue identity="sec_a" reveal={async () => ({ value: 'x' })} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Anzeigen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal' }));
     await flush();
     expect(vi.getTimerCount()).toBeGreaterThan(0);
     unmount();
@@ -38,13 +38,13 @@ describe('SecretValue', () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
     const { rerender } = renderWithProviders(<SecretValue identity="sec_a" reveal={async () => ({ value: 'geheim-a' })} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Anzeigen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reveal' }));
     await flush();
     expect(screen.getByText('geheim-a')).toBeInTheDocument();
     rerender(<SecretValue identity="sec_b" reveal={async () => ({ value: 'geheim-b' })} />);
     await flush();
     expect(screen.queryByText('geheim-a')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Kopieren' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     await flush();
     expect(writeText).toHaveBeenCalledWith('geheim-b');
     expect(writeText).not.toHaveBeenCalledWith('geheim-a');

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { api, queryKeys } from './api';
+import { vaultLabel } from './vault';
 
 export type Names = {
   meId: string | undefined;
@@ -23,7 +24,7 @@ export function useNames(): Names {
   return useMemo(() => {
     const dev = new Map((devices.data?.items ?? []).map((d) => [d.id, d.name]));
     const sec = new Map((secrets.data?.items ?? []).map((s) => [s.id, s.envName ?? s.title]));
-    const vlt = new Map((vaults.data?.items ?? []).map((v) => [v.id, v.name]));
+    const vlt = new Map((vaults.data?.items ?? []).map((v) => [v.id, vaultLabel(v)]));
     const usr = new Map<string, string>();
     for (const v of vaults.data?.items ?? []) for (const m of v.members) usr.set(m.userId, m.username);
     if (me.data) usr.set(me.data.id, me.data.username);

@@ -1,5 +1,6 @@
 import type { VaultDto } from '@asm/shared';
 import { useCallback, useSyncExternalStore } from 'react';
+import { t } from '../i18n';
 
 const KEY = 'asm-vault';
 const subscribers = new Set<() => void>();
@@ -18,6 +19,11 @@ function subscribe(fn: () => void) {
   return () => {
     subscribers.delete(fn);
   };
+}
+
+/** Display name of a vault: the personal vault gets a localized label instead of its stored name. */
+export function vaultLabel(v: Pick<VaultDto, 'name' | 'personal'>): string {
+  return v.personal ? t.vaults.personal : v.name;
 }
 
 /** Currently selected vault (sidebar switcher), persisted per browser; defaults to the personal vault. */

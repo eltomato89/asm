@@ -9,14 +9,15 @@ import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Table, TBody, Td, Th, THead, Tr } from '../components/ui/Table';
 import { useToast } from '../components/ui/Toast';
+import { t } from '../i18n';
 import { api, queryKeys, type DeviceDto } from '../lib/api';
 import { errorText } from '../lib/errors';
 
-const STATUS: Record<DeviceDto['status'], { label: string; tone: BadgeTone }> = {
-  approved: { label: 'aktiv', tone: 'ok' },
-  pending: { label: 'wartet auf Freigabe', tone: 'amber' },
-  denied: { label: 'abgelehnt', tone: 'neutral' },
-  revoked: { label: 'widerrufen', tone: 'danger' },
+const STATUS_TONE: Record<DeviceDto['status'], BadgeTone> = {
+  approved: 'ok',
+  pending: 'amber',
+  denied: 'neutral',
+  revoked: 'danger',
 };
 
 export function DevicesPage() {
@@ -29,53 +30,57 @@ export function DevicesPage() {
     mutationFn: (d: DeviceDto) => api.revokeDevice(d.id),
     onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: queryKeys.devices });
-      toast(`Zugriff von ${d.name} widerrufen.`, 'ok');
+      toast(t.devices.revoked(d.name), 'ok');
       setRevoking(null);
     },
-    onError: (e) => toast(errorText(e, 'Widerrufen fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, t.devices.revokeFailed), 'danger'),
   });
 
   const items = devices.data?.items ?? [];
   return (
     <div className="content-wide-inner">
       <div className="page-head">
-        <h1>Geräte</h1>
-        <span className="meta num">{devices.data ? `${items.filter((d) => d.status === 'approved').length} aktiv` : ''}</span>
+        <h1>{t.devices.title}</h1>
+        <span className="meta num">{devices.data ? t.devices.activeCount(items.filter((d) => d.status === 'approved').length) : ''}</span>
         <div className="actions">
           <Link to="/activate" className="btn">
-            Code eingeben
+            {t.devices.enterCode}
           </Link>
         </div>
       </div>
       <p className="page-lede">
-        Agents koppeln sich über ihren MCP-Client oder mit <span className="mono">asm login</span> im Terminal. Widerrufene Geräte verlieren sofort alle Tokens und offenen Übergaben.
+        {t.devices.ledeBefore}
+        <span className="mono">asm login</span>
+        {t.devices.ledeAfter}
       </p>
 
       {devices.isPending ? (
         <Skeleton width="100%" height={120} />
       ) : devices.isError ? (
-        <p className="empty">Geräte konnten nicht geladen werden. Lade die Seite neu.</p>
+        <p className="empty">{t.devices.loadFailed}</p>
       ) : items.length === 0 ? (
         <div className="empty">
-          <strong>Noch keine Geräte gekoppelt</strong>
-          Starte die Kopplung im MCP-Client oder mit <span className="mono">asm login</span> und gib den angezeigten Code ein.
+          <strong>{t.devices.emptyTitle}</strong>
+          {t.devices.emptyBefore}
+          <span className="mono">asm login</span>
+          {t.devices.emptyAfter}
           <div style={{ marginTop: 12 }}>
             <Link to="/activate" className="btn">
-              Code eingeben
+              {t.devices.enterCode}
             </Link>
           </div>
         </div>
       ) : (
-        <Table aria-label="Geräte">
+        <Table aria-label={t.devices.title}>
           <THead>
             <Tr>
-              <Th>Name</Th>
-              <Th>Typ</Th>
-              <Th className="col-host">Host</Th>
-              <Th>Zuletzt genutzt</Th>
-              <Th>Status</Th>
+              <Th>{t.devices.col.name}</Th>
+              <Th>{t.devices.col.kind}</Th>
+              <Th className="col-host">{t.devices.col.host}</Th>
+              <Th>{t.devices.col.lastUsed}</Th>
+              <Th>{t.devices.col.status}</Th>
               <Th>
-                <span className="visually-hidden">Aktionen</span>
+                <span className="visually-hidden">{t.devices.col.actions}</span>
               </Th>
             </Tr>
           </THead>
@@ -89,14 +94,14 @@ export function DevicesPage() {
                   <span className="chip">{d.kind === 'mcp' ? 'MCP' : 'CLI'}</span>
                 </Td>
                 <Td className="col-host">{d.hostname ? <span className="host">{d.hostname}</span> : <span className="faint">–</span>}</Td>
-                <Td>{d.lastUsedAt ? <RelativeTime ts={d.lastUsedAt} className="faint" /> : <span className="faint">nie</span>}</Td>
+                <Td>{d.lastUsedAt ? <RelativeTime ts={d.lastUsedAt} className="faint" /> : <span className="faint">{t.devices.never}</span>}</Td>
                 <Td>
-                  <Badge tone={STATUS[d.status].tone}>{STATUS[d.status].label}</Badge>
+                  <Badge tone={STATUS_TONE[d.status]}>{t.devices.status[d.status]}</Badge>
                 </Td>
                 <Td className="r">
                   {d.status === 'approved' || d.status === 'pending' ? (
                     <Button variant="ghost" onClick={() => setRevoking(d)}>
-                      Widerrufen
+                      {t.devices.revoke}
                     </Button>
                   ) : null}
                 </Td>
@@ -109,9 +114,9 @@ export function DevicesPage() {
       <ConfirmDialog
         open={revoking !== null}
         onOpenChange={(v) => !v && setRevoking(null)}
-        title={`Zugriff von ${revoking?.name ?? ''} widerrufen?`}
-        description="Das Gerät kann danach keine Secrets mehr suchen oder anfragen. Offene Anfragen und Übergaben verfallen sofort. Für einen neuen Zugriff muss es sich neu koppeln."
-        confirmLabel="Widerrufen"
+        title={t.devices.revokeTitle(revoking?.name ?? '')}
+        description={t.devices.revokeText}
+        confirmLabel={t.devices.revoke}
         danger
         busy={revoke.isPending}
         onConfirm={() => revoking && revoke.mutate(revoking)}
@@ -130,9 +135,9 @@ function DeviceName({ device }: { device: DeviceDto }) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.devices });
       setEditing(false);
-      toast('Gerät umbenannt.', 'ok');
+      toast(t.devices.renamed, 'ok');
     },
-    onError: (e) => toast(errorText(e, 'Umbenennen fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, t.devices.renameFailed), 'danger'),
   });
   const save = () => {
     const n = name.trim();
@@ -152,7 +157,7 @@ function DeviceName({ device }: { device: DeviceDto }) {
       <span className="inline-edit">
         <input
           className="inline-input mono"
-          aria-label="Gerätename"
+          aria-label={t.devices.deviceName}
           autoFocus
           maxLength={100}
           value={name}
@@ -169,7 +174,7 @@ function DeviceName({ device }: { device: DeviceDto }) {
       <span className="host">{device.name}</span>
       {device.status !== 'revoked' ? (
         <IconButton
-          label={`${device.name} umbenennen`}
+          label={t.devices.rename(device.name)}
           className="icon-btn-sm"
           onClick={() => {
             setName(device.name);

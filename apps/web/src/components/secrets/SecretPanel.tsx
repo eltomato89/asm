@@ -3,9 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Archive, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { t } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { formatAbsolute } from '../../lib/format';
+import { vaultLabel } from '../../lib/vault';
 import { RelativeTime } from '../RelativeTime';
 import { Badge } from '../ui/Badge';
 import { Button, IconButton } from '../ui/Button';
@@ -33,9 +35,9 @@ export function SecretPanel({ secretId, vaults, onClose }: Props) {
     setEditing(false);
   }, [secretId]);
 
-  const name = secret.data ? (secret.data.envName ?? secret.data.title) : 'Secret';
+  const name = secret.data ? (secret.data.envName ?? secret.data.title) : t.secrets.panel.fallbackName;
   return (
-    <aside className="panel" aria-label={`Secret ${name}`}>
+    <aside className="panel" aria-label={t.secrets.panel.label(name)}>
       <div className="panel-head">
         <div className="panel-title">
           {secret.data ? (
@@ -47,12 +49,12 @@ export function SecretPanel({ secretId, vaults, onClose }: Props) {
             <Skeleton width={160} height={18} />
           )}
         </div>
-        <IconButton label="Panel schließen" onClick={onClose}>
+        <IconButton label={t.secrets.closePanel} onClick={onClose}>
           <X className="icon" strokeWidth={1.5} aria-hidden />
         </IconButton>
       </div>
       {secret.isError ? (
-        <p className="panel-body faint">Dieses Secret gibt es nicht oder du hast keinen Zugriff darauf.</p>
+        <p className="panel-body faint">{t.secrets.panel.notFound}</p>
       ) : !secret.data ? (
         <div className="panel-body">
           <Skeleton width="100%" height={60} />
@@ -63,17 +65,17 @@ export function SecretPanel({ secretId, vaults, onClose }: Props) {
         </div>
       ) : (
         <>
-          <div className="tabs" role="tablist" aria-label="Ansicht">
+          <div className="tabs" role="tablist" aria-label={t.secrets.panel.viewLabel}>
             <button type="button" role="tab" aria-selected={tab === 'details'} onClick={() => setTab('details')}>
-              Details
+              {t.secrets.panel.details}
             </button>
             <button type="button" role="tab" aria-selected={tab === 'history'} onClick={() => setTab('history')}>
-              Verlauf
+              {t.secrets.panel.history}
             </button>
           </div>
           <div className="panel-body" role="tabpanel">
             {tab === 'details' ? (
-              <SecretDetails secret={secret.data} onEdit={() => setEditing(true)} onDeleted={onClose} />
+              <SecretDetails secret={secret.data} vaults={vaults} onEdit={() => setEditing(true)} onDeleted={onClose} />
             ) : (
               <VersionTimeline secret={secret.data} />
             )}
@@ -84,32 +86,34 @@ export function SecretPanel({ secretId, vaults, onClose }: Props) {
   );
 }
 
-function SecretDetails({ secret: s, onEdit, onDeleted }: { secret: SecretMeta; onEdit: () => void; onDeleted: () => void }) {
+function SecretDetails({ secret: s, vaults, onEdit, onDeleted }: { secret: SecretMeta; vaults: VaultDto[]; onEdit: () => void; onDeleted: () => void }) {
   const qc = useQueryClient();
   const toast = useToast();
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const name = s.envName ?? s.title;
+  const vault = vaults.find((v) => v.id === s.vaultId);
+  const p = t.secrets.panel;
 
   const unarchive = useMutation({
     mutationFn: () => api.unarchiveSecret(s.id),
     onSuccess: (meta) => {
       qc.setQueryData(queryKeys.secret(s.id), meta);
       void qc.invalidateQueries({ queryKey: queryKeys.secretsAll });
-      toast(`${name} reaktiviert.`, 'ok');
+      toast(p.unarchived(name), 'ok');
     },
-    onError: (e) => toast(errorText(e, 'Reaktivieren fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, p.unarchiveFailed), 'danger'),
   });
   const remove = useMutation({
     mutationFn: () => api.deleteSecret(s.id),
     onSuccess: () => {
       qc.removeQueries({ queryKey: queryKeys.secret(s.id) });
       void qc.invalidateQueries({ queryKey: queryKeys.secretsAll });
-      toast(`${name} gelöscht.`, 'ok');
+      toast(p.deleted(name), 'ok');
       setDeleteOpen(false);
       onDeleted();
     },
-    onError: (e) => toast(errorText(e, 'Löschen fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, p.deleteFailed), 'danger'),
   });
 
   return (
@@ -119,55 +123,55 @@ function SecretDetails({ secret: s, onEdit, onDeleted }: { secret: SecretMeta; o
           <Archive className="icon icon-sm" strokeWidth={1.5} aria-hidden />
           <div>
             <p>
-              Archiviert von {s.archived.by.type === 'device' ? <span className="host">{s.archived.by.name}</span> : <strong>{s.archived.by.name}</strong>}{' '}
+              {p.archivedBy} {s.archived.by.type === 'device' ? <span className="host">{s.archived.by.name}</span> : <strong>{s.archived.by.name}</strong>}{' '}
               <span title={formatAbsolute(s.archived.at)}>
                 <RelativeTime ts={s.archived.at} />
               </span>
               {s.archived.project ? (
                 <>
                   {' '}
-                  in <span className="proj">{s.archived.project}</span>
+                  {p.in} <span className="proj">{s.archived.project}</span>
                 </>
               ) : null}
               .
             </p>
             <p className="req-reason">
-              <span className="q">Grund:</span>
+              <span className="q">{p.reason}</span>
               {s.archived.reason}
             </p>
             <Button onClick={() => unarchive.mutate()} disabled={unarchive.isPending} style={{ marginTop: 10 }}>
-              Reaktivieren
+              {p.reactivate}
             </Button>
           </div>
         </div>
       ) : (
-        <section className="panel-sec" aria-label="Wert">
-          <h3>Wert</h3>
-          <SecretValue key={s.id} identity={s.id} label={`Wert von ${name}`} reveal={() => api.revealSecret(s.id)} />
+        <section className="panel-sec" aria-label={p.value}>
+          <h3>{p.value}</h3>
+          <SecretValue key={s.id} identity={s.id} label={p.valueOf(name)} reveal={() => api.revealSecret(s.id)} />
         </section>
       )}
 
-      <section className="panel-sec" aria-label="Details">
+      <section className="panel-sec" aria-label={p.details}>
         <dl className="kv kv-panel">
-          <dt>Tresor</dt>
-          <dd>{s.vaultName}</dd>
-          <dt>Beschreibung</dt>
+          <dt>{p.vault}</dt>
+          <dd>{vault ? vaultLabel(vault) : s.vaultName}</dd>
+          <dt>{p.description}</dt>
           <dd>{s.description || <span className="faint">–</span>}</dd>
-          <dt>Tags</dt>
-          <dd>{s.tags.length ? s.tags.map((t) => <span key={t} className="chip tag">{t}</span>) : <span className="faint">–</span>}</dd>
-          <dt>Klartext an Agenten</dt>
-          <dd>{s.allowPlaintextToAgent ? <Badge tone="danger">erlaubt</Badge> : 'nicht erlaubt'}</dd>
-          <dt>Herkunft</dt>
+          <dt>{p.tags}</dt>
+          <dd>{s.tags.length ? s.tags.map((tag) => <span key={tag} className="chip tag">{tag}</span>) : <span className="faint">–</span>}</dd>
+          <dt>{p.plaintextToAgents}</dt>
+          <dd>{s.allowPlaintextToAgent ? <Badge tone="danger">{p.allowed}</Badge> : p.notAllowed}</dd>
+          <dt>{p.origin}</dt>
           <dd>
             {s.createdBy.type === 'device' ? (
               <>
-                <Badge>von Agent</Badge> <span className="host">{s.createdBy.name}</span>
+                <Badge>{p.byAgent}</Badge> <span className="host">{s.createdBy.name}</span>
               </>
             ) : (
-              <>von {s.createdBy.name} angelegt</>
+              <>{p.createdBy(s.createdBy.name)}</>
             )}
           </dd>
-          <dt>Geändert</dt>
+          <dt>{p.changed}</dt>
           <dd>
             <RelativeTime ts={s.updatedAt} />
           </dd>
@@ -179,12 +183,12 @@ function SecretDetails({ secret: s, onEdit, onDeleted }: { secret: SecretMeta; o
       <div className="panel-actions">
         {!s.archived ? (
           <>
-            <Button onClick={onEdit}>Bearbeiten</Button>
-            <Button onClick={() => setArchiveOpen(true)}>Archivieren</Button>
+            <Button onClick={onEdit}>{t.common.edit}</Button>
+            <Button onClick={() => setArchiveOpen(true)}>{p.archive}</Button>
           </>
         ) : null}
         <Button variant="danger" onClick={() => setDeleteOpen(true)}>
-          Löschen
+          {t.common.delete}
         </Button>
       </div>
 
@@ -192,9 +196,9 @@ function SecretDetails({ secret: s, onEdit, onDeleted }: { secret: SecretMeta; o
       <ConfirmDialog
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
-        title={`${name} endgültig löschen?`}
-        description="Der Wert und alle Versionen werden unwiderruflich gelöscht. Agents können ihn danach nicht mehr abrufen. Archivieren ist meist die bessere Wahl."
-        confirmLabel="Endgültig löschen"
+        title={p.deleteTitle(name)}
+        description={p.deleteDescription}
+        confirmLabel={p.deleteConfirm}
         danger
         typeToConfirm={s.title}
         busy={remove.isPending}
@@ -207,12 +211,12 @@ function SecretDetails({ secret: s, onEdit, onDeleted }: { secret: SecretMeta; o
 function UsedBy({ secretId }: { secretId: string }) {
   const used = useQuery({ queryKey: queryKeys.secretProjects(secretId), queryFn: () => api.secretProjects(secretId) });
   return (
-    <section className="panel-sec" aria-label="Genutzt von">
-      <h3>Genutzt von</h3>
+    <section className="panel-sec" aria-label={t.secrets.panel.usedBy}>
+      <h3>{t.secrets.panel.usedBy}</h3>
       {used.isPending ? (
         <Skeleton width="60%" />
       ) : !used.data?.items.length ? (
-        <p className="faint">Noch von keinem Projekt abgerufen.</p>
+        <p className="faint">{t.secrets.panel.usedByEmpty}</p>
       ) : (
         <ul className="mini-list">
           {used.data.items.map(({ project, lastUsedAt }) => (

@@ -10,6 +10,7 @@ import { Button } from '../components/ui/Button';
 import { Kbd, modKeyLabel } from '../components/ui/Kbd';
 import { MonoChip } from '../components/ui/MonoChip';
 import { Skeleton } from '../components/ui/Skeleton';
+import { t } from '../i18n';
 import { api, queryKeys } from '../lib/api';
 import { useEventSubscription } from '../lib/sse';
 
@@ -22,8 +23,9 @@ function useRequestNotifications() {
     if (e.type !== 'request.created' || e.data.status !== 'pending') return;
     if (!canNotify() || Notification.permission !== 'granted' || !document.hidden) return;
     const r = e.data;
-    new Notification('Neue Anfrage', {
-      body: `${r.device.name} möchte ${r.secret.envName ?? r.secret.title}${r.kind === 'update' ? ' ändern' : ` für ${r.project}`}`,
+    const name = r.secret.envName ?? r.secret.title;
+    new Notification(t.requests.notification.title, {
+      body: r.kind === 'update' ? t.requests.notification.update(r.device.name, name) : t.requests.notification.read(r.device.name, name, r.project),
       tag: r.id,
     });
   });
@@ -31,7 +33,7 @@ function useRequestNotifications() {
   return { permission, ask };
 }
 
-/** Übersicht (/) and Anfragen (/requests): open request cards; below either the activity feed or decided requests. */
+/** Overview (/) and Requests (/requests): open request cards; below either the activity feed or decided requests. */
 export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) {
   const pending = useQuery({ queryKey: queryKeys.requests('pending'), queryFn: () => api.requests('pending') });
   const { permission, ask } = useRequestNotifications();
@@ -40,13 +42,13 @@ export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) 
   return (
     <>
       <div className="page-head">
-        <h1>Anfragen</h1>
-        <span className="meta num">{pending.isPending ? '' : `${count} offen`}</span>
+        <h1>{t.requests.title}</h1>
+        <span className="meta num">{pending.isPending ? '' : t.requests.openCount(count)}</span>
         {permission === 'default' ? (
           <div className="actions">
             <Button variant="ghost" onClick={() => void ask()}>
               <Bell className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-              Benachrichtigungen aktivieren
+              {t.requests.enableNotifications}
             </Button>
           </div>
         ) : null}
@@ -61,32 +63,32 @@ export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) 
           </div>
         </div>
       ) : pending.isError ? (
-        <p className="empty">Anfragen konnten nicht geladen werden. Lade die Seite neu.</p>
+        <p className="empty">{t.requests.loadFailed}</p>
       ) : (
         <RequestQueue requests={pending.data.items} />
       )}
 
       <div className="kbd-hint" aria-hidden="true">
         <span>
-          <Kbd>A</Kbd> freigeben
+          <Kbd>A</Kbd> {t.requests.kbd.approve}
         </span>
         <span>
-          <Kbd>D</Kbd> verweigern
+          <Kbd>D</Kbd> {t.requests.kbd.deny}
         </span>
         <span>
           <Kbd>J</Kbd>
-          <Kbd>K</Kbd> nächste, vorige
+          <Kbd>K</Kbd> {t.requests.kbd.nextPrev}
         </span>
         <span>
-          <Kbd>{modKeyLabel('K')}</Kbd> Befehle
+          <Kbd>{modKeyLabel('K')}</Kbd> {t.requests.kbd.commands}
         </span>
       </div>
 
       {variant === 'overview' ? (
         <>
           <div className="section-head">
-            <h2>Letzte Aktivität</h2>
-            <Link to="/audit">Zum Audit-Log</Link>
+            <h2>{t.requests.recentActivity}</h2>
+            <Link to="/audit">{t.requests.toAuditLog}</Link>
           </div>
           <ActivityFeed />
         </>
@@ -97,42 +99,39 @@ export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) 
   );
 }
 
-const STATUS_TEXT: Record<Exclude<AccessRequestDto['status'], 'pending'>, string> = {
-  approved: 'freigegeben',
-  denied: 'verweigert',
-  expired: 'abgelaufen',
-};
-
 function DecidedRequests() {
   const all = useQuery({ queryKey: queryKeys.requests('all'), queryFn: () => api.requests('all') });
   const decided = (all.data?.items ?? []).filter((r) => r.status !== 'pending').slice(0, 50);
   return (
     <>
       <div className="section-head">
-        <h2>Entschieden</h2>
-        <Link to="/audit">Zum Audit-Log</Link>
+        <h2>{t.requests.decided}</h2>
+        <Link to="/audit">{t.requests.toAuditLog}</Link>
       </div>
       {all.isPending ? (
         <Skeleton width="100%" height={44} />
       ) : decided.length === 0 ? (
         <div className="empty">
-          <strong>Noch keine entschiedenen Anfragen</strong>
-          Freigaben und Ablehnungen der letzten Zeit erscheinen hier.
+          <strong>{t.requests.decidedEmptyTitle}</strong>
+          {t.requests.decidedEmptyBody}
         </div>
       ) : (
         <ul className="feed">
           {decided.map((r) => {
-            const status = r.status as keyof typeof STATUS_TEXT;
+            const status = r.status as Exclude<AccessRequestDto['status'], 'pending'>;
             const dot = status === 'approved' ? 'dot dot-ok' : status === 'denied' ? 'dot dot-danger' : 'dot';
             return (
               <li key={r.id}>
                 <span className={dot} aria-hidden />
                 <span className="sentence">
-                  <span className="secret">{r.secret.envName ?? r.secret.title}</span> für <span className="host">{r.device.name}</span>
-                  {r.kind === 'update' ? ' (Änderung)' : <> in <span className="proj">{r.project}</span></>}{' '}
+                  {t.requests.decidedSentence(
+                    <span className="secret">{r.secret.envName ?? r.secret.title}</span>,
+                    <span className="host">{r.device.name}</span>,
+                    r.kind === 'update' ? null : <span className="proj">{r.project}</span>,
+                  )}{' '}
                   <span className="muted">
-                    {STATUS_TEXT[status]}
-                    {r.auto ? ', automatisch' : r.decidedBy?.type === 'system' ? ', vom System' : ''}
+                    {t.requests.status[status]}
+                    {r.auto ? t.requests.automatically : r.decidedBy?.type === 'system' ? t.requests.bySystem : ''}
                   </span>
                 </span>
                 <MonoChip>{`request.${r.auto ? 'auto_approved' : status}`}</MonoChip>

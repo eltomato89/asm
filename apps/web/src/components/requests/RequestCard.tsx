@@ -2,18 +2,12 @@ import type { AccessRequestDto, RequestMetaDiff } from '@asm/shared';
 import { FileText, FolderClosed, Terminal } from 'lucide-react';
 import { forwardRef } from 'react';
 import { cx } from '../../lib/cx';
+import { t } from '../../i18n';
 import { formatAbsolute, formatShortTime } from '../../lib/format';
 import { Button } from '../ui/Button';
 import { Kbd } from '../ui/Kbd';
 
 export type Decision = 'approve' | 'deny';
-
-const FIELD_LABELS: Record<keyof RequestMetaDiff, string> = {
-  title: 'Titel',
-  description: 'Beschreibung',
-  tags: 'Tags',
-  envName: 'ENV-Name',
-};
 
 /** Display form of a metadata value in a diff. */
 export function diffValue(v: unknown): string {
@@ -54,7 +48,7 @@ export const RequestCard = forwardRef<HTMLElement, Props>(function RequestCard({
       ref={ref}
       className={cx('req', focused && 'is-selected', leaving && 'is-leaving')}
       data-out={leaving ?? undefined}
-      aria-label={`${isUpdate ? 'Änderungsanfrage' : 'Anfrage'} ${name}`}
+      aria-label={isUpdate ? t.requests.cardLabelUpdate(name) : t.requests.cardLabel(name)}
       aria-current={focused ? 'true' : undefined}
       onClick={onFocus}
     >
@@ -62,43 +56,38 @@ export const RequestCard = forwardRef<HTMLElement, Props>(function RequestCard({
         <div className="req-top">
           <span className="kind">
             <span className="dot dot-amber" aria-hidden />
-            {isUpdate ? 'Änderung' : 'Abruf'}
+            {isUpdate ? t.requests.kindUpdate : t.requests.kindRead}
           </span>
-          <span title={formatAbsolute(r.createdAt)}>eingegangen {formatShortTime(r.createdAt)}</span>
+          <span title={formatAbsolute(r.createdAt)}>{t.requests.received(formatShortTime(r.createdAt))}</span>
           <span className="rid mono">{r.id}</span>
         </div>
         <p className="req-sentence">
-          <span className="host">{r.device.name}</span> möchte <span className="secret">{name}</span>{' '}
-          {isUpdate ? (
-            'ändern.'
-          ) : (
-            <>
-              für <span className="proj">{r.project}</span>.
-            </>
-          )}
+          {isUpdate
+            ? t.requests.sentenceUpdate(<span className="host">{r.device.name}</span>, <span className="secret">{name}</span>)
+            : t.requests.sentenceRead(<span className="host">{r.device.name}</span>, <span className="secret">{name}</span>, <span className="proj">{r.project}</span>)}
         </p>
         <p className="req-reason">
-          <span className="q">Grund:</span>
+          <span className="q">{t.requests.reason}</span>
           {r.reason}
         </p>
         {isUpdate && (diff.length > 0 || r.valueChanged) ? (
           <dl className="req-diff">
             {diff.map(([field, d]) => (
-              <DiffRow key={field} label={FIELD_LABELS[field]}>
+              <DiffRow key={field} label={t.requests.fields[field] ?? field}>
                 <del>{diffValue(d.from)}</del>
-                <span className="arrow" aria-label="wird zu">
+                <span className="arrow" aria-label={t.requests.becomes}>
                   →
                 </span>
                 <ins>{diffValue(d.to)}</ins>
               </DiffRow>
             ))}
             {r.valueChanged ? (
-              <DiffRow label="Wert">
+              <DiffRow label={t.requests.value}>
                 <span className="masked">••••••••</span>
                 <span className="arrow" aria-hidden="true">
                   →
                 </span>
-                Wert wird geändert <span className="faint">(bisheriger Wert bleibt als Version erhalten)</span>
+                {t.requests.valueChanges} <span className="faint">{t.requests.previousValueKept}</span>
               </DiffRow>
             ) : null}
           </dl>
@@ -113,31 +102,31 @@ export const RequestCard = forwardRef<HTMLElement, Props>(function RequestCard({
             ) : r.delivery === 'plaintext' ? (
               <>
                 <FileText className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-                Klartext an Agent
+                {t.requests.plaintextToAgent}
               </>
             ) : (
               <>
                 <Terminal className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-                via CLI-Übergabe
+                {t.requests.viaCli}
               </>
             )}
           </span>
           <div className="req-actions">
             <Button disabled={busy} onClick={() => onDecide('deny')}>
-              Verweigern <Kbd aria-hidden>D</Kbd>
+              {t.requests.deny} <Kbd aria-hidden>D</Kbd>
             </Button>
             <Button variant="primary" disabled={busy} onClick={() => onDecide('approve')}>
-              Freigeben <Kbd aria-hidden>A</Kbd>
+              {t.requests.approve} <Kbd aria-hidden>A</Kbd>
             </Button>
           </div>
         </div>
       </div>
       <div className="timebar">
-        <div className="track" role="progressbar" aria-label="Verbleibende Zeit" aria-valuemin={0} aria-valuemax={total} aria-valuenow={left}>
+        <div className="track" role="progressbar" aria-label={t.requests.timeLeft} aria-valuemin={0} aria-valuemax={total} aria-valuenow={left}>
           <div className="fill" style={{ width: `${Number(pct.toFixed(2))}%` }} />
         </div>
         <span className="left">
-          läuft ab in <span className="num">{mss(left)}</span>
+          {t.requests.expiresIn} <span className="num">{mss(left)}</span>
         </span>
       </div>
     </article>

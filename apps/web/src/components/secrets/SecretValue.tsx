@@ -1,5 +1,6 @@
 import { Copy, Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { t } from '../../i18n';
 import { isApiError } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { Button } from '../ui/Button';
@@ -17,10 +18,10 @@ type Props = {
 };
 
 /**
- * Masked secret value with „Anzeigen“ / „Kopieren“. The plaintext is fetched on demand, kept only in this
+ * Masked secret value with "Reveal" / "Copy". The plaintext is fetched on demand, kept only in this
  * component's state (never in a query/mutation cache, URL or log), hidden again after 30 s and dropped on unmount.
  */
-export function SecretValue({ identity, reveal, label = 'Wert', compact }: Props) {
+export function SecretValue({ identity, reveal, label = t.secrets.value.label, compact }: Props) {
   const toast = useToast();
   const [value, setValue] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
@@ -63,7 +64,7 @@ export function SecretValue({ identity, reveal, label = 'Wert', compact }: Props
       timer.current = setTimeout(forget, REVEAL_TTL_MS);
       return res.value;
     } catch (e) {
-      if (alive.current) toast(isApiError(e, 'reauth_required') ? 'Bestätigung abgebrochen. Der Wert bleibt verborgen.' : errorText(e, 'Der Wert konnte nicht geladen werden.'), 'danger');
+      if (alive.current) toast(isApiError(e, 'reauth_required') ? t.secrets.value.reauthCancelled : errorText(e, t.secrets.value.loadFailed), 'danger');
       return null;
     } finally {
       if (alive.current) setBusy(false);
@@ -80,9 +81,9 @@ export function SecretValue({ identity, reveal, label = 'Wert', compact }: Props
     if (v === null) return;
     try {
       await navigator.clipboard.writeText(v);
-      toast('Kopiert', 'ok');
+      toast(t.common.copied, 'ok');
     } catch {
-      toast('Kopieren nicht möglich. Zeige den Wert an und kopiere ihn manuell.', 'danger');
+      toast(t.secrets.value.copyFailed, 'danger');
     }
   };
 
@@ -94,11 +95,11 @@ export function SecretValue({ identity, reveal, label = 'Wert', compact }: Props
       <div className="sv-actions">
         <Button variant="ghost" onClick={() => void toggle()} disabled={busy} aria-pressed={shown}>
           {shown ? <EyeOff className="icon icon-sm" strokeWidth={1.5} aria-hidden /> : <Eye className="icon icon-sm" strokeWidth={1.5} aria-hidden />}
-          {shown ? 'Verbergen' : 'Anzeigen'}
+          {shown ? t.secrets.value.hide : t.secrets.value.show}
         </Button>
         <Button variant="ghost" onClick={() => void copy()} disabled={busy}>
           <Copy className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-          Kopieren
+          {t.common.copy}
         </Button>
       </div>
     </div>

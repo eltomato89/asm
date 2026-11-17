@@ -1,1 +1,33 @@
-export const auth = {};
+// Login and first-run setup.
+export const auth = {
+  username: 'Username',
+  password: 'Password',
+  rateLimited: 'Too many attempts. Wait a minute and try again.',
+  login: {
+    title: 'Sign in',
+    ledeBefore: 'to ASM on ',
+    withPasskey: 'Sign in with passkey',
+    noPasskeySupport: "This browser doesn't support passkeys.",
+    orPassword: 'or with password',
+    submit: 'Sign in',
+    invalidCredentials: 'Wrong username or password.',
+    missingFields: 'Enter your username and password.',
+    failed: 'Sign-in failed. Check your connection and try again.',
+    passkeyCancelled: 'Passkey sign-in cancelled.',
+    passkeyUnknown: "This passkey isn't registered here. Sign in with your password.",
+    passkeyFailed: 'Passkey sign-in failed.',
+  },
+  setup: {
+    title: 'Set up ASM',
+    lede: 'Create the first account. It gets administrator rights.',
+    token: 'Setup token',
+    tokenHelp: 'Printed to the container log on first start, in the line “ASM setup token”.',
+    usernameHelp: '3–64 characters: letters, digits, period, underscore, hyphen.',
+    passwordHelp: (min: number) => `At least ${min} characters. You can add a passkey in Settings afterwards.`,
+    submit: 'Create account',
+    created: 'Account created. Sign in now.',
+    invalidToken: "The token doesn't match. Copy it again from the container log.",
+    invalidInput: (min: number) => `Username: 3–64 characters from letters, digits, . _ -. Password: at least ${min} characters.`,
+    failed: 'Setup failed. Check your connection and try again.',
+  },
+};

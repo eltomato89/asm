@@ -130,7 +130,7 @@ describe('push subscriptions API', () => {
     expect(res.json()).toEqual({ sent: 2 });
     expect(t.push.sent.map((s) => s.endpoint).sort()).toEqual(['https://web.push.apple.com/a1', 'https://web.push.apple.com/a2']);
     for (const s of t.push.sent) {
-      expect(s.payload).toEqual({ title: 'ASM', body: 'Test-Benachrichtigung', url: '/settings', tag: 'asm-test' });
+      expect(s.payload).toEqual({ title: 'ASM', body: 'Test notification', url: '/settings', tag: 'asm-test' });
       expect(s.opts).toMatchObject({ TTL: 300, urgency: 'high', vapidDetails: { subject: 'mailto:asm@localhost' } });
     }
     expect((await t.req(t.alice, 'GET', '/api/push/subscriptions')).json().items[0].lastUsedAt).toBe(t.clock.now());
@@ -179,7 +179,7 @@ describe('approval tokens', () => {
     expect(new Set(tokens).size).toBe(2);
     for (const s of t.push.sent) {
       expect(Object.keys(s.payload).sort()).toEqual(['body', 'tag', 'title', 'url']);
-      expect(s.payload).toMatchObject({ title: 'ASM', body: 'Neue Anfrage wartet auf Freigabe', tag: r.id });
+      expect(s.payload).toMatchObject({ title: 'ASM', body: 'New request waiting for approval', tag: r.id });
       expect(s.payload.url).toMatch(/^\/approve\/[A-Za-z0-9_-]{43}$/);
       const text = JSON.stringify(s.payload);
       for (const leak of ['Stripe', 'STRIPE_KEY', 'secret-project', 'Secret Project', 'deploy', 'alice-laptop', 'sk_live']) expect(text).not.toContain(leak);

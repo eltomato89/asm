@@ -56,9 +56,9 @@ describe('service worker', () => {
 
   it('shows the notification from the JSON payload with tag, icon and target URL', async () => {
     const w = loadWorker();
-    await w.push({ title: 'ASM', body: 'Neue Anfrage wartet auf Freigabe', url: '/approve/tok_1', tag: 'req_1' });
+    await w.push({ title: 'ASM', body: 'New request waiting for approval', url: '/approve/tok_1', tag: 'req_1' });
     expect(w.self.registration.showNotification).toHaveBeenCalledWith('ASM', {
-      body: 'Neue Anfrage wartet auf Freigabe',
+      body: 'New request waiting for approval',
       icon: '/icons/icon-192.png',
       tag: 'req_1',
       data: { url: '/approve/tok_1' },
@@ -68,7 +68,7 @@ describe('service worker', () => {
   it.each([null, 'not json', { title: 42 }])('falls back to neutral text for payload %j', async (payload) => {
     const w = loadWorker();
     await w.push(payload);
-    expect(w.self.registration.showNotification).toHaveBeenCalledWith('ASM', { body: 'Neue Benachrichtigung', icon: '/icons/icon-192.png', data: { url: '/' } });
+    expect(w.self.registration.showNotification).toHaveBeenCalledWith('ASM', { body: 'New notification', icon: '/icons/icon-192.png', data: { url: '/' } });
   });
 
   it.each(['https://evil.example/approve/x', '//evil.example/x', '/\\evil.example', 'javascript:alert(1)', '/.//evil.example', 'approve/x'])(

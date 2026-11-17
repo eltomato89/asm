@@ -1,1 +1,37 @@
-export const devices = {};
+// Devices page: paired agents (MCP clients and CLI).
+export const devices = {
+  title: 'Devices',
+  activeCount: (n: number) => `${n} active`,
+  enterCode: 'Enter code',
+  ledeBefore: 'Agents pair through their MCP client or with ',
+  ledeAfter: ' in the terminal. Revoked devices immediately lose all tokens and open handoffs.',
+  loadFailed: "Couldn't load devices. Reload the page.",
+  emptyTitle: 'No devices paired yet',
+  emptyBefore: 'Start pairing in the MCP client or with ',
+  emptyAfter: ' and enter the code shown.',
+  status: {
+    approved: 'active',
+    pending: 'awaiting approval',
+    denied: 'denied',
+    revoked: 'revoked',
+  },
+  col: {
+    name: 'Name',
+    kind: 'Type',
+    host: 'Host',
+    lastUsed: 'Last used',
+    status: 'Status',
+    actions: 'Actions',
+  },
+  never: 'never',
+  revoke: 'Revoke',
+  revoked: (name: string) => `Access for ${name} revoked.`,
+  revokeFailed: 'Revoking failed.',
+  revokeTitle: (name: string) => `Revoke access for ${name}?`,
+  revokeText:
+    'The device will no longer be able to search or request secrets. Open requests and handoffs expire immediately. To get access again, it has to pair again.',
+  deviceName: 'Device name',
+  rename: (name: string) => `Rename ${name}`,
+  renamed: 'Device renamed.',
+  renameFailed: 'Renaming failed.',
+};

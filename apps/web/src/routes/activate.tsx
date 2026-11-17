@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { Button } from '../components/ui/Button';
+import { t } from '../i18n';
 import { api, isApiError, type ActivationInfo } from '../lib/api';
 import { errorText } from '../lib/errors';
 import { formatAbsolute, formatShortTime } from '../lib/format';
@@ -14,9 +15,9 @@ export function formatUserCode(input: string): string {
 }
 
 function codeError(e: unknown): string {
-  if (isApiError(e, 'invalid_code')) return 'Dieser Code ist ungültig oder abgelaufen. Starte die Kopplung im Terminal neu.';
-  if (isApiError(e, 'reauth_required')) return 'Bestätigung abgebrochen. Es wurde nichts freigegeben.';
-  return errorText(e, 'Das hat nicht geklappt. Versuche es erneut.');
+  if (isApiError(e, 'invalid_code')) return t.connect.cli.invalidCode;
+  if (isApiError(e, 'reauth_required')) return t.connect.reauthCancelled;
+  return errorText(e, t.connect.failed);
 }
 
 /** CLI pairing (device authorization grant): enter the code shown by `asm login`, check the device, decide. */
@@ -50,19 +51,20 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
     return (
       <PairingFrame note={result === 'approved'}>
         {result === 'approved' ? (
-          <PairingResult ok title="Verbunden">
+          <PairingResult ok title={t.connect.connected}>
             <p>
-              <span className="host">{preview?.name}</span> ist jetzt gekoppelt. Das Terminal meldet sich in wenigen Sekunden von selbst.
+              <span className="host">{preview?.name}</span>
+              {t.connect.cli.paired}
             </p>
             <p style={{ marginTop: 16 }}>
               <Link className="btn" to="/devices">
-                Zu den Geräten
+                {t.connect.cli.toDevices}
               </Link>
             </p>
           </PairingResult>
         ) : (
-          <PairingResult ok={false} title="Kopplung verweigert">
-            <p>Das Gerät hat keinen Zugriff erhalten.</p>
+          <PairingResult ok={false} title={t.connect.cli.denied}>
+            <p>{t.connect.cli.deniedText}</p>
           </PairingResult>
         )}
       </PairingFrame>
@@ -73,12 +75,22 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
     <PairingFrame note={false}>
       <div className="consent-head">
         <PairMarks />
-        <h1>{preview ? `${preview.name} möchte sich mit ASM verbinden` : 'Gerät koppeln'}</h1>
-        <p>{preview ? <>Prüfe, ob du die Kopplung gerade selbst gestartet hast.</> : <>Gib den Code ein, den <span className="mono">asm login</span> im Terminal anzeigt.</>}</p>
+        <h1>{preview ? t.connect.wantsToConnect(preview.name) : t.connect.cli.title}</h1>
+        <p>
+          {preview ? (
+            t.connect.cli.checkStarted
+          ) : (
+            <>
+              {t.connect.cli.enterCodeBefore}
+              <span className="mono">asm login</span>
+              {t.connect.cli.enterCodeAfter}
+            </>
+          )}
+        </p>
       </div>
 
       <form className="consent-sec field" onSubmit={submit}>
-        <label htmlFor="user-code">Code</label>
+        <label htmlFor="user-code">{t.connect.cli.code}</label>
         <div className="input">
           <input
             id="user-code"
@@ -99,7 +111,7 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
         </div>
         {!preview ? (
           <Button type="submit" variant="primary" size="lg" block disabled={!complete || lookup.isPending} style={{ marginTop: 12 }}>
-            Weiter
+            {t.connect.cli.continue}
           </Button>
         ) : null}
       </form>
@@ -108,13 +120,13 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
         <>
           <div className="consent-sec">
             <dl className="kv">
-              <dt>Gerät</dt>
+              <dt>{t.connect.cli.device}</dt>
               <dd className="host">{preview.name}</dd>
-              <dt>Host</dt>
+              <dt>{t.connect.cli.host}</dt>
               <dd>{preview.hostname ? <span className="host">{preview.hostname}</span> : <span className="faint">–</span>}</dd>
-              <dt>Angefragt</dt>
+              <dt>{t.connect.cli.requested}</dt>
               <dd className="num" title={formatAbsolute(preview.requestedAt)}>
-                {formatShortTime(preview.requestedAt)} Uhr
+                {t.connect.cli.requestedAt(formatShortTime(preview.requestedAt))}
               </dd>
             </dl>
           </div>
@@ -131,10 +143,10 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
       {preview ? (
         <div className="consent-actions">
           <Button onClick={() => decide.mutate('deny')} disabled={decide.isPending}>
-            Verweigern
+            {t.connect.deny}
           </Button>
           <Button variant="primary" onClick={() => decide.mutate('approve')} disabled={decide.isPending}>
-            Freigeben
+            {t.connect.approve}
           </Button>
         </div>
       ) : (

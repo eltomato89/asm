@@ -13,16 +13,13 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { Table, TBody, Td, Th, THead, Tr } from '../components/ui/Table';
 import { api, queryKeys, type SecretStatus } from '../lib/api';
 import { cx } from '../lib/cx';
+import { t } from '../i18n';
 import { formatAbsolute } from '../lib/format';
-import { useCurrentVault } from '../lib/vault';
+import { useCurrentVault, vaultLabel } from '../lib/vault';
 
 const PAGE = 100;
 
-const FILTERS: { status: SecretStatus; label: string }[] = [
-  { status: 'active', label: 'Aktiv' },
-  { status: 'archived', label: 'Archiviert' },
-  { status: 'all', label: 'Alle' },
-];
+const FILTERS: SecretStatus[] = ['active', 'archived', 'all'];
 
 export function SecretsPage({ selected }: { selected?: string }) {
   const navigate = useNavigate();
@@ -52,8 +49,8 @@ export function SecretsPage({ selected }: { selected?: string }) {
     <div className={cx('split', panelOpen && 'has-panel')}>
       <div className="split-main">
         <div className="page-head">
-          <h1>Secrets</h1>
-          <span className="meta num">{list.data ? `${items.length}${list.hasNextPage ? '+' : ''} in ${vault?.name ?? ''}` : ''}</span>
+          <h1>{t.secrets.title}</h1>
+          <span className="meta num">{list.data ? t.secrets.countIn(`${items.length}${list.hasNextPage ? '+' : ''}`, vault ? vaultLabel(vault) : '') : ''}</span>
           <div className="actions">
             <Button
               variant="primary"
@@ -63,21 +60,21 @@ export function SecretsPage({ selected }: { selected?: string }) {
               }}
             >
               <Plus className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-              Neues Secret
+              {t.secrets.newSecret}
             </Button>
           </div>
         </div>
         <div className="filters">
-          <div className="seg" role="group" aria-label="Status">
+          <div className="seg" role="group" aria-label={t.secrets.statusLabel}>
             {FILTERS.map((f) => (
-              <button key={f.status} type="button" aria-pressed={status === f.status} onClick={() => setStatus(f.status)}>
-                {f.label}
+              <button key={f} type="button" aria-pressed={status === f} onClick={() => setStatus(f)}>
+                {t.secrets.filters[f]}
               </button>
             ))}
           </div>
           <label className="search">
             <Search className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-            <input type="search" placeholder="Titel, ENV-Name, Tag" aria-label="Secrets durchsuchen" value={q} onChange={(e) => setQ(e.target.value)} />
+            <input type="search" placeholder={t.secrets.searchPlaceholder} aria-label={t.secrets.searchLabel} value={q} onChange={(e) => setQ(e.target.value)} />
           </label>
         </div>
 
@@ -88,16 +85,16 @@ export function SecretsPage({ selected }: { selected?: string }) {
             ))}
           </div>
         ) : list.isError ? (
-          <p className="empty">Secrets konnten nicht geladen werden. Lade die Seite neu.</p>
+          <p className="empty">{t.secrets.loadError}</p>
         ) : items.length === 0 ? (
           <EmptySecrets status={status} query={query} onCreate={() => setCreating(true)} />
         ) : (
-          <Table aria-label="Secrets">
+          <Table aria-label={t.secrets.title}>
             <THead>
               <Tr>
-                <Th>Name</Th>
-                <Th className="col-tags">Tags</Th>
-                <Th className="r">Geändert</Th>
+                <Th>{t.secrets.columns.name}</Th>
+                <Th className="col-tags">{t.secrets.columns.tags}</Th>
+                <Th className="r">{t.secrets.columns.changed}</Th>
               </Tr>
             </THead>
             <TBody>
@@ -110,20 +107,20 @@ export function SecretsPage({ selected }: { selected?: string }) {
         {list.hasNextPage ? (
           <div className="list-more">
             <Button onClick={() => void list.fetchNextPage()} disabled={list.isFetchingNextPage}>
-              Mehr laden
+              {t.secrets.loadMore}
             </Button>
           </div>
         ) : null}
       </div>
 
       {creating ? (
-        <aside className="panel" aria-label="Neues Secret">
+        <aside className="panel" aria-label={t.secrets.newSecret}>
           <div className="panel-head">
             <div className="panel-title">
-              <h2>Neues Secret</h2>
-              {vault ? <p>in {vault.name}</p> : null}
+              <h2>{t.secrets.newSecret}</h2>
+              {vault ? <p>{t.secrets.inVault(vaultLabel(vault))}</p> : null}
             </div>
-            <IconButton label="Panel schließen" onClick={() => setCreating(false)}>
+            <IconButton label={t.secrets.closePanel} onClick={() => setCreating(false)}>
               <X className="icon" strokeWidth={1.5} aria-hidden />
             </IconButton>
           </div>
@@ -151,7 +148,7 @@ function SecretRow({ s, active, onSelect }: { s: SecretMeta; active: boolean; on
             <Tooltip.Root>
               <Tooltip.Trigger asChild>
                 <span className="badge" title={s.archived.reason} tabIndex={0}>
-                  Archiviert
+                  {t.secrets.archivedBadge}
                 </span>
               </Tooltip.Trigger>
               <Tooltip.Portal>
@@ -161,13 +158,13 @@ function SecretRow({ s, active, onSelect }: { s: SecretMeta; active: boolean; on
               </Tooltip.Portal>
             </Tooltip.Root>
           ) : null}
-          {s.createdBy.type === 'device' ? <Badge title={`angelegt von ${s.createdBy.name}`}>von Agent</Badge> : null}
+          {s.createdBy.type === 'device' ? <Badge title={t.secrets.createdByTitle(s.createdBy.name)}>{t.secrets.byAgent}</Badge> : null}
         </span>
       </Td>
       <Td className="col-tags">
-        {s.tags.slice(0, 3).map((t) => (
-          <span key={t} className="chip tag">
-            {t}
+        {s.tags.slice(0, 3).map((tag) => (
+          <span key={tag} className="chip tag">
+            {tag}
           </span>
         ))}
         {s.tags.length > 3 ? <span className="faint"> +{s.tags.length - 3}</span> : null}
@@ -183,25 +180,25 @@ function EmptySecrets({ status, query, onCreate }: { status: SecretStatus; query
   if (query) {
     return (
       <div className="empty">
-        <strong>Keine Treffer für „{query}“</strong>
-        Prüfe die Schreibweise oder wechsle zu „Alle“.
+        <strong>{t.secrets.empty.noMatches(query)}</strong>
+        {t.secrets.empty.noMatchesHint}
       </div>
     );
   }
   if (status === 'archived') {
     return (
       <div className="empty">
-        <strong>Keine archivierten Secrets</strong>
-        Archivierte Secrets erscheinen hier und lassen sich reaktivieren.
+        <strong>{t.secrets.empty.archivedTitle}</strong>
+        {t.secrets.empty.archivedHint}
       </div>
     );
   }
   return (
     <div className="empty">
-      <strong>Noch keine Secrets in diesem Tresor</strong>
-      Lege das erste an oder lass einen Agenten eins anlegen.
+      <strong>{t.secrets.empty.vaultTitle}</strong>
+      {t.secrets.empty.vaultHint}
       <div style={{ marginTop: 12 }}>
-        <Button onClick={onCreate}>Neues Secret</Button>
+        <Button onClick={onCreate}>{t.secrets.newSecret}</Button>
       </div>
     </div>
   );

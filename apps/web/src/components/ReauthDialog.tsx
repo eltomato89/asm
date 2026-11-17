@@ -5,14 +5,15 @@ import { api, isApiError, reauth } from '../lib/api';
 import { Button } from './ui/Button';
 import { Dialog } from './ui/Dialog';
 import { Input } from './ui/Input';
+import { t } from '../i18n';
 
 type Mode = 'passkey' | 'password';
 
 function errorText(e: unknown): string {
-  if (isApiError(e, 'invalid_credentials')) return 'Das hat nicht gepasst. Versuche es erneut.';
-  if (isApiError(e, 'rate_limited')) return 'Zu viele Versuche. Warte eine Minute und versuche es erneut.';
-  if (e instanceof Error && e.name === 'NotAllowedError') return 'Passkey-Abfrage abgebrochen.';
-  return 'Bestätigung fehlgeschlagen. Versuche es erneut.';
+  if (isApiError(e, 'invalid_credentials')) return t.reauth.invalidCredentials;
+  if (isApiError(e, 'rate_limited')) return t.reauth.rateLimited;
+  if (e instanceof Error && e.name === 'NotAllowedError') return t.reauth.passkeyCancelled;
+  return t.reauth.failed;
 }
 
 /**
@@ -90,26 +91,26 @@ export function ReauthDialog() {
       onOpenChange={(v) => {
         if (!v) finish(false);
       }}
-      title="Bestätige, dass du es bist"
-      description="Diese Aktion braucht eine frische Anmeldung. Danach wird sie automatisch ausgeführt."
+      title={t.reauth.title}
+      description={t.reauth.description}
     >
       {mode === 'passkey' ? (
         <div>
           <Button variant="primary" size="lg" block onClick={withPasskey} disabled={busy}>
             <KeyRound className="icon" strokeWidth={1.5} aria-hidden />
-            Mit Passkey bestätigen
+            {t.reauth.withPasskey}
           </Button>
           <Button variant="ghost" block onClick={() => setMode('password')} style={{ marginTop: 8 }}>
-            Stattdessen Passwort eingeben
+            {t.reauth.usePassword}
           </Button>
         </div>
       ) : (
         <form onSubmit={withPassword}>
-          <Input label="Passwort" type="password" autoComplete="current-password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <Input label={t.reauth.password} type="password" autoComplete="current-password" autoFocus value={password} onChange={(e) => setPassword(e.target.value)} required />
           <div className="dialog-actions" style={{ padding: '16px 0 0' }}>
-            <Button onClick={() => finish(false)}>Abbrechen</Button>
+            <Button onClick={() => finish(false)}>{t.common.cancel}</Button>
             <Button variant="primary" type="submit" disabled={busy || !password}>
-              Bestätigen
+              {t.reauth.confirm}
             </Button>
           </div>
         </form>

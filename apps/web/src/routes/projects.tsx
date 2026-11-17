@@ -14,6 +14,7 @@ import { useToast } from '../components/ui/Toast';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { cx } from '../lib/cx';
 import { errorText } from '../lib/errors';
+import { t } from '../i18n';
 
 export function ProjectsPage({ selected }: { selected?: string }) {
   const navigate = useNavigate();
@@ -29,27 +30,27 @@ export function ProjectsPage({ selected }: { selected?: string }) {
     <div className={cx('split', selected && 'has-panel')}>
       <div className="split-main">
         <div className="page-head">
-          <h1>Projekte</h1>
+          <h1>{t.projects.title}</h1>
           <span className="meta num">{projects.data ? `${items.length}` : ''}</span>
         </div>
-        <p className="page-lede">Projekte entstehen automatisch, wenn ein Agent ein Secret für ein Repository oder Vorhaben anfragt. Gleiche Projekte unter verschiedenen Namen kannst du zusammenführen.</p>
+        <p className="page-lede">{t.projects.lede}</p>
         {projects.isPending ? (
           <Skeleton width="100%" height={120} />
         ) : projects.isError ? (
-          <p className="empty">Projekte konnten nicht geladen werden.</p>
+          <p className="empty">{t.projects.loadError}</p>
         ) : items.length === 0 ? (
           <div className="empty">
-            <strong>Noch keine Projekte</strong>
-            Sobald ein Agent ein Secret für ein Projekt anfragt, erscheint es hier.
+            <strong>{t.projects.emptyTitle}</strong>
+            {t.projects.emptyHint}
           </div>
         ) : (
-          <Table aria-label="Projekte">
+          <Table aria-label={t.projects.title}>
             <THead>
               <Tr>
-                <Th>Name</Th>
-                <Th>Zuletzt gesehen</Th>
-                <Th className="r">Secrets</Th>
-                <Th className="r">Geräte</Th>
+                <Th>{t.projects.columns.name}</Th>
+                <Th>{t.projects.columns.lastSeen}</Th>
+                <Th className="r">{t.projects.columns.secrets}</Th>
+                <Th className="r">{t.projects.columns.devices}</Th>
               </Tr>
             </THead>
             <TBody>
@@ -84,31 +85,31 @@ function ProjectPanel({ projectId, projects, onClose, onMerged }: { projectId: s
   const [mergeOpen, setMergeOpen] = useState(false);
   const p = detail.data?.project;
   return (
-    <aside className="panel" aria-label={`Projekt ${p?.displayName ?? ''}`}>
+    <aside className="panel" aria-label={t.projects.panelLabel(p?.displayName ?? '')}>
       <div className="panel-head">
         <div className="panel-title">
           {p ? <h2 className="proj">{p.displayName}</h2> : <Skeleton width={160} height={18} />}
           {p ? (
             <p>
-              zuerst gesehen <RelativeTime ts={p.firstSeen} />
+              {t.projects.firstSeen} <RelativeTime ts={p.firstSeen} />
             </p>
           ) : null}
         </div>
-        <IconButton label="Panel schließen" onClick={onClose}>
+        <IconButton label={t.projects.closePanel} onClick={onClose}>
           <X className="icon" strokeWidth={1.5} aria-hidden />
         </IconButton>
       </div>
       <div className="panel-body">
         {detail.isError ? (
-          <p className="faint">Dieses Projekt gibt es nicht mehr oder es wurde zusammengeführt.</p>
+          <p className="faint">{t.projects.notFound}</p>
         ) : !detail.data ? (
           <Skeleton width="100%" height={80} />
         ) : (
           <>
-            <section className="panel-sec" aria-label="Genutzte Secrets">
-              <h3>Genutzte Secrets</h3>
+            <section className="panel-sec" aria-label={t.projects.usedSecrets}>
+              <h3>{t.projects.usedSecrets}</h3>
               {detail.data.secrets.length === 0 ? (
-                <p className="faint">Noch keine Secrets abgerufen.</p>
+                <p className="faint">{t.projects.noSecrets}</p>
               ) : (
                 <ul className="mini-list">
                   {detail.data.secrets.map(({ secret, lastUsedAt }) => (
@@ -122,10 +123,10 @@ function ProjectPanel({ projectId, projects, onClose, onMerged }: { projectId: s
                 </ul>
               )}
             </section>
-            <section className="panel-sec" aria-label="Geräte">
-              <h3>Geräte</h3>
+            <section className="panel-sec" aria-label={t.projects.devices}>
+              <h3>{t.projects.devices}</h3>
               {detail.data.devices.length === 0 ? (
-                <p className="faint">Keine Geräte.</p>
+                <p className="faint">{t.projects.noDevices}</p>
               ) : (
                 <ul className="mini-list">
                   {detail.data.devices.map(({ device, lastUsedAt }) => (
@@ -137,16 +138,16 @@ function ProjectPanel({ projectId, projects, onClose, onMerged }: { projectId: s
                 </ul>
               )}
             </section>
-            <section className="panel-sec" aria-label="Letzte Einträge">
-              <h3>Letzte Einträge</h3>
+            <section className="panel-sec" aria-label={t.projects.recent}>
+              <h3>{t.projects.recent}</h3>
               <ActivityFeed filter={{ project: detail.data.project.slug, limit: 10 }} />
               <Link to="/audit" search={{ project: detail.data.project.slug }} className="more-link">
-                Alle Einträge im Audit-Log
+                {t.projects.allInAudit}
               </Link>
             </section>
             <div className="panel-actions">
               <Button onClick={() => setMergeOpen(true)} disabled={projects.length < 2}>
-                Zusammenführen mit …
+                {t.projects.mergeWith}
               </Button>
             </div>
             <MergeDialog
@@ -191,15 +192,15 @@ function MergeDialog({
     mutationFn: () => api.mergeProject(from.id, into),
     onSuccess: (target) => {
       void qc.invalidateQueries({ queryKey: queryKeys.projectsAll });
-      toast(`${from.displayName} in ${target.displayName} zusammengeführt.`, 'ok');
+      toast(t.projects.merged(from.displayName, target.displayName), 'ok');
       onOpenChange(false);
       onMerged(target.id);
     },
     onError: (e) =>
       setError(
         isApiError(e, 'merge_not_allowed')
-          ? 'Dieses Projekt enthält Nutzungen aus Tresoren, auf die du keinen Zugriff hast. Zusammenführen ist daher nicht möglich.'
-          : errorText(e, 'Zusammenführen fehlgeschlagen.'),
+          ? t.projects.mergeNotAllowed
+          : errorText(e, t.projects.mergeFailed),
       ),
   });
 
@@ -207,21 +208,21 @@ function MergeDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`${from.displayName} zusammenführen`}
-      description="Alle Nutzungen wandern in das Zielprojekt. Einträge im Audit-Log behalten ihren ursprünglichen Projektnamen."
+      title={t.projects.mergeTitle(from.displayName)}
+      description={t.projects.mergeDescription}
       actions={
         <>
-          <Button onClick={() => onOpenChange(false)}>Abbrechen</Button>
+          <Button onClick={() => onOpenChange(false)}>{t.common.cancel}</Button>
           <Button variant="primary" disabled={!into || merge.isPending} onClick={() => merge.mutate()}>
-            Zusammenführen
+            {t.projects.merge}
           </Button>
         </>
       }
     >
-      <Select label="Zielprojekt" value={into} onChange={(e) => setInto(e.target.value)}>
-        {targets.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.displayName}
+      <Select label={t.projects.target} value={into} onChange={(e) => setInto(e.target.value)}>
+        {targets.map((x) => (
+          <option key={x.id} value={x.id}>
+            {x.displayName}
           </option>
         ))}
       </Select>

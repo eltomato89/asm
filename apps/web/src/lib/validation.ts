@@ -1,6 +1,8 @@
 // Client-side mirror of the server's secret rules (packages/shared/src/schemas.ts). Kept zod-free so the
 // bundle stays small; the server validates again and remains authoritative.
 
+import { t } from '../i18n';
+
 export const ENV_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 export const TAG_RE = /^[\p{L}\p{N}._-]+$/u;
 export const MAX_VALUE_BYTES = 64 * 1024;
@@ -25,25 +27,26 @@ export type SecretFormErrors = Partial<Record<'title' | 'description' | 'tags' |
 export const parseTags = (s: string): string[] =>
   s
     .split(/[\s,]+/)
-    .map((t) => t.trim())
+    .map((s) => s.trim())
     .filter(Boolean);
 
 export function validateSecretForm(v: SecretFormValues, opts: { creating: boolean }): SecretFormErrors {
   const e: SecretFormErrors = {};
+  const m = t.secrets.validation;
   const title = v.title.trim();
-  if (!title) e.title = 'Gib einen Titel ein.';
-  else if (title.length > 200) e.title = 'Höchstens 200 Zeichen.';
-  if (v.description.length > 4000) e.description = 'Höchstens 4000 Zeichen.';
+  if (!title) e.title = m.titleRequired;
+  else if (title.length > 200) e.title = m.maxChars(200);
+  if (v.description.length > 4000) e.description = m.maxChars(4000);
   const tags = parseTags(v.tags);
-  if (tags.length > 20) e.tags = 'Höchstens 20 Tags.';
-  else if (tags.some((t) => t.length > 40)) e.tags = 'Ein Tag darf höchstens 40 Zeichen lang sein.';
-  else if (tags.some((t) => !TAG_RE.test(t))) e.tags = 'Tags bestehen aus Buchstaben, Ziffern, Punkt, Unterstrich und Bindestrich.';
+  if (tags.length > 20) e.tags = m.maxTags(20);
+  else if (tags.some((tag) => tag.length > 40)) e.tags = m.tagTooLong(40);
+  else if (tags.some((tag) => !TAG_RE.test(tag))) e.tags = m.tagChars;
   const env = v.envName.trim();
-  if (env && (env.length > 200 || !ENV_NAME_RE.test(env))) e.envName = 'Großbuchstaben, Ziffern und Unterstrich, nicht mit einer Ziffer beginnend (z. B. GITHUB_TOKEN).';
+  if (env && (env.length > 200 || !ENV_NAME_RE.test(env))) e.envName = m.envName;
   if (v.valueMode === 'enter' || (opts.creating && v.valueMode === 'keep')) {
-    if (!v.value) e.value = 'Gib einen Wert ein oder lass ihn generieren.';
-    else if (new TextEncoder().encode(v.value).length > MAX_VALUE_BYTES) e.value = 'Der Wert darf höchstens 64 KiB groß sein.';
+    if (!v.value) e.value = m.valueRequired;
+    else if (new TextEncoder().encode(v.value).length > MAX_VALUE_BYTES) e.value = m.valueTooLarge;
   }
-  if (v.valueMode === 'generate' && (!Number.isInteger(v.length) || v.length < 16 || v.length > 256)) e.length = 'Länge zwischen 16 und 256.';
+  if (v.valueMode === 'generate' && (!Number.isInteger(v.length) || v.length < 16 || v.length > 256)) e.length = m.lengthRange(16, 256);
   return e;
 }

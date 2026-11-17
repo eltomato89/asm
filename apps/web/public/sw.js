@@ -3,7 +3,7 @@
 'use strict';
 
 var FALLBACK_TITLE = 'ASM';
-var FALLBACK_BODY = 'Neue Benachrichtigung';
+var FALLBACK_BODY = 'New notification';
 var ICON = '/icons/icon-192.png';
 
 /** Only same-origin relative paths ("/…") are opened; anything else falls back to "/". */

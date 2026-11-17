@@ -1,3 +1,28 @@
 import type { Messages } from '../en';
 
-export const projects: Messages['projects'] = {};
+export const projects: Messages['projects'] = {
+  title: 'Projekte',
+  lede: 'Projekte entstehen automatisch, wenn ein Agent ein Secret für ein Repository oder Vorhaben anfragt. Gleiche Projekte unter verschiedenen Namen kannst du zusammenführen.',
+  loadError: 'Projekte konnten nicht geladen werden.',
+  emptyTitle: 'Noch keine Projekte',
+  emptyHint: 'Sobald ein Agent ein Secret für ein Projekt anfragt, erscheint es hier.',
+  columns: { name: 'Name', lastSeen: 'Zuletzt gesehen', secrets: 'Secrets', devices: 'Geräte' },
+  panelLabel: (name) => `Projekt ${name}`,
+  firstSeen: 'zuerst gesehen',
+  closePanel: 'Panel schließen',
+  notFound: 'Dieses Projekt gibt es nicht mehr oder es wurde zusammengeführt.',
+  usedSecrets: 'Genutzte Secrets',
+  noSecrets: 'Noch keine Secrets abgerufen.',
+  devices: 'Geräte',
+  noDevices: 'Keine Geräte.',
+  recent: 'Letzte Einträge',
+  allInAudit: 'Alle Einträge im Audit-Log',
+  mergeWith: 'Zusammenführen mit …',
+  merged: (from, into) => `${from} in ${into} zusammengeführt.`,
+  mergeNotAllowed: 'Dieses Projekt enthält Nutzungen aus Tresoren, auf die du keinen Zugriff hast. Zusammenführen ist daher nicht möglich.',
+  mergeFailed: 'Zusammenführen fehlgeschlagen.',
+  mergeTitle: (name) => `${name} zusammenführen`,
+  mergeDescription: 'Alle Nutzungen wandern in das Zielprojekt. Einträge im Audit-Log behalten ihren ursprünglichen Projektnamen.',
+  merge: 'Zusammenführen',
+  target: 'Zielprojekt',
+};

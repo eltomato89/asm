@@ -5,21 +5,22 @@ import { KeyRound } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+import { t } from '../i18n';
 import { api, isApiError, queryKeys, type Me } from '../lib/api';
 import { AuthCard } from './AuthCard';
 
 function loginError(e: unknown): string {
-  if (isApiError(e, 'invalid_credentials')) return 'Benutzername oder Passwort ist falsch.';
-  if (isApiError(e, 'rate_limited')) return 'Zu viele Versuche. Warte eine Minute und versuche es erneut.';
-  if (isApiError(e, 'invalid_request')) return 'Gib Benutzername und Passwort ein.';
-  return 'Anmeldung fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.';
+  if (isApiError(e, 'invalid_credentials')) return t.auth.login.invalidCredentials;
+  if (isApiError(e, 'rate_limited')) return t.auth.rateLimited;
+  if (isApiError(e, 'invalid_request')) return t.auth.login.missingFields;
+  return t.auth.login.failed;
 }
 
 function passkeyError(e: unknown): string {
-  if (e instanceof Error && e.name === 'NotAllowedError') return 'Anmeldung mit Passkey abgebrochen.';
-  if (isApiError(e, 'invalid_credentials')) return 'Dieser Passkey ist hier nicht registriert. Melde dich mit Passwort an.';
-  if (isApiError(e, 'rate_limited')) return 'Zu viele Versuche. Warte eine Minute und versuche es erneut.';
-  return 'Anmeldung mit Passkey fehlgeschlagen.';
+  if (e instanceof Error && e.name === 'NotAllowedError') return t.auth.login.passkeyCancelled;
+  if (isApiError(e, 'invalid_credentials')) return t.auth.login.passkeyUnknown;
+  if (isApiError(e, 'rate_limited')) return t.auth.rateLimited;
+  return t.auth.login.passkeyFailed;
 }
 
 /** `redirectTo`: validated same-origin target to return to (e.g. /connect?req=…). */
@@ -63,24 +64,24 @@ export function LoginPage({ redirectTo }: { redirectTo?: string }) {
   };
 
   return (
-    <AuthCard title="Anmelden" lede={<>bei ASM auf <span className="mono">{window.location.host}</span></>}>
+    <AuthCard title={t.auth.login.title} lede={<>{t.auth.login.ledeBefore}<span className="mono">{window.location.host}</span></>}>
       <div className="consent-sec">
         <Button variant="primary" size="lg" block onClick={withPasskey} disabled={busy !== null || !passkeysSupported}>
           <KeyRound className="icon" strokeWidth={1.5} aria-hidden />
-          Mit Passkey anmelden
+          {t.auth.login.withPasskey}
         </Button>
-        {!passkeysSupported ? <p className="help faint" style={{ fontSize: 12, margin: '6px 0 0' }}>Dieser Browser unterstützt keine Passkeys.</p> : null}
-        <div className="divider">oder mit Passwort</div>
+        {!passkeysSupported ? <p className="help faint" style={{ fontSize: 12, margin: '6px 0 0' }}>{t.auth.login.noPasskeySupport}</p> : null}
+        <div className="divider">{t.auth.login.orPassword}</div>
         <form onSubmit={withPassword} noValidate>
-          <Input label="Benutzername" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
-          <Input label="Passwort" name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <Input label={t.auth.username} name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} required />
+          <Input label={t.auth.password} name="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required />
           {error ? (
             <p className="form-error" role="alert">
               {error}
             </p>
           ) : null}
           <Button type="submit" size="lg" block disabled={busy !== null} style={{ marginTop: 16 }}>
-            Anmelden
+            {t.auth.login.submit}
           </Button>
         </form>
       </div>

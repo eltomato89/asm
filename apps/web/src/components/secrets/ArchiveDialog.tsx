@@ -1,6 +1,7 @@
 import type { SecretMeta } from '@asm/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { t } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { Button } from '../ui/Button';
@@ -27,10 +28,10 @@ export function ArchiveDialog({ secret, open, onOpenChange }: { secret: SecretMe
     onSuccess: (meta) => {
       qc.setQueryData(queryKeys.secret(secret.id), meta);
       void qc.invalidateQueries({ queryKey: queryKeys.secretsAll });
-      toast(`${secret.envName ?? secret.title} archiviert.`, 'ok');
+      toast(t.secrets.archive.archived(secret.envName ?? secret.title), 'ok');
       onOpenChange(false);
     },
-    onError: (e) => toast(errorText(e, 'Archivieren fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, t.secrets.archive.failed), 'danger'),
   });
 
   const valid = reason.trim().length > 0 && reason.trim().length <= 1000 && project.trim().length <= 200;
@@ -39,13 +40,13 @@ export function ArchiveDialog({ secret, open, onOpenChange }: { secret: SecretMe
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={`${name} archivieren`}
-      description="Archivierte Secrets lassen sich nicht mehr abrufen. Offene Anfragen dazu werden verweigert. Du kannst sie jederzeit reaktivieren."
+      title={t.secrets.archive.title(name)}
+      description={t.secrets.archive.description}
       actions={
         <>
-          <Button onClick={() => onOpenChange(false)}>Abbrechen</Button>
+          <Button onClick={() => onOpenChange(false)}>{t.common.cancel}</Button>
           <Button variant="primary" disabled={!valid || archive.isPending} onClick={() => archive.mutate()}>
-            Archivieren
+            {t.secrets.archive.submit}
           </Button>
         </>
       }
@@ -56,8 +57,8 @@ export function ArchiveDialog({ secret, open, onOpenChange }: { secret: SecretMe
           if (valid) archive.mutate();
         }}
       >
-        <Textarea label="Grund" rows={3} maxLength={1000} required value={reason} onChange={(e) => setReason(e.target.value)} help="Erscheint im Verlauf und im Audit-Log." />
-        <Input label="Projekt (optional)" mono maxLength={200} value={project} onChange={(e) => setProject(e.target.value)} />
+        <Textarea label={t.secrets.archive.reason} rows={3} maxLength={1000} required value={reason} onChange={(e) => setReason(e.target.value)} help={t.secrets.archive.reasonHelp} />
+        <Input label={t.secrets.archive.project} mono maxLength={200} value={project} onChange={(e) => setProject(e.target.value)} />
       </form>
     </Dialog>
   );

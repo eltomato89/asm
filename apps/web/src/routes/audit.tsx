@@ -9,17 +9,19 @@ import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
 import { api, auditCsvUrl, queryKeys, sessionFetch, type AuditFilter, type AuditRow as AuditRowDto } from '../lib/api';
+import { t } from '../i18n';
 import { dayGroup, formatCount } from '../lib/format';
 import { useNames } from '../lib/names';
 
 export type AuditRange = 'today' | '7' | '30' | 'all';
 export type AuditSearch = { deviceId?: string; secretId?: string; project?: string; event?: string; range?: AuditRange };
 
+// `label` is a getter so it follows the active locale.
 const RANGES: { value: AuditRange; label: string }[] = [
-  { value: 'today', label: 'Heute' },
-  { value: '7', label: 'Letzte 7 Tage' },
-  { value: '30', label: 'Letzte 30 Tage' },
-  { value: 'all', label: 'Gesamt' },
+  { value: 'today', get label() { return t.audit.ranges.today; } },
+  { value: '7', get label() { return t.audit.ranges.last7; } },
+  { value: '30', get label() { return t.audit.ranges.last30; } },
+  { value: 'all', get label() { return t.audit.ranges.all; } },
 ];
 const PAGE = 50;
 
@@ -110,9 +112,9 @@ export function AuditPage({ search }: { search: AuditSearch }) {
       a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
       setTruncated(isTruncated);
-      toast(isTruncated ? 'CSV exportiert, auf 10.000 Einträge gekürzt.' : 'CSV exportiert.', 'ok');
+      toast(isTruncated ? t.audit.exportedTruncated : t.audit.exported, 'ok');
     } catch {
-      toast('Export fehlgeschlagen. Versuche es erneut.', 'danger');
+      toast(t.audit.exportFailed, 'danger');
     } finally {
       setExporting(false);
     }
@@ -130,25 +132,25 @@ export function AuditPage({ search }: { search: AuditSearch }) {
   return (
     <div className="content-wide-inner">
       <div className="page-head">
-        <h1>Audit-Log</h1>
-        <span className="meta num">{pages.data ? `${formatCount(rows.length)}${pages.hasNextPage ? '+' : ''} Einträge` : ''}</span>
+        <h1>{t.audit.title}</h1>
+        <span className="meta num">{pages.data ? t.audit.entries(formatCount(rows.length), pages.hasNextPage) : ''}</span>
         <div className="actions">
           {me.data?.isAdmin ? <ChainBadge status={verify.data} loading={verify.isPending} failed={verify.isError} head={!anyFilter && range === 'all' ? rows[0]?.hash : undefined} /> : null}
           <Button onClick={() => void exportCsv()} disabled={exporting}>
             <Download className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-            Export CSV
+            {t.audit.exportCsv}
           </Button>
         </div>
       </div>
       {truncated ? (
         <p className="notice-line" role="status">
-          Der Export enthält nur die neuesten 10.000 Einträge. Grenze Zeitraum oder Filter ein, um ältere Einträge zu exportieren.
+          {t.audit.truncatedNotice}
         </p>
       ) : null}
 
-      <div className="filters" role="group" aria-label="Filter">
-        <FilterSelect label="Gerät" value={search.deviceId ?? ''} onChange={(v) => setSearch({ deviceId: v || undefined })}>
-          <option value="">Alle</option>
+      <div className="filters" role="group" aria-label={t.audit.filters}>
+        <FilterSelect label={t.audit.device} value={search.deviceId ?? ''} onChange={(v) => setSearch({ deviceId: v || undefined })}>
+          <option value="">{t.audit.all}</option>
           {(devices.data?.items ?? []).map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
@@ -156,8 +158,8 @@ export function AuditPage({ search }: { search: AuditSearch }) {
           ))}
         </FilterSelect>
         <SecretFilter value={search.secretId} onChange={(secretId) => setSearch({ secretId })} />
-        <FilterSelect label="Projekt" value={search.project ?? ''} onChange={(v) => setSearch({ project: v || undefined })}>
-          <option value="">Alle</option>
+        <FilterSelect label={t.audit.project} value={search.project ?? ''} onChange={(v) => setSearch({ project: v || undefined })}>
+          <option value="">{t.audit.all}</option>
           {search.project && !projects.data?.items.some((p) => p.slug === search.project) ? <option value={search.project}>{search.project}</option> : null}
           {(projects.data?.items ?? []).map((p) => (
             <option key={p.id} value={p.slug}>
@@ -165,8 +167,8 @@ export function AuditPage({ search }: { search: AuditSearch }) {
             </option>
           ))}
         </FilterSelect>
-        <FilterSelect label="Ereignis" value={search.event ?? ''} onChange={(v) => setSearch({ event: v || undefined })}>
-          <option value="">Alle</option>
+        <FilterSelect label={t.audit.event} value={search.event ?? ''} onChange={(v) => setSearch({ event: v || undefined })}>
+          <option value="">{t.audit.all}</option>
           {AUDIT_EVENTS.map((e) => (
             <option key={e} value={e}>
               {e}
@@ -175,7 +177,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
         </FilterSelect>
         <label className="filter is-set">
           <Calendar className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-          Zeitraum
+          {t.audit.timeRange}
           <select value={range} onChange={(e) => setSearch({ range: e.target.value as AuditRange })}>
             {RANGES.map((r) => (
               <option key={r.value} value={r.value}>
@@ -187,21 +189,21 @@ export function AuditPage({ search }: { search: AuditSearch }) {
         </label>
         {anyFilter ? (
           <button type="button" className="reset" onClick={() => setSearch({ deviceId: undefined, secretId: undefined, project: undefined, event: undefined })}>
-            Filter zurücksetzen
+            {t.audit.resetFilters}
           </button>
         ) : null}
       </div>
 
-      <div className="table" role="table" aria-label="Audit-Einträge">
+      <div className="table" role="table" aria-label={t.audit.tableLabel}>
         <div className="thead" role="row">
           <span />
-          <span role="columnheader">Ereignis</span>
-          <span role="columnheader">Code</span>
+          <span role="columnheader">{t.audit.event}</span>
+          <span role="columnheader">{t.audit.colCode}</span>
           <span role="columnheader" className="c-ip">
-            IP-Adresse
+            {t.audit.ipAddress}
           </span>
           <span role="columnheader" className="r">
-            Zeit
+            {t.audit.time}
           </span>
         </div>
         {pages.isPending ? (
@@ -212,13 +214,13 @@ export function AuditPage({ search }: { search: AuditSearch }) {
           </div>
         ) : pages.isError ? (
           <div className="empty" style={{ margin: 16 }}>
-            <strong>Einträge konnten nicht geladen werden</strong>
-            Lade die Seite neu.
+            <strong>{t.audit.loadFailedTitle}</strong>
+            {t.audit.loadFailedBody}
           </div>
         ) : rows.length === 0 ? (
           <div className="empty" style={{ margin: 16 }}>
-            <strong>Keine Einträge für diese Filter</strong>
-            Ändere den Zeitraum oder setze die Filter zurück.
+            <strong>{t.audit.emptyTitle}</strong>
+            {t.audit.emptyBody}
           </div>
         ) : (
           rows.map((r) => {
@@ -240,14 +242,14 @@ export function AuditPage({ search }: { search: AuditSearch }) {
           })
         )}
         <div className="table-foot">
-          <span className="num">{pages.data ? `${formatCount(rows.length)} Einträge geladen` : ''}</span>
+          <span className="num">{pages.data ? t.audit.loaded(formatCount(rows.length)) : ''}</span>
           <div className="pager">
             {pages.hasNextPage ? (
               <Button onClick={() => void pages.fetchNextPage()} disabled={pages.isFetchingNextPage}>
-                Mehr laden
+                {t.audit.loadMore}
               </Button>
             ) : rows.length > 0 ? (
-              <span>Ende des Protokolls</span>
+              <span>{t.audit.endOfLog}</span>
             ) : null}
           </div>
         </div>
@@ -258,20 +260,20 @@ export function AuditPage({ search }: { search: AuditSearch }) {
 
 function ChainBadge({ status, loading, failed, head }: { status?: { ok: true } | { ok: false; brokenAtSeq: number }; loading: boolean; failed: boolean; head?: string }) {
   if (loading) return <Skeleton width={120} height={30} />;
-  if (failed || !status) return <span className="chain faint">Kette nicht geprüft</span>;
+  if (failed || !status) return <span className="chain faint">{t.audit.chain.notChecked}</span>;
   if (!status.ok) {
     return (
       <span className="chain chain-broken" role="status">
         <X className="icon icon-sm" strokeWidth={2} aria-hidden />
-        Kette unterbrochen bei #{status.brokenAtSeq}
+        {t.audit.chain.broken(status.brokenAtSeq)}
       </span>
     );
   }
   return (
-    <span className="chain" title="Alle Einträge geprüft: jeder Hash passt zu seinem Vorgänger.">
+    <span className="chain" title={t.audit.chain.intactTitle}>
       <span className="ok">
         <Check className="icon icon-sm" strokeWidth={2} aria-hidden />
-        Kette intakt
+        {t.audit.chain.intact}
       </span>
       {head ? <span className="mono">{`${head.slice(0, 4)}…${head.slice(-4)}`}</span> : null}
     </span>

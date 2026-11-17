@@ -56,7 +56,7 @@ describe('secrets: access and routes', () => {
 
   it('search "git" finds "GitHub Token" via description prefix; vault filter; empty query -> all', async () => {
     const w = await world();
-    const a = createSecret(w.ctx, w.alice.actor, { title: 'GitHub Token', description: 'für git push', value: 'x1' });
+    const a = createSecret(w.ctx, w.alice.actor, { title: 'GitHub Token', description: 'for git push', value: 'x1' });
     createSecret(w.ctx, w.alice.actor, { title: 'Stripe', description: 'payments', tags: ['billing'], value: 'x2' });
     expect(searchSecrets(w.db, w.alice.id, 'git').map((s) => s.id)).toEqual([a.id]);
     expect(searchSecrets(w.db, w.alice.id, 'GIT tok').map((s) => s.id)).toEqual([a.id]);

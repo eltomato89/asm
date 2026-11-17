@@ -1,6 +1,7 @@
 import type { ActorRef, SecretMeta, SecretVersionDto } from '@asm/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { t, type Messages } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { RelativeTime } from '../RelativeTime';
@@ -11,8 +12,6 @@ import { Skeleton } from '../ui/Skeleton';
 import { useToast } from '../ui/Toast';
 import { SecretValue } from './SecretValue';
 
-const FIELD_LABELS = { title: 'Titel', description: 'Beschreibung', tags: 'Tags', envName: 'ENV-Name' } as const;
-
 type Entry =
   | { kind: 'version'; at: number; v: SecretVersionDto }
   | { kind: 'archived' | 'unarchived'; at: number; by: ActorRef; reason?: string; project?: string };
@@ -20,7 +19,7 @@ type Entry =
 function Actor({ a }: { a: ActorRef }) {
   return a.type === 'device' ? (
     <>
-      <span className="host">{a.name}</span> <span className="faint">(Agent)</span>
+      <span className="host">{a.name}</span> <span className="faint">{t.secrets.timeline.agent}</span>
     </>
   ) : (
     <strong className="actor">{a.name}</strong>
@@ -33,20 +32,21 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
   const toast = useToast();
   const history = useQuery({ queryKey: queryKeys.secretHistory(secret.id), queryFn: () => api.secretHistory(secret.id) });
   const [restoreV, setRestoreV] = useState<number | null>(null);
+  const m = t.secrets.timeline;
 
   const restore = useMutation({
     mutationFn: (v: number) => api.restoreVersion(secret.id, v),
     onSuccess: (meta, v) => {
       qc.setQueryData(queryKeys.secret(secret.id), meta);
       void qc.invalidateQueries({ queryKey: queryKeys.secretsAll });
-      toast(`Version ${v} wiederhergestellt.`, 'ok');
+      toast(m.restored(v), 'ok');
       setRestoreV(null);
     },
-    onError: (e) => toast(errorText(e, 'Wiederherstellen fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, m.restoreFailed), 'danger'),
   });
 
   if (history.isPending) return <Skeleton width="100%" height={80} />;
-  if (history.isError) return <p className="faint">Der Verlauf konnte nicht geladen werden.</p>;
+  if (history.isError) return <p className="faint">{m.loadFailed}</p>;
 
   const latest = Math.max(...history.data.versions.map((v) => v.version));
   const entries: Entry[] = [
@@ -56,13 +56,13 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
 
   return (
     <>
-      <ol className="timeline" aria-label="Verlauf">
+      <ol className="timeline" aria-label={m.label}>
         {entries.map((e) =>
           e.kind === 'version' ? (
             <li key={`${secret.id}:v${e.v.version}`} data-entry={`v${e.v.version}`}>
               <div className="tl-head">
-                <span className="tl-title num">Version {e.v.version}</span>
-                {e.v.version === latest ? <span className="badge">aktuell</span> : null}
+                <span className="tl-title num">{m.version(e.v.version)}</span>
+                {e.v.version === latest ? <span className="badge">{m.current}</span> : null}
                 <RelativeTime ts={e.at} className="tl-time" />
               </div>
               <p className="tl-line">
@@ -70,11 +70,11 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
                 {e.v.project ? (
                   <>
                     {' '}
-                    in <span className="proj">{e.v.project}</span>
+                    {m.in} <span className="proj">{e.v.project}</span>
                   </>
                 ) : null}
-                {e.v.restoredFrom !== null ? <span className="muted">, wiederhergestellt aus Version {e.v.restoredFrom}</span> : null}
-                {e.v.version === 1 ? <span className="muted">, angelegt</span> : null}
+                {e.v.restoredFrom !== null ? <span className="muted">{m.restoredFrom(e.v.restoredFrom)}</span> : null}
+                {e.v.version === 1 ? <span className="muted">{m.created}</span> : null}
               </p>
               {e.v.reason ? <p className="tl-reason">{e.v.reason}</p> : null}
               {e.v.version > 1 && e.v.restoredFrom === null ? <VersionDiff v={e.v} /> : null}
@@ -83,11 +83,11 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
                   key={`${secret.id}:${e.v.version}`}
                   identity={`${secret.id}:${e.v.version}`}
                   compact
-                  label={`Wert von Version ${e.v.version}`}
+                  label={m.valueOfVersion(e.v.version)}
                   reveal={() => api.revealVersion(secret.id, e.v.version)} />
                 {e.v.version !== latest && !secret.archived ? (
                   <Button variant="ghost" onClick={() => setRestoreV(e.v.version)}>
-                    Wiederherstellen
+                    {m.restore}
                   </Button>
                 ) : null}
               </div>
@@ -95,7 +95,7 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
           ) : (
             <li key={`${e.kind}-${e.at}`} data-entry={e.kind} className="tl-event">
               <div className="tl-head">
-                <span className="tl-title">{e.kind === 'archived' ? 'Archiviert' : 'Reaktiviert'}</span>
+                <span className="tl-title">{e.kind === 'archived' ? m.archived : m.unarchived}</span>
                 <RelativeTime ts={e.at} className="tl-time" />
               </div>
               <p className="tl-line">
@@ -103,7 +103,7 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
                 {e.project ? (
                   <>
                     {' '}
-                    in <span className="proj">{e.project}</span>
+                    {m.in} <span className="proj">{e.project}</span>
                   </>
                 ) : null}
               </p>
@@ -115,9 +115,9 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
       <ConfirmDialog
         open={restoreV !== null}
         onOpenChange={(v) => !v && setRestoreV(null)}
-        title={`Version ${restoreV ?? ''} wiederherstellen?`}
-        description="Wert und Metadaten dieser Version werden als neue Version übernommen. Der aktuelle Stand bleibt im Verlauf erhalten."
-        confirmLabel="Wiederherstellen"
+        title={m.restoreTitle(restoreV ?? '')}
+        description={m.restoreDescription}
+        confirmLabel={m.restore}
         busy={restore.isPending}
         onConfirm={() => restoreV !== null && restore.mutate(restoreV)}
       />
@@ -126,14 +126,14 @@ export function VersionTimeline({ secret }: { secret: SecretMeta }) {
 }
 
 function VersionDiff({ v }: { v: SecretVersionDto }) {
-  const fields = Object.entries(v.metaDiff) as [keyof typeof FIELD_LABELS, { from: unknown; to: unknown }][];
-  if (fields.length === 0) return <p className="tl-diff muted">Wert geändert</p>;
+  const fields = Object.entries(v.metaDiff) as [keyof Messages['secrets']['timeline']['fields'], { from: unknown; to: unknown }][];
+  if (fields.length === 0) return <p className="tl-diff muted">{t.secrets.timeline.valueChanged}</p>;
   return (
     <div className="tl-diff">
       {fields.map(([f, d]) => (
         <div key={f}>
-          <span className="faint">{FIELD_LABELS[f]}:</span> <del>{diffValue(d.from)}</del>
-          <span className="arrow" aria-label="wird zu">
+          <span className="faint">{t.secrets.timeline.fields[f]}:</span> <del>{diffValue(d.from)}</del>
+          <span className="arrow" aria-label={t.secrets.timeline.becomes}>
             →
           </span>
           <ins>{diffValue(d.to)}</ins>

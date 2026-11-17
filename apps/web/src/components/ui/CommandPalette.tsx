@@ -3,13 +3,14 @@ import { Search } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
 import { cx } from '../../lib/cx';
 import { useShortcut } from '../../lib/shortcuts';
+import { t } from '../../i18n';
 import { Kbd } from './Kbd';
 
 export type Command = {
   id: string;
   group: string;
   title: string;
-  /** Right-aligned secondary text (e.g. vault, "Seite"). */
+  /** Right-aligned secondary text (e.g. vault, "Page"). */
   hint?: string;
   mono?: boolean;
   icon?: ComponentType<{ className?: string; strokeWidth?: number; 'aria-hidden'?: boolean }>;
@@ -66,7 +67,7 @@ function PaletteBody({ commands, search, close }: { commands: Command[]; search?
       return;
     }
     const ctrl = new AbortController();
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       search(query.trim(), ctrl.signal)
         .then((r) => {
           if (!ctrl.signal.aborted) setRemote(r);
@@ -76,7 +77,7 @@ function PaletteBody({ commands, search, close }: { commands: Command[]; search?
         });
     }, SEARCH_DEBOUNCE_MS);
     return () => {
-      clearTimeout(t);
+      clearTimeout(timer);
       ctrl.abort();
     };
   }, [q, query, search]);
@@ -110,15 +111,15 @@ function PaletteBody({ commands, search, close }: { commands: Command[]; search?
   let lastGroup = '';
   return (
     <div className="palette">
-      <RadixDialog.Title className="visually-hidden">Befehlspalette</RadixDialog.Title>
+      <RadixDialog.Title className="visually-hidden">{t.palette.title}</RadixDialog.Title>
       <div className="palette-input">
         <Search className="icon" strokeWidth={1.5} aria-hidden />
         <input
           autoFocus
           type="text"
           value={query}
-          placeholder="Secret, Seite oder Befehl suchen"
-          aria-label="Suchen"
+          placeholder={t.palette.placeholder}
+          aria-label={t.common.search}
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}
@@ -130,10 +131,10 @@ function PaletteBody({ commands, search, close }: { commands: Command[]; search?
           onKeyDown={onKeyDown}
         />
       </div>
-      <ul className="palette-list" id={listId} role="listbox" ref={listRef} aria-label="Ergebnisse">
+      <ul className="palette-list" id={listId} role="listbox" ref={listRef} aria-label={t.palette.results}>
         {items.length === 0 ? (
           <li className="palette-empty" role="presentation">
-            Nichts gefunden für „{query.trim()}“.
+            {t.palette.noResults(query.trim())}
           </li>
         ) : (
           items.map((c, i) => {
@@ -166,13 +167,13 @@ function PaletteBody({ commands, search, close }: { commands: Command[]; search?
       <div className="palette-foot" aria-hidden="true">
         <span>
           <Kbd>↑</Kbd>
-          <Kbd>↓</Kbd> auswählen
+          <Kbd>↓</Kbd> {t.palette.footSelect}
         </span>
         <span>
-          <Kbd>↵</Kbd> öffnen
+          <Kbd>↵</Kbd> {t.palette.footOpen}
         </span>
         <span>
-          <Kbd>esc</Kbd> schließen
+          <Kbd>esc</Kbd> {t.palette.footClose}
         </span>
       </div>
     </div>

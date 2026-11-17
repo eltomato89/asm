@@ -54,11 +54,11 @@ describe('PushSection', () => {
   it('explains when the browser has no push support and still lists subscriptions', async () => {
     mockFetch((c) => (c.path === '/api/push/subscriptions' ? { body: { items: [sub({ deviceName: 'Mac', lastUsedAt: T0 })] } } : undefined));
     renderWithProviders(<PushSection />);
-    expect(await screen.findByText('Dieser Browser unterstützt keine Push-Benachrichtigungen.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Benachrichtigungen aktivieren' })).toBeNull();
-    const list = await screen.findByRole('list', { name: 'Geräte mit Benachrichtigungen' });
+    expect(await screen.findByText("This browser doesn't support push notifications.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enable notifications' })).toBeNull();
+    const list = await screen.findByRole('list', { name: 'Devices with notifications' });
     expect(list).toHaveTextContent('Mac');
-    expect(list).toHaveTextContent('zuletzt');
+    expect(list).toHaveTextContent('last');
   });
 
   it('on iPhone outside the home-screen app shows the install hint', async () => {
@@ -66,8 +66,8 @@ describe('PushSection', () => {
     fakePush();
     mockFetch((c) => (c.path === '/api/push/subscriptions' ? { body: { items: [] } } : undefined));
     renderWithProviders(<PushSection />);
-    expect(await screen.findByText('Auf iPhone/iPad (ab iOS 16.4) zuerst über Teilen → Zum Home-Bildschirm installieren und von dort öffnen.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Benachrichtigungen aktivieren' })).toBeNull();
+    expect(await screen.findByText('On iPhone/iPad (iOS 16.4 or later), first install via Share → Add to Home Screen and open it from there.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Enable notifications' })).toBeNull();
   });
 
   it('on iPhone as home-screen app (standalone) shows the subscribe form', async () => {
@@ -77,9 +77,9 @@ describe('PushSection', () => {
     try {
       mockFetch((c) => (c.path === '/api/push/subscriptions' ? { body: { items: [] } } : undefined));
       renderWithProviders(<PushSection />);
-      expect(await screen.findByRole('button', { name: 'Benachrichtigungen aktivieren' })).toBeInTheDocument();
-      expect(screen.getByLabelText('Gerätename')).toHaveValue('iPhone');
-      expect(screen.queryByText(/Zum Home-Bildschirm/)).toBeNull();
+      expect(await screen.findByRole('button', { name: 'Enable notifications' })).toBeInTheDocument();
+      expect(screen.getByLabelText('Device name')).toHaveValue('iPhone');
+      expect(screen.queryByText(/Add to Home Screen/)).toBeNull();
     } finally {
       delete (navigator as { standalone?: boolean }).standalone;
     }
@@ -100,25 +100,25 @@ describe('PushSection', () => {
     });
     const u = userEvent.setup();
     renderWithProviders(<PushSection />);
-    expect(await screen.findByText('Noch kein Gerät erhält Benachrichtigungen.')).toBeInTheDocument();
+    expect(await screen.findByText('No device receives notifications yet.')).toBeInTheDocument();
     expect(push.requestPermission).not.toHaveBeenCalled();
-    const name = screen.getByLabelText('Gerätename');
+    const name = screen.getByLabelText('Device name');
     expect(name).toHaveValue('Mac');
     await u.clear(name);
     await u.type(name, 'MacBook');
-    await u.click(screen.getByRole('button', { name: 'Benachrichtigungen aktivieren' }));
+    await u.click(screen.getByRole('button', { name: 'Enable notifications' }));
 
-    await waitFor(() => expect(within(toasts()).getByText('Benachrichtigungen für „MacBook“ aktiviert.')).toBeInTheDocument());
+    await waitFor(() => expect(within(toasts()).getByText('Notifications enabled for “MacBook”.')).toBeInTheDocument());
     expect(push.requestPermission).toHaveBeenCalledTimes(1);
     expect(push.pushManager.subscribe).toHaveBeenCalledWith({ userVisibleOnly: true, applicationServerKey: new Uint8Array([1, 2, 3]) });
     expect(calls.find((c) => c.path === '/api/push/subscriptions' && c.method === 'POST')?.body).toEqual({
       subscription: { endpoint: ENDPOINT, keys: { p256dh: 'p256-key', auth: 'auth-key' } },
       deviceName: 'MacBook',
     });
-    const list = await screen.findByRole('list', { name: 'Geräte mit Benachrichtigungen' });
-    expect(list).toHaveTextContent('MacBook · dieser Browser');
-    expect(list).toHaveTextContent('noch nie benutzt');
-    expect(screen.getByText('Dieser Browser erhält Benachrichtigungen.')).toBeInTheDocument();
+    const list = await screen.findByRole('list', { name: 'Devices with notifications' });
+    expect(list).toHaveTextContent('MacBook · this browser');
+    expect(list).toHaveTextContent('never used');
+    expect(screen.getByText('This browser receives notifications.')).toBeInTheDocument();
     expect(JSON.parse(localStorage.getItem('asm-push-sub')!)).toEqual({ id: 'psh_9', endpoint: ENDPOINT });
   });
 
@@ -128,11 +128,11 @@ describe('PushSection', () => {
     const { calls } = mockFetch((c) => (c.path === '/api/push/subscriptions' ? { body: { items: [] } } : undefined));
     const u = userEvent.setup();
     renderWithProviders(<PushSection />);
-    await u.click(await screen.findByRole('button', { name: 'Benachrichtigungen aktivieren' }));
-    await waitFor(() => expect(within(toasts()).getByText('Benachrichtigungen wurden nicht erlaubt.')).toBeInTheDocument());
+    await u.click(await screen.findByRole('button', { name: 'Enable notifications' }));
+    await waitFor(() => expect(within(toasts()).getByText('Notifications were not allowed.')).toBeInTheDocument());
     expect(push.pushManager.subscribe).not.toHaveBeenCalled();
     expect(calls.some((c) => c.method === 'POST' || c.path === '/api/push/vapid-key')).toBe(false);
-    expect(screen.getByText(/Benachrichtigungen sind für diese Seite blockiert/)).toBeInTheDocument();
+    expect(screen.getByText(/Notifications are blocked for this site/)).toBeInTheDocument();
   });
 
   it('removing this browser’s subscription also unsubscribes locally', async () => {
@@ -150,18 +150,18 @@ describe('PushSection', () => {
     });
     const u = userEvent.setup();
     renderWithProviders(<PushSection />);
-    expect(await screen.findByText('· dieser Browser', { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText('· this browser', { exact: false })).toBeInTheDocument();
 
     // Another device: only the server-side entry goes.
-    await u.click(screen.getByRole('button', { name: 'iPhone entfernen' }));
-    await waitFor(() => expect(within(toasts()).getByText('„iPhone“ erhält keine Benachrichtigungen mehr.')).toBeInTheDocument());
+    await u.click(screen.getByRole('button', { name: 'Remove iPhone' }));
+    await waitFor(() => expect(within(toasts()).getByText('“iPhone” no longer receives notifications.')).toBeInTheDocument());
     expect(push.browserSub.unsubscribe).not.toHaveBeenCalled();
 
-    await u.click(screen.getByRole('button', { name: 'Mac entfernen' }));
+    await u.click(screen.getByRole('button', { name: 'Remove Mac' }));
     await waitFor(() => expect(push.browserSub.unsubscribe).toHaveBeenCalledTimes(1));
     expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/api/push/subscriptions/psh_2', '/api/push/subscriptions/psh_1']);
     expect(localStorage.getItem('asm-push-sub')).toBeNull();
-    expect(await screen.findByRole('button', { name: 'Benachrichtigungen aktivieren' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Enable notifications' })).toBeInTheDocument();
   });
 
   it('sends a test notification and reports the count', async () => {
@@ -172,8 +172,8 @@ describe('PushSection', () => {
     });
     const u = userEvent.setup();
     renderWithProviders(<PushSection />);
-    await u.click(await screen.findByRole('button', { name: 'Test senden' }));
-    await waitFor(() => expect(within(toasts()).getByText('Test an 2 Geräte gesendet.')).toBeInTheDocument());
+    await u.click(await screen.findByRole('button', { name: 'Send test' }));
+    await waitFor(() => expect(within(toasts()).getByText('Test sent to 2 devices.')).toBeInTheDocument());
     expect(calls.filter((c) => c.path === '/api/push/test')).toHaveLength(1);
   });
 });

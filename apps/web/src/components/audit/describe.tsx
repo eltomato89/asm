@@ -1,4 +1,6 @@
 import type { ReactNode } from 'react';
+import { t } from '../../i18n';
+import type { AuditCtx } from '../../i18n/en/audit';
 import type { AuditRow } from '../../lib/api';
 import type { Names } from '../../lib/names';
 
@@ -7,7 +9,7 @@ export type Tone = 'ok' | 'danger' | 'amber' | 'neutral';
 export type Described = {
   sentence: ReactNode;
   tone: Tone;
-  /** Extra quiet note after the sentence (e.g. "neu von Agent angelegt"). */
+  /** Extra quiet note after the sentence (e.g. "newly created by an agent"). */
   note?: string;
 };
 
@@ -31,98 +33,85 @@ const Proj = ({ children }: { children: ReactNode }) => <span className="proj">{
 const shortId = (id: string) => (id.length > 14 ? `${id.slice(0, 12)}…` : id);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : undefined);
 
-/** Readable German sentence for an audit row ("claude@mbp erhielt GITHUB_TOKEN für asm automatisch"). */
+/** Readable sentence for an audit row ("claude@mbp received GITHUB_TOKEN for asm automatically"). */
 export function describeAudit(r: AuditRow, names: Names): Described {
+  const w = t.audit.words;
+  const ev = t.audit.events;
   const meta = r.meta ?? {};
-  const device = <Host>{names.device(r.deviceId) ?? (r.deviceId ? shortId(r.deviceId) : 'ein Gerät')}</Host>;
-  const secretName = names.secret(r.secretId) ?? str(meta.envName) ?? str(meta.title) ?? (r.secretId ? shortId(r.secretId) : 'ein Secret');
+  const device = <Host>{names.device(r.deviceId) ?? (r.deviceId ? shortId(r.deviceId) : w.aDevice)}</Host>;
+  const secretName = names.secret(r.secretId) ?? str(meta.envName) ?? str(meta.title) ?? (r.secretId ? shortId(r.secretId) : w.aSecret);
   const secret = <Sec>{secretName}</Sec>;
-  const forProject = r.project ? (
-    <>
-      {' '}
-      für <Proj>{r.project}</Proj>
-    </>
-  ) : null;
+  const project = r.project ? <Proj>{r.project}</Proj> : null;
 
-  // Subject: "Du" (signed-in user), another user, a device or the system.
+  // Subject: "You" (signed-in user), another user, a device or the system.
   const isMe = r.actorType === 'user' && r.actorId !== null && r.actorId === names.meId;
   const subject: ReactNode =
-    r.actorType === 'device' ? device : isMe ? 'Du' : r.actorType === 'user' ? <strong>{names.user(r.actorId) ?? 'Ein Nutzer'}</strong> : 'ASM';
-  const hat = isMe ? 'hast' : 'hat';
+    r.actorType === 'device' ? device : isMe ? w.you : r.actorType === 'user' ? <strong>{names.user(r.actorId) ?? w.aUser}</strong> : 'ASM';
+  const c: AuditCtx = { subject, me: isMe, device, secret, project };
   const tone = TONES[r.event] ?? 'neutral';
   const s = (sentence: ReactNode, note?: string): Described => ({ sentence, tone, ...(note ? { note } : {}) });
 
   switch (r.event) {
     case 'request.created':
-      return s(<>{device} fragt {secret}{forProject} an{meta.kind === 'update' ? ' (Änderung)' : ''}</>);
+      return s(ev.requestCreated(c, meta.kind === 'update'));
     case 'request.approved':
-      return s(<>{subject} {hat} {secret} für {device} freigegeben</>);
+      return s(ev.requestApproved(c));
     case 'request.auto_approved':
-      return s(<>{device} erhielt {secret}{forProject} <span className="muted">automatisch</span></>);
+      return s(ev.requestAutoApproved(c, <span className="muted">{w.automatically}</span>));
     case 'request.denied':
-      if (r.actorType === 'system') return s(<>Anfrage von {device} für {secret} wurde automatisch verweigert</>, str(meta.cause));
-      return s(<>{subject} {hat} {secret} für {device} verweigert</>);
+      if (r.actorType === 'system') return s(ev.requestDeniedBySystem(c), str(meta.cause));
+      return s(ev.requestDenied(c));
     case 'request.expired':
-      return s(<>Anfrage von {device} für {secret} ist abgelaufen</>);
+      return s(ev.requestExpired(c));
     case 'grant.redeemed':
-      return s(<>{device} hat die Übergabe für {secret} eingelöst</>);
+      return s(ev.grantRedeemed(c));
     case 'grant.redeem_denied':
-      return s(<>Übergabe von {secret} an {device} abgelehnt</>, str(meta.cause));
+      return s(ev.grantRedeemDenied(c), str(meta.cause));
     case 'secret.plaintext_delivered':
-      return s(<>{secret} wurde im Klartext an {device} übergeben</>);
+      return s(ev.plaintextDelivered(c));
     case 'secret.created':
-      return s(
-        <>
-          {subject} {hat} {secret}
-          {r.project ? (
-            <>
-              {' '}
-              in <Proj>{r.project}</Proj>
-            </>
-          ) : null}{' '}
-          angelegt
-        </>,
-        r.actorType === 'device' ? 'neu von Agent angelegt' : undefined,
-      );
+      return s(ev.secretCreated(c), r.actorType === 'device' ? w.createdByAgent : undefined);
     case 'secret.updated':
-      return s(<>{subject} {hat} {secret} geändert{str(meta.version) ? `, jetzt Version ${str(meta.version)}` : ''}</>);
+      return s(ev.secretUpdated(c, str(meta.version)));
     case 'secret.version_restored':
-      return s(<>{subject} {hat} {secret} auf Version {str(meta.restoredFrom) ?? '?'} zurückgesetzt</>);
+      return s(ev.versionRestored(c, str(meta.restoredFrom) ?? '?'));
     case 'secret.deleted':
-      return s(<>{subject} {hat} <Sec>{str(meta.title) ?? secretName}</Sec> gelöscht</>);
+      return s(ev.secretDeleted(c, <Sec>{str(meta.title) ?? secretName}</Sec>));
     case 'secret.revealed':
-      return s(<>{subject} {hat} den Wert von {secret} angezeigt</>);
+      return s(ev.revealed(c));
     case 'secret.version_revealed':
-      return s(<>{subject} {hat} Version {str(meta.version) ?? '?'} von {secret} angezeigt</>);
+      return s(ev.versionRevealed(c, str(meta.version) ?? '?'));
     case 'secret.archived':
-      return s(<>{subject} {hat} {secret} archiviert</>);
+      return s(ev.archived(c));
     case 'secret.unarchived':
-      return s(<>{subject} {hat} {secret} reaktiviert</>);
+      return s(ev.unarchived(c));
     case 'secret.searched':
-      return s(<>{device} hat nach „{str(meta.query) ?? ''}“ gesucht{forProject}</>);
+      return s(ev.searched(c, str(meta.query) ?? ''));
     case 'automode.enabled':
-      return s(<>{subject} {hat} den Auto-Modus aktiviert <span className="muted">({str(meta.minutes) ?? '?'} Minuten)</span></>);
+      return s(ev.autoModeEnabled(c, <span className="muted">{w.minutes(str(meta.minutes) ?? '?')}</span>));
     case 'automode.disabled':
-      return meta.cause === 'expired' ? s(<>Der Auto-Modus ist abgelaufen</>) : s(<>{subject} {hat} den Auto-Modus beendet</>);
+      return meta.cause === 'expired' ? s(ev.autoModeExpired) : s(ev.autoModeDisabled(c));
     case 'auth.login':
-      return s(<>{subject} {hat} {isMe ? 'dich' : 'sich'} {meta.method === 'passkey' ? 'mit Passkey ' : ''}angemeldet</>);
-    case 'auth.login_failed':
-      return s(<>Fehlgeschlagene Anmeldung{str(meta.username) ? <> für <strong>{str(meta.username)}</strong></> : null}</>);
+      return s(ev.login(c, meta.method === 'passkey'));
+    case 'auth.login_failed': {
+      const username = str(meta.username);
+      return s(ev.loginFailed(username ? <strong>{username}</strong> : null));
+    }
     case 'device.pair_requested':
-      return s(<>{device} möchte sich mit ASM verbinden</>);
+      return s(ev.pairRequested(c));
     case 'device.approved':
-      return s(<>{subject} {hat} das Gerät {device} gekoppelt</>);
-    case 'device.denied':
-      return s(<>{subject} {hat} die Kopplung {str(meta.clientName) ? <>von <Host>{str(meta.clientName)}</Host> </> : null}verweigert</>);
+      return s(ev.deviceApproved(c));
+    case 'device.denied': {
+      const client = str(meta.clientName);
+      return s(ev.deviceDenied(c, client ? <Host>{client}</Host> : null));
+    }
     case 'device.revoked':
-      return r.actorType === 'system' ? s(<>Der Zugriff von {device} wurde widerrufen</>, str(meta.cause)) : s(<>{subject} {hat} den Zugriff von {device} widerrufen</>);
+      return r.actorType === 'system' ? s(ev.revokedBySystem(c), str(meta.cause)) : s(ev.revoked(c));
     case 'vault.member_added':
     case 'vault.member_removed': {
-      const who = <strong>{names.user(str(meta.userId)) ?? 'einen Nutzer'}</strong>;
-      const vault = <strong>{names.vault(r.vaultId) ?? 'einem Tresor'}</strong>;
-      return r.event === 'vault.member_added'
-        ? s(<>{subject} {hat} {who} zum Tresor {vault} hinzugefügt</>)
-        : s(<>{subject} {hat} {who} aus dem Tresor {vault} entfernt</>);
+      const who = <strong>{names.user(str(meta.userId)) ?? w.someUser}</strong>;
+      const vault = <strong>{names.vault(r.vaultId) ?? w.someVault}</strong>;
+      return r.event === 'vault.member_added' ? s(ev.memberAdded(c, who, vault)) : s(ev.memberRemoved(c, who, vault));
     }
     default:
       return s(<span className="mono">{r.event}</span>);

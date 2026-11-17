@@ -6,10 +6,10 @@ import { CommandPalette, SEARCH_DEBOUNCE_MS, type Command } from './CommandPalet
 
 function commands(run = vi.fn()): Command[] {
   return [
-    { id: 'overview', group: 'Seiten', title: 'Übersicht', run },
-    { id: 'secrets', group: 'Seiten', title: 'Secrets', run },
-    { id: 'audit', group: 'Seiten', title: 'Audit-Log', run },
-    { id: 'auto30', group: 'Aktionen', title: 'Auto-Modus 30 min', run },
+    { id: 'overview', group: 'Pages', title: 'Overview', run },
+    { id: 'secrets', group: 'Pages', title: 'Secrets', run },
+    { id: 'audit', group: 'Pages', title: 'Audit log', run },
+    { id: 'auto30', group: 'Actions', title: 'Auto mode 30 min', run },
   ];
 }
 
@@ -21,11 +21,11 @@ describe('CommandPalette', () => {
     expect(screen.queryByRole('dialog')).toBeNull();
 
     await user.keyboard('{Meta>}k{/Meta}');
-    expect(await screen.findByRole('dialog', { name: 'Befehlspalette' })).toBeInTheDocument();
+    expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
     expect(screen.getAllByRole('option')).toHaveLength(4);
 
     await user.keyboard('audit');
-    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Audit-Log')]);
+    expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual([expect.stringContaining('Audit log')]);
 
     await user.keyboard('{Enter}');
     expect(run).toHaveBeenCalledTimes(1);
@@ -43,14 +43,14 @@ describe('CommandPalette', () => {
     expect(screen.getAllByRole('option')[2]).toHaveAttribute('aria-selected', 'true');
     await user.keyboard('zzzz');
     expect(screen.queryAllByRole('option')).toHaveLength(0);
-    expect(screen.getByText(/Nichts gefunden/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing found/)).toBeInTheDocument();
   });
 
   it('adds async search results (debounced: exactly one search per pause) and runs them', async () => {
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const pick = vi.fn();
     const search = vi.fn(async (q: string): Promise<Command[]> => [
-      { id: 'sec_1', group: 'Secrets', title: 'GITHUB_TOKEN', hint: 'Persönlich', mono: true, run: () => pick(q) },
+      { id: 'sec_1', group: 'Secrets', title: 'GITHUB_TOKEN', hint: 'Personal', mono: true, run: () => pick(q) },
     ]);
     renderWithProviders(<CommandPalette commands={commands()} search={search} />);
     fireEvent.keyDown(document.body, { key: 'k', metaKey: true });

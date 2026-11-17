@@ -14,7 +14,7 @@ describe('vaults', () => {
     expect(res.statusCode).toBe(201);
     const v = VaultDtoSchema.parse(res.json());
     expect(v).toMatchObject({ name: 'Team', personal: false, role: 'owner', members: [{ userId: w.alice.id, username: 'alice', role: 'owner' }] });
-    expect(listVaultsForUser(w.db, w.alice.id).map((x) => x.name).sort()).toEqual(['Persönlich', 'Team']);
+    expect(listVaultsForUser(w.db, w.alice.id).map((x) => x.name).sort()).toEqual(['Personal', 'Team']);
     expect(listVaultsForUser(w.db, w.bob.id).map((x) => x.id)).toEqual([w.bob.personalVaultId]);
     expect(canAccessVault(w.db, w.bob.id, v.id)).toBe(false);
     expect((await w.req(w.alice, 'POST', '/api/vaults', { name: '' })).statusCode).toBe(400);

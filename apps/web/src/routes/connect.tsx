@@ -4,6 +4,7 @@ import { Check, Inbox, KeyRound, Laptop, Pencil, Search, Terminal, X } from 'luc
 import { useEffect, useState } from 'react';
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
+import { t } from '../i18n';
 import { ThemeMenu } from '../layout/Topbar';
 import { api, isApiError } from '../lib/api';
 import { errorText } from '../lib/errors';
@@ -18,7 +19,9 @@ export function PairingFrame({ children, note = true, className }: { children: R
       <section className={className ? `consent ${className}` : 'consent'}>{children}</section>
       {note ? (
         <p className="consent-note">
-          Du kannst die Verbindung jederzeit unter <Link to="/devices">Geräte</Link> widerrufen. Offene Übergaben verfallen dann sofort.
+          {t.connect.revokeNoteBefore}
+          <Link to="/devices">{t.connect.revokeNoteLink}</Link>
+          {t.connect.revokeNoteAfter}
         </p>
       ) : null}
     </main>
@@ -47,15 +50,15 @@ export function PairMarks({ icon = 'terminal' }: { icon?: 'terminal' | 'laptop' 
 export function Rights() {
   return (
     <div className="consent-sec">
-      <p className="rights-title">Dieses Gerät darf</p>
+      <p className="rights-title">{t.connect.rightsTitle}</p>
       <ul className="rights">
         <li>
           <span className="ri">
             <Search className="icon icon-sm" strokeWidth={1.5} aria-hidden />
           </span>
           <span>
-            <b>Secrets suchen</b>
-            <span>Namen, Beschreibungen und Projekte, nie die Werte</span>
+            <b>{t.connect.rights.search}</b>
+            <span>{t.connect.rights.searchDetail}</span>
           </span>
         </li>
         <li>
@@ -63,8 +66,8 @@ export function Rights() {
             <Inbox className="icon icon-sm" strokeWidth={1.5} aria-hidden />
           </span>
           <span>
-            <b>Abrufe anfragen</b>
-            <span>Jede Anfrage braucht deine Freigabe</span>
+            <b>{t.connect.rights.request}</b>
+            <span>{t.connect.rights.requestDetail}</span>
           </span>
         </li>
         <li>
@@ -72,8 +75,8 @@ export function Rights() {
             <Pencil className="icon icon-sm" strokeWidth={1.5} aria-hidden />
           </span>
           <span>
-            <b>Secrets anlegen, Änderungen vorschlagen, archivieren</b>
-            <span>Änderungen an bestehenden Secrets gibst du einzeln frei</span>
+            <b>{t.connect.rights.write}</b>
+            <span>{t.connect.rights.writeDetail}</span>
           </span>
         </li>
       </ul>
@@ -122,7 +125,7 @@ export function ConnectPage({ req }: { req?: string }) {
       api.consent({ req: req!, decision, ...(decision === 'approve' && deviceName.trim() ? { deviceName: deviceName.trim() } : {}) }),
     onSuccess: ({ redirectTo }, decision) => {
       if (!isHttpUrl(redirectTo)) {
-        setError('Die Rückleitung zum Client ist ungültig. Starte die Kopplung im Client neu.');
+        setError(t.connect.mcp.invalidRedirect);
         return;
       }
       setDone(decision);
@@ -131,10 +134,10 @@ export function ConnectPage({ req }: { req?: string }) {
     onError: (e) =>
       setError(
         isApiError(e, 'unknown_request')
-          ? 'Diese Kopplungsanfrage ist inzwischen abgelaufen. Starte die Kopplung im Terminal neu.'
+          ? t.connect.mcp.expired
           : isApiError(e, 'reauth_required')
-            ? 'Bestätigung abgebrochen. Es wurde nichts freigegeben.'
-            : errorText(e, 'Das hat nicht geklappt. Versuche es erneut.'),
+            ? t.connect.reauthCancelled
+            : errorText(e, t.connect.failed),
       ),
   });
 
@@ -142,15 +145,15 @@ export function ConnectPage({ req }: { req?: string }) {
     const unknown = !req || isApiError(info.error, 'unknown_request') || isApiError(info.error, 'invalid_request');
     return (
       <PairingFrame note={false}>
-        <PairingResult ok={false} title={unknown ? 'Kopplungsanfrage nicht gefunden' : 'Kopplung konnte nicht geladen werden'}>
+        <PairingResult ok={false} title={unknown ? t.connect.mcp.notFound : t.connect.mcp.loadFailed}>
           <p>
             {unknown
-              ? 'Der Link ist abgelaufen oder unvollständig. Kopplungsanfragen gelten 10 Minuten. Starte die Kopplung im MCP-Client neu.'
-              : 'Prüfe die Verbindung und lade die Seite neu.'}
+              ? t.connect.mcp.notFoundText
+              : t.connect.mcp.loadFailedText}
           </p>
           <p style={{ marginTop: 16 }}>
             <Link className="btn" to="/">
-              Zur Übersicht
+              {t.connect.mcp.toOverview}
             </Link>
           </p>
         </PairingResult>
@@ -162,14 +165,15 @@ export function ConnectPage({ req }: { req?: string }) {
     return (
       <PairingFrame>
         {done === 'approve' ? (
-          <PairingResult ok title="Verbunden">
+          <PairingResult ok title={t.connect.connected}>
             <p>
-              <span className="host">{deviceName.trim() || info.data?.clientName}</span> ist jetzt gekoppelt. Du wirst zurück zum Client geleitet und kannst dieses Fenster danach schließen.
+              <span className="host">{deviceName.trim() || info.data?.clientName}</span>
+              {t.connect.mcp.pairedRedirect}
             </p>
           </PairingResult>
         ) : (
-          <PairingResult ok={false} title="Verbindung verweigert">
-            <p>{info.data?.clientName ?? 'Der Client'} hat keinen Zugriff erhalten. Starte die Kopplung neu, wenn das ein Versehen war.</p>
+          <PairingResult ok={false} title={t.connect.mcp.denied}>
+            <p>{t.connect.mcp.deniedText(info.data?.clientName ?? t.connect.mcp.theClient)}</p>
           </PairingResult>
         )}
       </PairingFrame>
@@ -182,9 +186,10 @@ export function ConnectPage({ req }: { req?: string }) {
         <PairMarks />
         {info.data ? (
           <>
-            <h1 id="c-title">{info.data.clientName} möchte sich mit ASM verbinden</h1>
+            <h1 id="c-title">{t.connect.wantsToConnect(info.data.clientName)}</h1>
             <p>
-              auf <span className="mono">{window.location.host}</span>
+              {t.connect.onHostBefore}
+              <span className="mono">{window.location.host}</span>
             </p>
           </>
         ) : (
@@ -196,19 +201,20 @@ export function ConnectPage({ req }: { req?: string }) {
       </div>
 
       <div className="consent-sec field">
-        <label htmlFor="devname">Gerätename</label>
+        <label htmlFor="devname">{t.connect.mcp.deviceName}</label>
         <div className="input">
           <Laptop className="icon icon-sm" strokeWidth={1.5} aria-hidden />
           <input id="devname" type="text" maxLength={100} spellCheck={false} autoComplete="off" value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
         </div>
-        <p className="help">So erscheint das Gerät in Anfragen und im Audit-Log.</p>
+        <p className="help">{t.connect.mcp.deviceNameHelp}</p>
       </div>
 
       <Rights />
 
       <div className="consent-sec">
         <div className="redirect">
-          Weiterleitung an <b>{info.data?.redirectHost ?? '…'}</b>
+          {t.connect.mcp.redirectTo}
+          <b>{info.data?.redirectHost ?? '…'}</b>
         </div>
       </div>
 
@@ -220,10 +226,10 @@ export function ConnectPage({ req }: { req?: string }) {
 
       <div className="consent-actions">
         <Button onClick={() => decide.mutate('deny')} disabled={!info.data || decide.isPending}>
-          Verweigern
+          {t.connect.deny}
         </Button>
         <Button variant="primary" onClick={() => decide.mutate('approve')} disabled={!info.data || decide.isPending}>
-          Freigeben
+          {t.connect.approve}
         </Button>
       </div>
     </PairingFrame>

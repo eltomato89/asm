@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trash } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
+import { t } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import {
@@ -28,9 +29,9 @@ class PermissionDenied extends Error {
 }
 
 function enableError(e: unknown): string {
-  if (e instanceof PermissionDenied) return 'Benachrichtigungen wurden nicht erlaubt.';
-  if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return 'Benachrichtigungen wurden nicht erlaubt.';
-  return errorText(e, 'Benachrichtigungen konnten nicht aktiviert werden.');
+  if (e instanceof PermissionDenied) return t.settings.push.notAllowed;
+  if (e instanceof Error && (e.name === 'NotAllowedError' || e.name === 'AbortError')) return t.settings.push.notAllowed;
+  return errorText(e, t.settings.push.enableFailed);
 }
 
 /** The local record only counts while this browser still holds a subscription with the same endpoint. */
@@ -45,7 +46,7 @@ async function activeLocal(): Promise<LocalSubscription | null> {
   }
 }
 
-/** Settings → Benachrichtigungen: enable Web Push for this browser, list and remove subscriptions, send a test. */
+/** Settings → Notifications: enable Web Push for this browser, list and remove subscriptions, send a test. */
 export function PushSection() {
   const qc = useQueryClient();
   const toast = useToast();
@@ -78,7 +79,7 @@ export function PushSection() {
       saveLocalSubscription(l);
       setLocal(l);
       void qc.invalidateQueries({ queryKey: queryKeys.pushSubscriptions });
-      toast(`Benachrichtigungen für „${dto.deviceName}“ aktiviert.`, 'ok');
+      toast(t.settings.push.enabled(dto.deviceName), 'ok');
     },
     onError: (e) => toast(enableError(e), 'danger'),
   });
@@ -94,16 +95,16 @@ export function PushSection() {
     },
     onSuccess: (_v, s) => {
       void qc.invalidateQueries({ queryKey: queryKeys.pushSubscriptions });
-      toast(`„${s.deviceName}“ erhält keine Benachrichtigungen mehr.`, 'ok');
+      toast(t.settings.push.removed(s.deviceName), 'ok');
     },
-    onError: (e) => toast(errorText(e, 'Entfernen fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, t.settings.push.removeFailed), 'danger'),
   });
 
   const test = useMutation({
     mutationFn: api.pushTest,
     onSuccess: ({ sent }) =>
-      toast(sent === 0 ? 'Keine Benachrichtigung gesendet: kein erreichbares Gerät.' : `Test an ${sent} ${sent === 1 ? 'Gerät' : 'Geräte'} gesendet.`, sent === 0 ? 'info' : 'ok'),
-    onError: (e) => toast(errorText(e, 'Test konnte nicht gesendet werden.'), 'danger'),
+      toast(sent === 0 ? t.settings.push.noneSent : t.settings.push.testSent(sent), sent === 0 ? 'info' : 'ok'),
+    onError: (e) => toast(errorText(e, t.settings.push.testFailed), 'danger'),
   });
 
   const submit = (e: FormEvent) => {
@@ -120,37 +121,39 @@ export function PushSection() {
   return (
     <section className="settings-sec" aria-labelledby="s-push">
       <div className="settings-text">
-        <h2 id="s-push">Benachrichtigungen</h2>
-        <p>Push bei neuen Anfragen. Freigeben kannst du dann direkt auf dem Gerät mit Face ID.</p>
+        <h2 id="s-push">{t.settings.push.title}</h2>
+        <p>{t.settings.push.lede}</p>
       </div>
       <div className="settings-body">
         {subs.isPending ? (
           <Skeleton width="100%" height={40} />
         ) : subs.isError ? (
-          <p className="faint">Geräte konnten nicht geladen werden.</p>
+          <p className="faint">{t.settings.push.loadFailed}</p>
         ) : items.length === 0 ? (
-          <p className="faint">Noch kein Gerät erhält Benachrichtigungen.</p>
+          <p className="faint">{t.settings.push.empty}</p>
         ) : (
-          <ul className="mini-list" aria-label="Geräte mit Benachrichtigungen">
+          <ul className="mini-list" aria-label={t.settings.push.listLabel}>
             {items.map((s) => (
               <li key={s.id}>
                 <span>
                   {s.deviceName}
-                  {local?.id === s.id ? <span className="faint"> · dieser Browser</span> : null}
+                  {local?.id === s.id ? <span className="faint">{t.settings.push.thisBrowser}</span> : null}
                 </span>
                 <span className="faint">
-                  hinzugefügt <RelativeTime ts={s.createdAt} />
+                  {t.settings.push.addedAt}
+                  <RelativeTime ts={s.createdAt} />
                 </span>
                 <span className="faint">
                   {s.lastUsedAt ? (
                     <>
-                      zuletzt <RelativeTime ts={s.lastUsedAt} />
+                      {t.settings.push.lastUsed}
+                      <RelativeTime ts={s.lastUsedAt} />
                     </>
                   ) : (
-                    'noch nie benutzt'
+                    t.settings.push.neverUsed
                   )}
                 </span>
-                <IconButton label={`${s.deviceName} entfernen`} className="icon-btn-sm" disabled={remove.isPending} onClick={() => remove.mutate(s)}>
+                <IconButton label={t.settings.push.removeLabel(s.deviceName)} className="icon-btn-sm" disabled={remove.isPending} onClick={() => remove.mutate(s)}>
                   <Trash className="icon icon-sm" strokeWidth={1.5} aria-hidden />
                 </IconButton>
               </li>
@@ -159,21 +162,21 @@ export function PushSection() {
         )}
 
         {support === 'ios-install' ? (
-          <p className="help">Auf iPhone/iPad (ab iOS 16.4) zuerst über Teilen → Zum Home-Bildschirm installieren und von dort öffnen.</p>
+          <p className="help">{t.settings.push.iosInstall}</p>
         ) : support === 'unsupported' ? (
-          <p className="help">Dieser Browser unterstützt keine Push-Benachrichtigungen.</p>
+          <p className="help">{t.settings.push.unsupported}</p>
         ) : thisBrowserActive ? (
-          <p className="help">Dieser Browser erhält Benachrichtigungen.</p>
+          <p className="help">{t.settings.push.active}</p>
         ) : (
           <>
             <form className="inline-form" onSubmit={submit}>
-              <Input label="Gerätename" maxLength={100} value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
+              <Input label={t.settings.push.deviceName} maxLength={100} value={deviceName} onChange={(e) => setDeviceName(e.target.value)} />
               <Button type="submit" disabled={enable.isPending || !deviceName.trim()}>
-                Benachrichtigungen aktivieren
+                {t.settings.push.enable}
               </Button>
             </form>
             {permission === 'denied' ? (
-              <p className="help">Benachrichtigungen sind für diese Seite blockiert. Erlaube sie in den Einstellungen des Browsers.</p>
+              <p className="help">{t.settings.push.blocked}</p>
             ) : null}
           </>
         )}
@@ -181,7 +184,7 @@ export function PushSection() {
         {items.length > 0 ? (
           <div>
             <Button onClick={() => test.mutate()} disabled={test.isPending}>
-              Test senden
+              {t.settings.push.sendTest}
             </Button>
           </div>
         ) : null}

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type FormEvent } from 'react';
+import { t } from '../../i18n';
 import { api, isApiError, queryKeys, type AdminUser } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { RelativeTime } from '../RelativeTime';
@@ -14,16 +15,16 @@ import { useToast } from '../ui/Toast';
 const USERNAME_RE = /^[a-z0-9._-]{3,64}$/i;
 
 function userError(e: unknown): string {
-  if (isApiError(e, 'username_taken')) return 'Diesen Benutzernamen gibt es schon.';
-  if (isApiError(e, 'invalid_username') || isApiError(e, 'invalid_request')) return 'Benutzername: 3–64 Zeichen aus Buchstaben, Ziffern, Punkt, Unterstrich, Bindestrich. Passwort: mindestens 12 Zeichen.';
-  if (isApiError(e, 'invalid_password')) return 'Das Passwort braucht mindestens 12 Zeichen.';
-  return errorText(e, 'Konto konnte nicht angelegt werden.');
+  if (isApiError(e, 'username_taken')) return t.settings.users.usernameTaken;
+  if (isApiError(e, 'invalid_username') || isApiError(e, 'invalid_request')) return t.settings.users.invalidInput;
+  if (isApiError(e, 'invalid_password')) return t.settings.users.passwordTooShort;
+  return errorText(e, t.settings.users.createFailed);
 }
 
 function statusError(e: unknown): string {
-  if (isApiError(e, 'cannot_disable_self')) return 'Du kannst dein eigenes Konto nicht deaktivieren.';
-  if (isApiError(e, 'last_admin')) return 'Das letzte aktive Admin-Konto kann nicht deaktiviert werden.';
-  return errorText(e, 'Status konnte nicht geändert werden.');
+  if (isApiError(e, 'cannot_disable_self')) return t.settings.users.cannotDisableSelf;
+  if (isApiError(e, 'last_admin')) return t.settings.users.lastAdmin;
+  return errorText(e, t.settings.users.statusFailed);
 }
 
 type StatusChange = { user: AdminUser; action: 'disable' | 'enable' };
@@ -39,7 +40,7 @@ export function AdminUsers() {
     mutationFn: (c: StatusChange) => (c.action === 'disable' ? api.disableUser(c.user.id) : api.enableUser(c.user.id)),
     onSuccess: (u, c) => {
       void qc.invalidateQueries({ queryKey: queryKeys.users });
-      toast(c.action === 'disable' ? `Konto ${u.username} deaktiviert.` : `Konto ${u.username} aktiviert.`, 'ok');
+      toast(c.action === 'disable' ? t.settings.users.disabledToast(u.username) : t.settings.users.enabledToast(u.username), 'ok');
       setChange(null);
     },
     onError: (e) => toast(statusError(e), 'danger'),
@@ -57,7 +58,7 @@ export function AdminUsers() {
     setBusy(true);
     try {
       const u = await api.createUser({ username: username.trim(), password, isAdmin });
-      toast(`Konto ${u.username} angelegt.`, 'ok');
+      toast(t.settings.users.created(u.username), 'ok');
       setUsername('');
       setPassword('');
       setIsAdmin(false);
@@ -73,23 +74,23 @@ export function AdminUsers() {
   return (
     <section className="settings-sec" aria-labelledby="s-users">
       <div className="settings-text">
-        <h2 id="s-users">Nutzerverwaltung</h2>
-        <p>Neue Konten erhalten einen eigenen persönlichen Tresor. Teile Secrets über gemeinsame Tresore.</p>
+        <h2 id="s-users">{t.settings.users.title}</h2>
+        <p>{t.settings.users.lede}</p>
       </div>
       <div className="settings-body">
         {users.isPending ? (
           <Skeleton width="100%" height={80} />
         ) : users.isError ? (
-          <p className="faint">Konten konnten nicht geladen werden.</p>
+          <p className="faint">{t.settings.users.loadFailed}</p>
         ) : (
-          <Table aria-label="Konten">
+          <Table aria-label={t.settings.users.tableLabel}>
             <THead>
               <Tr>
-                <Th>Benutzername</Th>
-                <Th>Anmeldung</Th>
-                <Th>Angelegt</Th>
+                <Th>{t.settings.users.colUsername}</Th>
+                <Th>{t.settings.users.colSignIn}</Th>
+                <Th>{t.settings.users.colCreated}</Th>
                 <Th>
-                  <span className="visually-hidden">Aktionen</span>
+                  <span className="visually-hidden">{t.settings.users.colActions}</span>
                 </Th>
               </Tr>
             </THead>
@@ -97,11 +98,12 @@ export function AdminUsers() {
               {users.data.items.map((u) => (
                 <Tr key={u.id} className={u.disabledAt !== null ? 'is-archived' : undefined}>
                   <Td>
-                    <span className="mono">{u.username}</span> {u.isAdmin ? <Badge>Admin</Badge> : null}{' '}
-                    {u.disabledAt !== null ? <Badge tone="danger">deaktiviert</Badge> : null}
+                    <span className="mono">{u.username}</span> {u.isAdmin ? <Badge>{t.settings.users.admin}</Badge> : null}{' '}
+                    {u.disabledAt !== null ? <Badge tone="danger">{t.settings.users.disabled}</Badge> : null}
                   </Td>
                   <Td className="faint">
-                    {[u.hasPassword ? 'Passwort' : null, u.passkeyCount ? `${u.passkeyCount} Passkey${u.passkeyCount > 1 ? 's' : ''}` : null].filter(Boolean).join(', ') || 'keine'}
+                    {[u.hasPassword ? t.settings.users.methodPassword : null, u.passkeyCount ? t.settings.users.methodPasskeys(u.passkeyCount) : null].filter(Boolean).join(', ') ||
+                      t.settings.users.methodNone}
                   </Td>
                   <Td>
                     <RelativeTime ts={u.createdAt} className="faint" />
@@ -109,12 +111,12 @@ export function AdminUsers() {
                   <Td className="r">
                     {me.data && u.id !== me.data.id ? (
                       u.disabledAt === null ? (
-                        <Button variant="ghost" aria-label={`Konto ${u.username} deaktivieren`} onClick={() => setChange({ user: u, action: 'disable' })}>
-                          Deaktivieren
+                        <Button variant="ghost" aria-label={t.settings.users.disableLabel(u.username)} onClick={() => setChange({ user: u, action: 'disable' })}>
+                          {t.settings.users.disable}
                         </Button>
                       ) : (
-                        <Button variant="ghost" aria-label={`Konto ${u.username} aktivieren`} onClick={() => setChange({ user: u, action: 'enable' })}>
-                          Aktivieren
+                        <Button variant="ghost" aria-label={t.settings.users.enableLabel(u.username)} onClick={() => setChange({ user: u, action: 'enable' })}>
+                          {t.settings.users.enable}
                         </Button>
                       )
                     ) : null}
@@ -124,19 +126,19 @@ export function AdminUsers() {
             </TBody>
           </Table>
         )}
-        <form className="user-create" onSubmit={submit} aria-label="Konto anlegen" noValidate>
-          <h3>Konto anlegen</h3>
-          <Input label="Benutzername" autoComplete="off" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} />
+        <form className="user-create" onSubmit={submit} aria-label={t.settings.users.create} noValidate>
+          <h3>{t.settings.users.create}</h3>
+          <Input label={t.settings.users.username} autoComplete="off" autoCapitalize="none" spellCheck={false} value={username} onChange={(e) => setUsername(e.target.value)} />
           <Input
-            label="Startpasswort"
+            label={t.settings.users.startPassword}
             type="password"
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            help="Mindestens 12 Zeichen. Gib es sicher weiter; die Person kann es danach ändern und einen Passkey hinzufügen."
+            help={t.settings.users.startPasswordHelp}
           />
           <label className="check">
-            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} /> Administrator
+            <input type="checkbox" checked={isAdmin} onChange={(e) => setIsAdmin(e.target.checked)} /> {t.settings.users.administrator}
           </label>
           {error ? (
             <p className="form-error" role="alert">
@@ -145,7 +147,7 @@ export function AdminUsers() {
           ) : null}
           <div>
             <Button type="submit" variant="primary" disabled={!valid || busy}>
-              Konto anlegen
+              {t.settings.users.create}
             </Button>
           </div>
         </form>
@@ -153,13 +155,13 @@ export function AdminUsers() {
       <ConfirmDialog
         open={change !== null}
         onOpenChange={(v) => !v && setChange(null)}
-        title={change?.action === 'enable' ? `Konto ${change.user.username} aktivieren?` : `Konto ${change?.user.username ?? ''} deaktivieren?`}
+        title={change?.action === 'enable' ? t.settings.users.enableTitle(change.user.username) : t.settings.users.disableTitle(change?.user.username ?? '')}
         description={
           change?.action === 'enable'
-            ? 'Die Person kann sich danach wieder anmelden. Widerrufene Geräte bleiben widerrufen und müssen neu gekoppelt werden.'
-            : 'Die Person wird sofort abgemeldet und kann sich nicht mehr anmelden. Alle ihre Geräte werden widerrufen, offene Anfragen verweigert und Übergaben ungültig.'
+            ? t.settings.users.enableText
+            : t.settings.users.disableText
         }
-        confirmLabel={change?.action === 'enable' ? 'Aktivieren' : 'Deaktivieren'}
+        confirmLabel={change?.action === 'enable' ? t.settings.users.enable : t.settings.users.disable}
         danger={change?.action !== 'enable'}
         busy={setStatus.isPending}
         onConfirm={() => change && setStatus.mutate(change)}

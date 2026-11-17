@@ -9,6 +9,7 @@ import {
   type RouterHistory,
 } from '@tanstack/react-router';
 import { Button } from '../components/ui/Button';
+import { t } from '../i18n';
 import { AppShell } from '../layout/AppShell';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { ActivatePage } from './activate';
@@ -65,18 +66,18 @@ async function requireSession(qc: QueryClient, href: string) {
   if (!(await currentUser(qc))) throw redirect({ to: '/login', search: href && href !== '/' ? { redirect: href } : {} });
 }
 
-/** Router-level error state (German), e.g. when a page throws while rendering. */
+/** Router-level error state, e.g. when a page throws while rendering. */
 export function RouteError({ error }: Partial<ErrorComponentProps>) {
   return (
     <div className="consent-page">
       <div className="consent">
         <div className="consent-result">
-          <h2>Etwas ist schiefgelaufen</h2>
-          <p>Diese Ansicht konnte nicht angezeigt werden. Lade die Seite neu. Bleibt der Fehler, prüfe die Verbindung zum Server.</p>
+          <h2>{t.common.somethingWentWrong}</h2>
+          <p>{t.layout.routeErrorBody}</p>
           {error instanceof Error && error.message ? <p className="mono faint">{error.message}</p> : null}
           <p style={{ marginTop: 16 }}>
             <Button variant="primary" onClick={() => window.location.reload()}>
-              Neu laden
+              {t.common.reload}
             </Button>
           </p>
         </div>

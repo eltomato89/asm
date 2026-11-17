@@ -2,6 +2,7 @@ import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/brow
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { KeyRound, Pencil, Trash } from 'lucide-react';
 import { useState, type FormEvent, type KeyboardEvent } from 'react';
+import { t } from '../../i18n';
 import { api, isApiError, queryKeys, type Passkey } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { RelativeTime } from '../RelativeTime';
@@ -12,10 +13,10 @@ import { Skeleton } from '../ui/Skeleton';
 import { useToast } from '../ui/Toast';
 
 function passkeyError(e: unknown): string {
-  if (e instanceof Error && e.name === 'NotAllowedError') return 'Passkey-Registrierung abgebrochen.';
-  if ((e instanceof Error && e.name === 'InvalidStateError') || isApiError(e, 'credential_exists')) return 'Dieser Passkey ist bereits registriert.';
-  if (isApiError(e, 'last_credential')) return 'Das ist dein einziger Anmeldeweg. Lege zuerst einen weiteren Passkey an.';
-  return errorText(e, 'Passkey-Aktion fehlgeschlagen.');
+  if (e instanceof Error && e.name === 'NotAllowedError') return t.settings.passkeys.cancelled;
+  if ((e instanceof Error && e.name === 'InvalidStateError') || isApiError(e, 'credential_exists')) return t.settings.passkeys.exists;
+  if (isApiError(e, 'last_credential')) return t.settings.passkeys.lastCredential;
+  return errorText(e, t.settings.passkeys.failed);
 }
 
 export function PasskeySection() {
@@ -34,7 +35,7 @@ export function PasskeySection() {
     },
     onSuccess: (p) => {
       void qc.invalidateQueries({ queryKey: queryKeys.passkeys });
-      toast(`Passkey „${p.name}“ hinzugefügt.`, 'ok');
+      toast(t.settings.passkeys.added(p.name), 'ok');
       setName('');
     },
     onError: (e) => toast(passkeyError(e), 'danger'),
@@ -43,7 +44,7 @@ export function PasskeySection() {
     mutationFn: (p: Passkey) => api.deletePasskey(p.id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.passkeys });
-      toast('Passkey entfernt.', 'ok');
+      toast(t.settings.passkeys.removed, 'ok');
       setRemoving(null);
     },
     onError: (e) => {
@@ -60,37 +61,37 @@ export function PasskeySection() {
   return (
     <section className="settings-sec" aria-labelledby="s-passkeys">
       <div className="settings-text">
-        <h2 id="s-passkeys">Passkeys</h2>
-        <p>Zum Anmelden und zum Bestätigen sensibler Aktionen wie „Anzeigen“ oder dem Freigeben einer Kopplung.</p>
+        <h2 id="s-passkeys">{t.settings.passkeys.title}</h2>
+        <p>{t.settings.passkeys.lede}</p>
       </div>
       <div className="settings-body">
         {passkeys.isPending ? (
           <Skeleton width="100%" height={40} />
         ) : passkeys.isError ? (
-          <p className="faint">Passkeys konnten nicht geladen werden.</p>
+          <p className="faint">{t.settings.passkeys.loadFailed}</p>
         ) : passkeys.data.length === 0 ? (
-          <p className="faint">Noch kein Passkey. Du meldest dich mit Passwort an.</p>
+          <p className="faint">{t.settings.passkeys.empty}</p>
         ) : (
-          <ul className="mini-list" aria-label="Passkeys">
+          <ul className="mini-list" aria-label={t.settings.passkeys.title}>
             {passkeys.data.map((p) => (
               <PasskeyItem key={p.id} passkey={p} onRemove={() => setRemoving(p)} />
             ))}
           </ul>
         )}
         <form className="inline-form" onSubmit={submit}>
-          <Input label="Name des neuen Passkeys" placeholder="MacBook Touch ID" maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
+          <Input label={t.settings.passkeys.newName} placeholder="MacBook Touch ID" maxLength={100} value={name} onChange={(e) => setName(e.target.value)} />
           <Button type="submit" disabled={!supported || add.isPending}>
-            Passkey hinzufügen
+            {t.settings.passkeys.add}
           </Button>
         </form>
-        {!supported ? <p className="help">Dieser Browser unterstützt keine Passkeys.</p> : null}
+        {!supported ? <p className="help">{t.settings.passkeys.unsupported}</p> : null}
       </div>
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(v) => !v && setRemoving(null)}
-        title={`Passkey „${removing?.name ?? ''}“ entfernen?`}
-        description="Mit diesem Passkey kannst du dich danach nicht mehr anmelden."
-        confirmLabel="Entfernen"
+        title={t.settings.passkeys.removeTitle(removing?.name ?? '')}
+        description={t.settings.passkeys.removeText}
+        confirmLabel={t.settings.passkeys.remove}
         danger
         busy={remove.isPending}
         onConfirm={() => removing && remove.mutate(removing)}
@@ -109,9 +110,9 @@ function PasskeyItem({ passkey: p, onRemove }: { passkey: Passkey; onRemove: () 
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: queryKeys.passkeys });
       setEditing(false);
-      toast('Passkey umbenannt.', 'ok');
+      toast(t.settings.passkeys.renamed, 'ok');
     },
-    onError: (e) => toast(errorText(e, 'Umbenennen fehlgeschlagen.'), 'danger'),
+    onError: (e) => toast(errorText(e, t.settings.passkeys.renameFailed), 'danger'),
   });
   const save = () => {
     const n = name.trim();
@@ -128,7 +129,7 @@ function PasskeyItem({ passkey: p, onRemove }: { passkey: Passkey; onRemove: () 
   return (
     <li>
       {editing ? (
-        <input className="inline-input" aria-label="Name des Passkeys" autoFocus maxLength={100} value={name} disabled={rename.isPending} onChange={(e) => setName(e.target.value)} onKeyDown={onKey} onBlur={save} />
+        <input className="inline-input" aria-label={t.settings.passkeys.nameLabel} autoFocus maxLength={100} value={name} disabled={rename.isPending} onChange={(e) => setName(e.target.value)} onKeyDown={onKey} onBlur={save} />
       ) : (
         <span className="pk-name">
           <KeyRound className="icon icon-sm faint" strokeWidth={1.5} aria-hidden />
@@ -136,10 +137,11 @@ function PasskeyItem({ passkey: p, onRemove }: { passkey: Passkey; onRemove: () 
         </span>
       )}
       <span className="faint">
-        hinzugefügt <RelativeTime ts={p.createdAt} />
+        {t.settings.passkeys.addedAt}
+        <RelativeTime ts={p.createdAt} />
       </span>
       <IconButton
-        label={`Passkey ${p.name} umbenennen`}
+        label={t.settings.passkeys.renameLabel(p.name)}
         className="icon-btn-sm"
         onClick={() => {
           setName(p.name);
@@ -148,7 +150,7 @@ function PasskeyItem({ passkey: p, onRemove }: { passkey: Passkey; onRemove: () 
       >
         <Pencil className="icon icon-sm" strokeWidth={1.5} aria-hidden />
       </IconButton>
-      <IconButton label={`Passkey ${p.name} entfernen`} className="icon-btn-sm" onClick={onRemove}>
+      <IconButton label={t.settings.passkeys.removeLabel(p.name)} className="icon-btn-sm" onClick={onRemove}>
         <Trash className="icon icon-sm" strokeWidth={1.5} aria-hidden />
       </IconButton>
     </li>

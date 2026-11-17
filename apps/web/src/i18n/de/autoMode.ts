@@ -1,3 +1,31 @@
 import type { Messages } from '../en';
 
-export const autoMode: Messages['autoMode'] = {};
+export const autoMode: Messages['autoMode'] = {
+  title: 'Auto-Modus',
+  off: 'aus',
+  activeAria: (time) => `Auto-Modus aktiv, noch ${time}`,
+  start: 'Auto-Modus starten',
+  description: 'Anfragen in diesen Tresoren werden ohne Rückfrage freigegeben und im Audit-Log vermerkt.',
+  duration: 'Dauer',
+  minutes: (n) => `${n} min`,
+  minUnit: 'min',
+  customDuration: 'Eigene Dauer',
+  customDurationAria: 'Eigene Dauer in Minuten',
+  vaultsLoadFailed: 'Tresore konnten nicht geladen werden.',
+  retry: 'Erneut versuchen',
+  vaultsLoading: 'Tresore werden geladen',
+  appliesTo: 'Gilt für Tresore',
+  allVaults: 'Alle Tresore',
+  selectOne: 'Wähle mindestens einen Tresor.',
+  extendButton: 'Verlängern',
+  stopButton: 'Beenden',
+  startButton: 'Starten',
+  reauthCancelled: 'Bestätigung abgebrochen. Der Auto-Modus wurde nicht geändert.',
+  tooLong: 'Diese Dauer überschreitet die erlaubte Höchstdauer.',
+  extended: (n) => `Auto-Modus verlängert, jetzt ${n} Minuten.`,
+  activeFor: (n) => `Auto-Modus für ${n} Minuten aktiv.`,
+  startFailed: 'Auto-Modus konnte nicht gestartet werden.',
+  stopped: 'Auto-Modus beendet. Neue Anfragen warten wieder auf dich.',
+  stopFailed: 'Auto-Modus konnte nicht beendet werden.',
+  command30: 'Auto-Modus 30 min',
+};

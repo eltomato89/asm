@@ -8,6 +8,7 @@ import { useEvents } from '../lib/sse';
 import { applyTheme, effectiveTheme } from '../lib/theme';
 import { useAutoModeActions } from './AutoModePill';
 import { NAV_ITEMS } from './nav';
+import { t } from '../i18n';
 import { Sidebar } from './Sidebar';
 import { Topbar } from './Topbar';
 
@@ -54,19 +55,19 @@ export function AppShell() {
     () => [
       ...NAV_ITEMS.map((n) => ({
         id: `page:${n.to}`,
-        group: 'Seiten',
+        group: t.palette.groupPages,
         title: n.label,
-        hint: 'Seite',
+        hint: t.palette.pageHint,
         icon: n.icon,
         keywords: n.keywords,
         run: () => void navigate({ to: n.to }),
       })),
       {
         id: 'action:auto30',
-        group: 'Aktionen',
-        title: 'Auto-Modus 30 min',
+        group: t.palette.groupActions,
+        title: t.autoMode.command30,
         icon: Zap,
-        keywords: 'automatisch freigeben',
+        keywords: 'auto approve automatisch freigeben',
         run: () => {
           const current = qc.getQueryData<{ vaultIds: string[] | null }>(queryKeys.automode);
           const input: AutoModeInput = { minutes: 30, vaultIds: current?.vaultIds ?? null };
@@ -75,10 +76,10 @@ export function AppShell() {
       },
       {
         id: 'action:theme',
-        group: 'Aktionen',
-        title: 'Hell/Dunkel umschalten',
+        group: t.palette.groupActions,
+        title: t.palette.toggleTheme,
         icon: Moon,
-        keywords: 'theme darstellung',
+        keywords: 'theme appearance dark light darstellung',
         run: () => applyTheme(effectiveTheme() === 'dark' ? 'light' : 'dark'),
       },
     ],
@@ -90,7 +91,7 @@ export function AppShell() {
       const { items } = await api.searchSecrets(q, signal);
       return items.slice(0, 8).map((s) => ({
         id: `secret:${s.id}`,
-        group: 'Secrets',
+        group: t.palette.groupSecrets,
         title: s.envName ?? s.title,
         mono: s.envName !== null,
         hint: s.vaultName,

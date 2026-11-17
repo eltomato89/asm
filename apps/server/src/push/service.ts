@@ -39,9 +39,9 @@ export function isAllowedPushEndpoint(endpoint: string): boolean {
   return url.protocol === 'https:' && url.port === '' && url.username === '' && url.password === '' && PUSH_HOSTS.some((re) => re.test(url.hostname));
 }
 export const MAX_SUBSCRIPTIONS_PER_USER = 20;
-export const TEST_PAYLOAD: PushPayload = { title: 'ASM', body: 'Test-Benachrichtigung', url: '/settings', tag: 'asm-test' };
+export const TEST_PAYLOAD: PushPayload = { title: 'ASM', body: 'Test notification', url: '/settings', tag: 'asm-test' };
 export const pendingPayload = (token: string, requestId: string): PushPayload => ({
-  title: 'ASM', body: 'Neue Anfrage wartet auf Freigabe', url: `/approve/${token}`, tag: requestId,
+  title: 'ASM', body: 'New request waiting for approval', url: `/approve/${token}`, tag: requestId,
 });
 
 export const hashApproveToken = (token: string) => createHash('sha256').update(token, 'utf8').digest('hex');

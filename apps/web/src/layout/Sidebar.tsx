@@ -5,7 +5,8 @@ import { Check, ChevronsUpDown, KeyRound } from 'lucide-react';
 import { Fragment } from 'react';
 import { CountBadge } from '../components/ui/Badge';
 import { api, queryKeys } from '../lib/api';
-import { useCurrentVault } from '../lib/vault';
+import { useCurrentVault, vaultLabel } from '../lib/vault';
+import { t } from '../i18n';
 import { NAV_ITEMS } from './nav';
 
 /** Left rail: vault switcher on top, grouped navigation with the pending-requests counter. */
@@ -19,12 +20,12 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
     <aside className="sidebar">
       <Menu.Root>
         <Menu.Trigger asChild>
-          <button className="vault-switch" type="button" aria-label={`Tresor wechseln, aktuell ${vault?.name ?? '…'}`}>
+          <button className="vault-switch" type="button" aria-label={t.layout.switchVault(vault ? vaultLabel(vault) : '…')}>
             <span className="logo">
               <KeyRound className="icon" strokeWidth={1.5} aria-hidden />
             </span>
             <span>
-              <span className="v-name">{vault?.name ?? '…'}</span>
+              <span className="v-name">{vault ? vaultLabel(vault) : '…'}</span>
               <br />
               <span className="v-sub mono">{window.location.host}</span>
             </span>
@@ -33,31 +34,31 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         </Menu.Trigger>
         <Menu.Portal>
           <Menu.Content className="menu" align="start" sideOffset={4} style={{ width: 216 }}>
-            <Menu.Label className="menu-label">Tresore</Menu.Label>
+            <Menu.Label className="menu-label">{t.nav.vaults}</Menu.Label>
             {(vaults.data?.items ?? []).map((v) => (
               <Menu.Item key={v.id} className="menu-item" onSelect={() => select(v.id)}>
-                {v.name}
-                {v.id === vault?.id ? <Check className="icon icon-sm check" strokeWidth={1.5} aria-label="ausgewählt" /> : null}
+                {vaultLabel(v)}
+                {v.id === vault?.id ? <Check className="icon icon-sm check" strokeWidth={1.5} aria-label={t.layout.selected} /> : null}
               </Menu.Item>
             ))}
             <Menu.Separator className="menu-sep" />
             <Menu.Item className="menu-item" asChild>
               <Link to="/vaults" onClick={onNavigate}>
-                Tresore verwalten
+                {t.layout.manageVaults}
               </Link>
             </Menu.Item>
           </Menu.Content>
         </Menu.Portal>
       </Menu.Root>
 
-      <nav className="nav" aria-label="Hauptnavigation">
+      <nav className="nav" aria-label={t.layout.mainNav}>
         {NAV_ITEMS.map(({ to, label, icon: Icon }) => (
           <Fragment key={to}>
             {to === '/settings' ? <div className="nav-sep" role="separator" /> : null}
             <Link to={to} activeOptions={{ exact: to === '/' }} onClick={onNavigate}>
               <Icon className="icon" strokeWidth={1.5} aria-hidden />
               {label}
-              {to === '/requests' ? <CountBadge n={pendingCount} label={`${pendingCount} offen`} /> : null}
+              {to === '/requests' ? <CountBadge n={pendingCount} label={t.layout.pendingCount(pendingCount)} /> : null}
             </Link>
           </Fragment>
         ))}

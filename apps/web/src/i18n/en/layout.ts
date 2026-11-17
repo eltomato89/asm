@@ -1,1 +1,20 @@
-export const layout = {};
+// App shell: sidebar, topbar, theme and account menus, route error state, shared dialogs.
+export const layout = {
+  switchVault: (name: string) => `Switch vault, current: ${name}`,
+  selected: 'selected',
+  manageVaults: 'Manage vaults',
+  mainNav: 'Main navigation',
+  pendingCount: (n: number) => `${n} pending`,
+  openNav: 'Open navigation',
+  openPalette: 'Open command palette',
+  appearance: 'Appearance',
+  themeSystem: 'System',
+  themeLight: 'Light',
+  themeDark: 'Dark',
+  account: (name: string) => `Account ${name}`,
+  signedInAs: 'Signed in as',
+  signOut: 'Sign out',
+  ctrlKey: 'Ctrl',
+  routeErrorBody: "This view couldn't be displayed. Reload the page. If the error persists, check the connection to the server.",
+  typeToConfirm: (text: string) => `Type “${text}” to confirm`,
+};

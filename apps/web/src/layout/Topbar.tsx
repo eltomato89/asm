@@ -6,14 +6,16 @@ import { IconButton } from '../components/ui/Button';
 import { Kbd, modKeyLabel } from '../components/ui/Kbd';
 import { api, queryKeys } from '../lib/api';
 import { useTheme, type ThemeMode } from '../lib/theme';
-import { useCurrentVault } from '../lib/vault';
+import { useCurrentVault, vaultLabel } from '../lib/vault';
+import { t } from '../i18n';
 import { AutoModePill } from './AutoModePill';
 import { navItemFor } from './nav';
 
+/** `label` is a getter so it follows the active locale. */
 const THEMES: { mode: ThemeMode; label: string; icon: typeof Sun }[] = [
-  { mode: 'system', label: 'System', icon: Monitor },
-  { mode: 'light', label: 'Hell', icon: Sun },
-  { mode: 'dark', label: 'Dunkel', icon: Moon },
+  { mode: 'system', get label() { return t.layout.themeSystem; }, icon: Monitor },
+  { mode: 'light', get label() { return t.layout.themeLight; }, icon: Sun },
+  { mode: 'dark', get label() { return t.layout.themeDark; }, icon: Moon },
 ];
 
 export function ThemeMenu() {
@@ -22,18 +24,18 @@ export function ThemeMenu() {
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
-        <IconButton label="Darstellung">
+        <IconButton label={t.layout.appearance}>
           <Icon className="icon" strokeWidth={1.5} aria-hidden />
         </IconButton>
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Content className="menu" align="end" sideOffset={6}>
-          <Menu.Label className="menu-label">Darstellung</Menu.Label>
+          <Menu.Label className="menu-label">{t.layout.appearance}</Menu.Label>
           <Menu.RadioGroup value={mode} onValueChange={(v) => setMode(v as ThemeMode)}>
-            {THEMES.map((t) => (
-              <Menu.RadioItem key={t.mode} value={t.mode} className="menu-item">
-                <t.icon className="icon" strokeWidth={1.5} aria-hidden />
-                {t.label}
+            {THEMES.map((th) => (
+              <Menu.RadioItem key={th.mode} value={th.mode} className="menu-item">
+                <th.icon className="icon" strokeWidth={1.5} aria-hidden />
+                {th.label}
                 <Menu.ItemIndicator className="check">
                   <Check className="icon icon-sm" strokeWidth={1.5} aria-hidden />
                 </Menu.ItemIndicator>
@@ -66,19 +68,19 @@ function UserMenu() {
   return (
     <Menu.Root>
       <Menu.Trigger asChild>
-        <button type="button" className="avatar" aria-label={`Konto ${me.username}`} style={{ border: 0 }}>
+        <button type="button" className="avatar" aria-label={t.layout.account(me.username)} style={{ border: 0 }}>
           {initials(me.username)}
         </button>
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Content className="menu" align="end" sideOffset={6}>
           <Menu.Label className="menu-label">
-            Angemeldet als <span className="mono">{me.username}</span>
+            {t.layout.signedInAs} <span className="mono">{me.username}</span>
           </Menu.Label>
           <Menu.Separator className="menu-sep" />
           <Menu.Item className="menu-item" onSelect={() => logout.mutate()}>
             <LogOut className="icon" strokeWidth={1.5} aria-hidden />
-            Abmelden
+            {t.layout.signOut}
           </Menu.Item>
         </Menu.Content>
       </Menu.Portal>
@@ -94,13 +96,13 @@ export function Topbar({ onMenu, onPalette }: { onMenu: () => void; onPalette: (
   const page = navItemFor(pathname);
   return (
     <header className="topbar">
-      <IconButton label="Navigation öffnen" className="menu-btn" onClick={onMenu}>
+      <IconButton label={t.layout.openNav} className="menu-btn" onClick={onMenu}>
         <MenuIcon className="icon" strokeWidth={1.5} aria-hidden />
       </IconButton>
       <div className="crumbs">
         {vault ? (
           <>
-            <span className="vault-crumb">{vault.name}</span>
+            <span className="vault-crumb">{vaultLabel(vault)}</span>
             <span className="sep">/</span>
           </>
         ) : null}
@@ -108,9 +110,9 @@ export function Topbar({ onMenu, onPalette }: { onMenu: () => void; onPalette: (
       </div>
       <span className="spacer" />
       <AutoModePill />
-      <button className="cmdk-btn" type="button" aria-label="Befehlspalette öffnen" onClick={onPalette}>
+      <button className="cmdk-btn" type="button" aria-label={t.layout.openPalette} onClick={onPalette}>
         <Search className="icon icon-sm" strokeWidth={1.5} aria-hidden />
-        <span className="label">Suchen</span>
+        <span className="label">{t.common.search}</span>
         <Kbd>{modKeyLabel('K')}</Kbd>
       </button>
       <ThemeMenu />

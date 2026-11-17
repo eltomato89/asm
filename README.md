@@ -1,126 +1,129 @@
 # ASM – Agent Secrets Manager
 
-Selbst gehosteter Secrets-Manager für mehrere Nutzer, gebaut für KI-Agenten wie Claude Code.
-Agenten finden Secrets über MCP, fordern sie mit Projekt und Grund an, und du gibst jede Anfrage im
-Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der Prozess, den er startet.
+Deutsch: [README.de.md](README.de.md)
 
-- **Server** (`apps/server`): Fastify-API, OAuth 2.1 für MCP-Clients, MCP-Endpunkt `/mcp`, liefert die Web-UI aus. SQLite.
-- **Web-UI** (`apps/web`): Anfragen freigeben, Secrets, Tresore, Geräte, Audit-Log.
-- **CLI** (`apps/cli`, Befehl `asm`): übergibt freigegebene Secrets an Befehle oder `.env`-Dateien.
+A self-hosted, multi-user secrets manager built for AI agents such as Claude Code.
+Agents find secrets via MCP, request them with a project and a reason, and you approve each request in the
+browser. By default the value never reaches the agent, only the process it starts.
 
-## Sicherheitsmodell
+- **Server** (`apps/server`): Fastify API, OAuth 2.1 for MCP clients, MCP endpoint `/mcp`, serves the web UI. SQLite.
+- **Web UI** (`apps/web`): approve requests, manage secrets, vaults, devices, audit log. Available in English and
+  German; it follows the browser language and can be switched under Settings → Language.
+- **CLI** (`apps/cli`, command `asm`): hands approved secrets to commands or `.env` files.
 
-- **Hybrid-Übergabe.** Der Agent fordert ein Secret per MCP an (`request_secret`, Standard `delivery: "cli"`).
-  Nach der Freigabe erhält er nur eine Grant-ID und ruft `asm run --grant <id> -- <befehl>` auf: Die CLI holt
-  den Wert und setzt ihn als Umgebungsvariable nur für diesen Prozess. Der Wert landet so weder im
-  Gesprächsverlauf noch beim Modellanbieter. Grants gelten 15 Minuten und standardmäßig für eine Nutzung.
-- **Klartext ist Opt-in pro Secret.** `delivery: "plaintext"` geht nur, wenn beim Secret „Klartext an Agenten
-  erlauben“ aktiv ist (Standard: aus). Ein Klartext-Wert steht danach im Transkript, in Logs und beim
-  Modellanbieter – nur für unkritische Werte verwenden. Agenten können diese Einstellung nie ändern.
-- **Freigaben.** Jede Anfrage (Abruf oder Änderung) wartet auf deine Entscheidung (`A` / `D` in der UI) und
-  verfällt nach 5 Minuten. Der **Auto-Modus** gibt für eine begrenzte Zeit (Standard 30 min, maximal
-  `ASM_AUTO_MODE_MAX_MIN`) und für gewählte Tresore automatisch frei – jede Auto-Freigabe steht im Audit-Log.
-- **Was Agenten dürfen.** Secrets anlegen (sofort), ändern (nur mit Freigabe), archivieren (sofort, mit Grund).
-  Nie löschen, nie reaktivieren.
-- **Archiv statt Löschen.** Archivierte Secrets tauchen in Suchen nicht mehr auf und lassen sich weder abrufen
-  noch ändern; offene Anfragen dazu werden verweigert. Ein Mensch kann sie reaktivieren.
-- **Versionen.** Jede Änderung erzeugt eine neue Version mit Akteur, Projekt und Grund. Alte Werte bleiben
-  einsehbar und lassen sich wiederherstellen.
-- **Audit-Log** mit Hash-Kette: Jeder Eintrag enthält den Hash des vorigen, Manipulationen fallen auf
-  (Grenzen siehe unten).
-- **Geräte.** Jede Kopplung (Claude Code, CLI) ist ein eigenes Gerät, das du im Browser freigibst und
-  jederzeit widerrufen kannst. Refresh-Tokens rotieren; Wiederverwendung sperrt das Gerät.
-- **Konten deaktivieren.** Admins können Konten in den Einstellungen deaktivieren (Offboarding): Die Person wird
-  abgemeldet, kann sich nicht mehr anmelden, und alle ihre Geräte werden widerrufen.
-- **Verschlüsselung.** AES-256-GCM, pro Secret ein eigener Schlüssel, der mit dem Master-Key verschlüsselt ist.
-  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus) verlangen eine Anmeldung, die höchstens
-  10 Minuten alt ist. Anmeldung mit Passwort oder Passkey.
+## Security model
+
+- **Hybrid delivery.** The agent requests a secret via MCP (`request_secret`, default `delivery: "cli"`).
+  Once approved, it only receives a grant ID and calls `asm run --grant <id> -- <command>`: the CLI fetches
+  the value and sets it as an environment variable for that process only. The value therefore never ends up in
+  the conversation history or at the model provider. Grants are valid for 15 minutes and, by default, for a single use.
+- **Plaintext is opt-in per secret.** `delivery: "plaintext"` only works if "Allow plaintext to agents" is enabled
+  on the secret (default: off). A plaintext value then appears in the transcript, in logs and at the model
+  provider – use it only for non-critical values. Agents can never change this setting.
+- **Approvals.** Every request (read or change) waits for your decision (`A` / `D` in the UI) and expires
+  after 5 minutes. **Auto mode** approves automatically for a limited time (default 30 min, at most
+  `ASM_AUTO_MODE_MAX_MIN`) and for selected vaults – every auto-approval is recorded in the audit log.
+- **What agents may do.** Create secrets (immediately), change them (only with approval), archive them (immediately,
+  with a reason). Never delete, never restore.
+- **Archive instead of delete.** Archived secrets no longer show up in searches and can be neither read nor
+  changed; pending requests for them are denied. A human can restore them.
+- **Versions.** Every change creates a new version with actor, project and reason. Old values remain
+  viewable and can be restored.
+- **Audit log** with a hash chain: each entry contains the hash of the previous one, so tampering is detectable
+  (see limitations below).
+- **Devices.** Every pairing (Claude Code, CLI) is a separate device that you approve in the browser and can
+  revoke at any time. Refresh tokens rotate; reuse locks the device.
+- **Deactivating accounts.** Admins can deactivate accounts in Settings (offboarding): the person is
+  signed out, can no longer sign in, and all their devices are revoked.
+- **Encryption.** AES-256-GCM, with a separate key per secret that is encrypted with the master key.
+  Sensitive actions (reveal a value, pair a device, auto mode) require a sign-in no older than
+  10 minutes. Sign in with password or passkey.
 
 ## Setup (Docker)
 
-Das Image basiert auf `node:24-alpine`. Ohne Docker braucht der Server Node.js ≥ 24 (LTS) und pnpm 11.
+The image is based on `node:24-alpine`. Without Docker, the server needs Node.js ≥ 24 (LTS) and pnpm 11.
 
 ```sh
 docker build -t asm .
 
-# Master-Key erzeugen – getrennt von den Daten sichern! Ohne ihn sind alle Secrets verloren.
-# Eigenes Verzeichnis (secrets/ ist in .gitignore und .dockerignore ausgeschlossen).
+# Generate the master key – back it up separately from the data! Without it, all secrets are lost.
+# Separate directory (secrets/ is excluded in .gitignore and .dockerignore).
 mkdir -p secrets && chmod 700 secrets
 docker run --rm asm node apps/server/dist/scripts/generate-key.js > secrets/asm_master_key
 chmod 600 secrets/asm_master_key
-sudo chown 1000:1000 secrets/asm_master_key   # der Container läuft als User node (UID 1000) und muss die Datei lesen können
+sudo chown 1000:1000 secrets/asm_master_key   # the container runs as user node (UID 1000) and must be able to read the file
 ```
 
-Den Key nie committen und nicht ins Image bauen. Am besten liegt er ganz außerhalb des Repos (dann den Pfad
-unter `secrets.asm_master_key.file` in der Compose-Datei anpassen).
+Never commit the key or bake it into the image. Ideally keep it entirely outside the repo (then adjust the path
+under `secrets.asm_master_key.file` in the Compose file).
 
-Dann `docker-compose.example.yml` kopieren, `ASM_PUBLIC_URL` anpassen und starten:
+Then copy `docker-compose.example.yml`, adjust `ASM_PUBLIC_URL` and start:
 
 ```sh
 docker compose -f docker-compose.example.yml up -d
 docker compose -f docker-compose.example.yml logs asm | grep "ASM setup token"
 ```
 
-Öffne `ASM_PUBLIC_URL` im Browser, gib das Setup-Token aus dem Log ein und lege das erste Konto an (Admin).
-Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du dort ebenfalls hinzu.
+Open `ASM_PUBLIC_URL` in the browser, enter the setup token from the log and create the first account (admin).
+Add more users under "Settings". You can also add a passkey there.
 
-| Variable | Bedeutung | Standard |
+| Variable | Meaning | Default |
 | --- | --- | --- |
-| `ASM_PUBLIC_URL` | Öffentliche Adresse (Origin), Pflicht. Bestimmt Passkey-Domain, OAuth-Issuer, Origin-Prüfung. | – |
-| `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master-Key (base64, 32 Byte) als Datei bzw. direkt. Fehlt er, beendet sich der Server mit Fehler. | – |
-| `ASM_TRUST_PROXY` | Hinter einem Reverse Proxy: Anzahl der Proxy-Hops (meist `1`) oder kommagetrennte IPs/CIDRs der Proxys. `true` vertraut jedem `X-Forwarded-For`-Eintrag (fälschbar, Warnung im Log) und ist zusammen mit `ASM_TRUSTED_NETWORKS` verboten. | `false` |
-| `ASM_AUTO_MODE_MAX_MIN` | Maximale Dauer des Auto-Modus. | `240` |
-| `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
-| `PORT` | HTTP-Port. | `8080` |
-| `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |
-| `ASM_TRUSTED_NETWORKS` | Kommagetrennte IPv4/IPv6-CIDRs (z. B. `192.168.0.0/16,100.64.0.0/10`). Clients außerhalb erreichen nur die Freigabe-Seite (siehe „Push-Freigabe vom iPhone“), alles andere ist 404. Hinter einem Proxy nur mit `ASM_TRUST_PROXY=1` (bzw. Proxy-IPs) sinnvoll. Nie das Proxy- oder Docker-Netz eintragen – sonst gilt jede Anfrage über den Proxy als intern. | leer = keine Sperre |
-| `ASM_VAPID_SUBJECT` | Kontakt für Web-Push-Dienste (`mailto:` oder `https:`). Eine echte Adresse wird empfohlen – Apple lehnt Platzhalter teils ab. | `mailto:asm@localhost` |
+| `ASM_PUBLIC_URL` | Public address (origin), required. Determines the passkey domain, OAuth issuer and origin check. | – |
+| `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master key (base64, 32 bytes) as a file or inline. If missing, the server exits with an error. | – |
+| `ASM_TRUST_PROXY` | Behind a reverse proxy: number of proxy hops (usually `1`) or comma-separated IPs/CIDRs of the proxies. `true` trusts every `X-Forwarded-For` entry (spoofable, logs a warning) and is not allowed together with `ASM_TRUSTED_NETWORKS`. | `false` |
+| `ASM_AUTO_MODE_MAX_MIN` | Maximum duration of auto mode. | `240` |
+| `ASM_DATA_DIR` | Data directory (`asm.db`). | `/data` |
+| `PORT` | HTTP port. | `8080` |
+| `ASM_CLI_DIR` | Directory containing the CLI bundle (`asm.mjs`, `asm.json`) for `/cli/install.sh`. | Image: `/app/cli` |
+| `ASM_TRUSTED_NETWORKS` | Comma-separated IPv4/IPv6 CIDRs (e.g. `192.168.0.0/16,100.64.0.0/10`). Clients outside these can only reach the approval page (see "Push approval from your iPhone"); everything else returns 404. Behind a proxy, only useful with `ASM_TRUST_PROXY=1` (or the proxy IPs). Never add the proxy or Docker network – otherwise every request through the proxy counts as internal. | empty = no restriction |
+| `ASM_VAPID_SUBJECT` | Contact for Web Push services (`mailto:` or `https:`). A real address is recommended – Apple sometimes rejects placeholders. | `mailto:asm@localhost` |
 
-## Reverse Proxy
+## Reverse proxy
 
-- TLS terminiert am Proxy; ASM selbst spricht nur HTTP. Beispiele für Traefik und Caddy stehen
-  auskommentiert in `docker-compose.example.yml`.
-- `ASM_PUBLIC_URL` muss genau der https-Origin sein, unter dem Browser und Agenten ASM erreichen
-  (z. B. `https://asm.example.com`, ohne Pfad). http ist nur für `localhost` erlaubt.
-- `ASM_TRUST_PROXY=1` setzen (ein Proxy-Hop; bei mehreren Proxys deren Anzahl oder die Proxy-IPs/CIDRs). Sonst sieht ASM nur die IP des Proxys, und die Rate-Limits pro IP treffen alle
-  Nutzer gemeinsam. Den Container-Port dann nur für den Proxy erreichbar machen.
-- Passkeys brauchen https und einen Domainnamen – eine IP-Adresse funktioniert nicht.
-- Live-Anfragen (Server-Sent Events) und MCP-Long-Polls (bis ~50 s) nicht puffern und Timeouts ≥ 60 s lassen.
+- TLS terminates at the proxy; ASM itself only speaks HTTP. Examples for Traefik and Caddy are included,
+  commented out, in `docker-compose.example.yml`.
+- `ASM_PUBLIC_URL` must be exactly the https origin under which browsers and agents reach ASM
+  (e.g. `https://asm.example.com`, without a path). http is only allowed for `localhost`.
+- Set `ASM_TRUST_PROXY=1` (one proxy hop; with several proxies, their count or the proxy IPs/CIDRs). Otherwise ASM only sees the proxy's IP, and the per-IP rate limits hit all
+  users together. Then make the container port reachable only by the proxy.
+- Passkeys need https and a domain name – an IP address does not work.
+- Do not buffer live requests (server-sent events) and MCP long polls (up to ~50 s); keep timeouts ≥ 60 s.
 
-## Push-Freigabe vom iPhone
+## Push approval from your iPhone
 
-Wartet eine Anfrage auf Freigabe, schickt ASM eine Push-Benachrichtigung an deine Geräte. Tippen öffnet eine
-kleine Freigabe-Seite: „Freigeben“ (mit Face ID) oder „Verweigern“. Das geht auch unterwegs, obwohl ASM nicht
-öffentlich erreichbar ist – nach außen ist nur die Freigabe-Seite offen.
+When a request is waiting for approval, ASM sends a push notification to your devices. Tapping it opens a
+small approval page: "Approve" (with Face ID) or "Deny". This works on the go even though ASM is not
+publicly reachable – only the approval page is exposed.
 
-**Einrichten (einmalig, im Heimnetz/VPN):**
+**Setup (once, on your home network/VPN):**
 
-1. ASM in Safari öffnen (`ASM_PUBLIC_URL`), anmelden, Teilen → „Zum Home-Bildschirm“ (iOS ≥ 16.4).
-2. ASM über das neue Symbol starten, Einstellungen → „Benachrichtigungen“ → „Aktivieren“ und erlauben.
-3. „Test senden“ prüft die Zustellung. Für die Freigabe braucht dein Konto einen Passkey (Face ID).
+1. Open ASM in Safari (`ASM_PUBLIC_URL`), sign in, Share → "Add to Home Screen" (iOS ≥ 16.4).
+2. Launch ASM from the new icon, Settings → "Notifications" → "Enable", and allow.
+3. "Send test" checks delivery. To approve, your account needs a passkey (Face ID).
 
-Die VAPID-Schlüssel erzeugt ASM beim ersten Start selbst (privater Schlüssel mit dem Master-Key verschlüsselt in der DB).
+ASM generates the VAPID keys itself on first start (private key stored in the DB, encrypted with the master key).
 
-**Öffentliche Pfade:** `/approve/`, `/api/approve/`, `/assets/`, `/favicon.svg`, `/theme-init.js`, `/sw.js`,
-`/manifest.webmanifest`, `/icons/icon-180.png`, `/icons/icon-192.png`, `/icons/icon-512.png`. Alles andere nur aus
-dem Heimnetz/VPN. Ein Hostname für innen und außen, damit derselbe Passkey gilt.
+**Public paths:** `/approve/`, `/api/approve/`, `/assets/`, `/favicon.svg`, `/theme-init.js`, `/sw.js`,
+`/manifest.webmanifest`, `/icons/icon-180.png`, `/icons/icon-192.png`, `/icons/icon-512.png`. Everything else only from
+the home network/VPN. Use one hostname for inside and outside so that the same passkey works.
 
-**Nginx Proxy Manager – Variante A (Oberfläche):**
+**Nginx Proxy Manager – option A (UI):**
 
-- *Access Lists* → neue Liste „Heimnetz“: unter *Access* `allow 192.168.0.0/16` (und ggf. VPN-Netz), Rest `deny`,
-  keine Benutzer, „Satisfy Any“.
-- *Proxy Host* `asm.example.de` → `http://asm:8080`, SSL aktiv, *Access List* = „Heimnetz“.
-- *Custom Locations* ohne Access List, gleiches Ziel (`asm`, `8080`): `/approve/`, `/api/approve/`, `/assets/`,
-  `/favicon.svg`, `/theme-init.js`, `/sw.js`, `/manifest.webmanifest`, `/icons/`. Bei `/approve/` und `/api/approve/`
-  im Zahnrad-Feld `access_log off;` eintragen (die Links enthalten Einmal-Tokens).
-- Per Mobilfunk testen: `https://asm.example.de/` muss 403 liefern, ein Freigabe-Link muss funktionieren. Greift die
-  Access List in deiner NPM-Version auch für die Custom Locations, Variante B nehmen.
+- *Access Lists* → new list "Home network": under *Access* `allow 192.168.0.0/16` (and the VPN network if any), rest `deny`,
+  no users, "Satisfy Any".
+- *Proxy Host* `asm.example.de` → `http://asm:8080`, SSL enabled, *Access List* = "Home network".
+- *Custom Locations* without an access list, same target (`asm`, `8080`): `/approve/`, `/api/approve/`, `/assets/`,
+  `/favicon.svg`, `/theme-init.js`, `/sw.js`, `/manifest.webmanifest`, `/icons/`. For `/approve/` and `/api/approve/`
+  enter `access_log off;` in the gear field (the links contain one-time tokens).
+- Test over mobile data: `https://asm.example.de/` must return 403, an approval link must work. If the
+  access list in your NPM version also applies to the custom locations, use option B.
 
-**Variante B (Tab *Advanced* des Proxy Hosts, keine Access List am Host):**
+**Option B (*Advanced* tab of the proxy host, no access list on the host):**
 
 ```nginx
 location ~ ^/(api/)?approve/ {
-  access_log off;        # Links enthalten Einmal-Tokens
+  access_log off;        # links contain one-time tokens
   include conf.d/include/proxy.conf;
 }
 location ~ ^/(assets/|favicon\.svg$|theme-init\.js$|sw\.js$|manifest\.webmanifest$|icons/icon-(180|192|512)\.png$) {
@@ -128,122 +131,122 @@ location ~ ^/(assets/|favicon\.svg$|theme-init\.js$|sw\.js$|manifest\.webmanifes
 }
 location / {
   allow 192.168.0.0/16;
-  allow 100.64.0.0/10;   # z. B. Tailscale
+  allow 100.64.0.0/10;   # e.g. Tailscale
   deny all;
-  proxy_buffering off;   # Live-Anfragen (SSE)
+  proxy_buffering off;   # live requests (SSE)
   proxy_read_timeout 120s;
   include conf.d/include/proxy.conf;
 }
 ```
 
-Zusätzlich `ASM_TRUST_PROXY=1` und `ASM_TRUSTED_NETWORKS=192.168.0.0/16,100.64.0.0/10` setzen: Dann sperrt auch
-ASM selbst alle anderen Pfade für fremde IPs (zweite Sicherung, falls der Proxy falsch konfiguriert ist). Mit
-`ASM_TRUST_PROXY=1` zählt nur der vom Proxy angehängte `X-Forwarded-For`-Eintrag – vom Client mitgeschickte Einträge
-werden ignoriert. Das Proxy- bzw. Docker-Netz (z. B. `172.16.0.0/12`) gehört **nicht** in `ASM_TRUSTED_NETWORKS`.
+Also set `ASM_TRUST_PROXY=1` and `ASM_TRUSTED_NETWORKS=192.168.0.0/16,100.64.0.0/10`: ASM itself then blocks
+all other paths for foreign IPs as well (a second safeguard in case the proxy is misconfigured). With
+`ASM_TRUST_PROXY=1`, only the `X-Forwarded-For` entry appended by the proxy counts – entries sent by the client
+are ignored. The proxy or Docker network (e.g. `172.16.0.0/12`) does **not** belong in `ASM_TRUSTED_NETWORKS`.
 
-**Sicherheit:**
+**Security:**
 
-- Der Text der Benachrichtigung ist neutral („Neue Anfrage wartet auf Freigabe“), ohne Secret, Projekt oder Grund.
-  Der Inhalt ist Ende-zu-Ende verschlüsselt (Web Push), Apple sieht nur Ziel und Zeitpunkt.
-- Jeder Link enthält ein Einmal-Token (nur als SHA-256 gespeichert). Es gilt nur für diese Anfrage, nur solange sie
-  offen ist, und ist nach einer Entscheidung – egal ob per Link oder im Dashboard – wertlos.
-- „Freigeben“ verlangt einen Passkey des Besitzers mit Nutzerverifikation (Face ID/Geräte-PIN). „Verweigern“ geht
-  ohne. Keine Session, kein Cookie, keine Secret-Werte; 30 Aufrufe pro Minute und IP.
-- Push-Abos werden nur für bekannte Push-Dienste angenommen (Apple, Google FCM, Mozilla, Windows).
-- ASM schreibt die Tokens nicht in sein Log. Access-Logs des Proxys enthalten die Links jedoch – für `/approve/` und
-  `/api/approve/` abschalten (siehe oben).
-- Entscheidungen erscheinen im Audit-Log wie gewohnt (`request.approved`/`request.denied`) mit `via: push`.
+- The notification text is neutral ("New request waiting for approval"), with no secret, project or reason.
+  The content is end-to-end encrypted (Web Push); Apple only sees the target and the time.
+- Every link contains a one-time token (stored only as SHA-256). It is valid only for that request, only while it
+  is pending, and becomes worthless after a decision – whether made via the link or in the dashboard.
+- "Approve" requires a passkey of the owner with user verification (Face ID/device PIN). "Deny" works
+  without one. No session, no cookie, no secret values; 30 calls per minute and IP.
+- Push subscriptions are only accepted for known push services (Apple, Google FCM, Mozilla, Windows).
+- ASM does not write the tokens to its log. The proxy's access logs, however, do contain the links – turn them off for `/approve/` and
+  `/api/approve/` (see above).
+- Decisions appear in the audit log as usual (`request.approved`/`request.denied`) with `via: push`.
 
-## Claude Code verbinden
+## Connecting Claude Code
 
 ```sh
 claude mcp add --transport http asm https://asm.example.com/mcp
 ```
 
-Beim ersten Aufruf öffnet Claude Code den Browser: anmelden, Kopplung prüfen, „Freigeben“. Danach kann Claude
-Secrets suchen (`search_secrets`), anfordern (`request_secret` + `await_request`), anlegen, Änderungen
-vorschlagen und archivieren. `asm mcp-config` gibt den passenden Befehl für deinen Server aus.
+On first use, Claude Code opens the browser: sign in, check the pairing, "Approve". After that, Claude can
+search secrets (`search_secrets`), request them (`request_secret` + `await_request`), create them, propose
+changes and archive them. `asm mcp-config` prints the matching command for your server.
 
 ## CLI
 
-Installation direkt vom eigenen ASM-Server (Voraussetzung: Node ≥ 22.12, dazu `curl` oder `wget`; kein sudo,
-kein GitHub- oder npm-Zugang nötig):
+Install directly from your own ASM server (requires Node ≥ 22.12 plus `curl` or `wget`; no sudo,
+no GitHub or npm access needed):
 
 ```sh
 curl -fsSL https://asm.example.com/cli/install.sh | sh
-# ohne curl:  wget -qO- https://asm.example.com/cli/install.sh | sh
+# without curl:  wget -qO- https://asm.example.com/cli/install.sh | sh
 asm login https://asm.example.com
 ```
 
-Das Skript lädt das CLI-Bundle (`/cli/asm.mjs`), prüft SHA-256 und Größe gegen `/cli/asm.json` (dafür wird
-`sha256sum`, `shasum` oder `openssl` benötigt) und installiert es nach `~/.local/share/asm/asm.mjs`
-(anderer Ort: `ASM_HOME`). Der Befehl `~/.local/bin/asm` (anderes Verzeichnis: `ASM_INSTALL_DIR`) wird als
-Symlink darauf angelegt; die Endung `.mjs` sorgt dafür, dass Node die Datei immer als ES-Modul lädt. Ein
-vorhandenes `asm` – auch ein Symlink auf einen Repo-Build – wird ersetzt. Liegt das Verzeichnis nicht im
-`PATH`, gibt das Skript einen Hinweis aus. Beispiel mit eigenen Pfaden:
+The script downloads the CLI bundle (`/cli/asm.mjs`), verifies SHA-256 and size against `/cli/asm.json` (this
+requires `sha256sum`, `shasum` or `openssl`) and installs it to `~/.local/share/asm/asm.mjs`
+(different location: `ASM_HOME`). The command `~/.local/bin/asm` (different directory: `ASM_INSTALL_DIR`) is created
+as a symlink to it; the `.mjs` extension ensures Node always loads the file as an ES module. An
+existing `asm` – including a symlink to a repo build – is replaced. If the directory is not on the
+`PATH`, the script prints a hint. Example with custom paths:
 
 ```sh
 curl -fsSL https://asm.example.com/cli/install.sh | ASM_HOME=/opt/asm ASM_INSTALL_DIR=$HOME/bin sh
 ```
 
-Die CLI-Version passt so immer zur Server-Version; `asm update` holt später das aktuelle Bundle vom Server
-(ebenfalls mit Hash-Prüfung), `asm --version` zeigt die installierte Version. Deinstallieren: beide entfernen,
+This way the CLI version always matches the server version; `asm update` later fetches the current bundle from the server
+(also hash-verified), and `asm --version` shows the installed version. To uninstall, remove both:
 `rm ~/.local/bin/asm ~/.local/share/asm/asm.mjs`.
 
-Tokens speichert die CLI im OS-Schlüsselbund: unter macOS in der Keychain (`security`), unter Linux über
-`secret-tool` (libsecret, z. B. Paket `libsecret-tools`). Steht keins davon zur Verfügung (etwa auf einem
-Server ohne Desktop-Session), speichert `asm --insecure-store login …` die Tokens stattdessen in einer Datei mit
-Rechten 0600.
+The CLI stores tokens in the OS keychain: on macOS in the Keychain (`security`), on Linux via
+`secret-tool` (libsecret, e.g. package `libsecret-tools`). If neither is available (e.g. on a
+server without a desktop session), `asm --insecure-store login …` stores the tokens in a file with
+permissions 0600 instead.
 
-Für Entwickler – aus dem Repo bauen:
+For developers – build from the repo:
 
 ```sh
 pnpm install
 pnpm --filter @asm/shared build && pnpm --filter @asm/cli build
-ln -s "$PWD/apps/cli/dist/index.js" ~/.local/bin/asm     # Verzeichnis muss im PATH liegen
+ln -s "$PWD/apps/cli/dist/index.js" ~/.local/bin/asm     # directory must be on the PATH
 ```
 
-Das Build ist reines JavaScript (kein `tsx`, kein Type-Stripping); `node apps/cli/dist/index.js` funktioniert
-ebenso. `pnpm --filter @asm/cli bundle` erzeugt das Einzeldatei-Bundle `apps/cli/dist-bundle/asm.mjs` (+ `asm.json`),
-das ein lokal gestarteter Server automatisch unter `/cli/` ausliefert (sonst `ASM_CLI_DIR` setzen).
+The build is plain JavaScript (no `tsx`, no type stripping); `node apps/cli/dist/index.js` works
+too. `pnpm --filter @asm/cli bundle` creates the single-file bundle `apps/cli/dist-bundle/asm.mjs` (+ `asm.json`),
+which a locally started server serves automatically under `/cli/` (otherwise set `ASM_CLI_DIR`).
 
-Nutzung:
+Usage:
 
 ```sh
-asm login https://asm.example.com          # Gerät koppeln (Freigabe im Browser), Tokens im OS-Schlüsselbund
-asm search github                           # nur Metadaten
-asm run --grant grt_… -- npm run deploy     # Wert nur für diesen Prozess als ENV-Variable
-asm run --secret sec_… --reason "Deploy" -- ./deploy.sh   # anfragen, auf Freigabe warten, ausführen
-asm write --grant grt_… .env                # in eine dotenv-Datei schreiben (0600, zusammengeführt)
-asm set --new --title "Stripe Key" --description "Stripe Live-API (Zahlungen)" --env STRIPE_KEY \
-  --reason "neues Projekt" --from-env STRIPE_KEY
-asm set sec_… --reason "Key rotiert" --from-stdin --wait   # Änderung vorschlagen (braucht Freigabe)
-asm archive sec_… --reason "ersetzt durch sec_…"
+asm login https://asm.example.com          # pair device (approve in browser), tokens in the OS keychain
+asm search github                           # metadata only
+asm run --grant grt_… -- npm run deploy     # value only for this process, as an env variable
+asm run --secret sec_… --reason "Deploy" -- ./deploy.sh   # request, wait for approval, run
+asm write --grant grt_… .env                # write to a dotenv file (0600, merged)
+asm set --new --title "Stripe Key" --description "Stripe live API (payments)" --env STRIPE_KEY \
+  --reason "new project" --from-env STRIPE_KEY
+asm set sec_… --reason "Key rotated" --from-stdin --wait   # propose a change (needs approval)
+asm archive sec_… --reason "replaced by sec_…"
 ```
 
-Projekt ist standardmäßig der Name des Git-Repos bzw. Ordners (`--project` überschreibt das).
+The project defaults to the name of the Git repo or folder (`--project` overrides it).
 
-### Hinweise zu dotenv-Dateien (`asm write`)
+### Notes on dotenv files (`asm write`)
 
-- Werte werden in doppelte Anführungszeichen gesetzt; `\`, `"`, `$` und `` ` `` werden mit `\` escaped.
-- Zeilenumbrüche werden als literales `\n` geschrieben. Beim Einlesen per `sh` (`set -a; . ./.env`) entsteht
-  daraus ein Backslash gefolgt von `n`, kein Zeilenumbruch.
-- Das npm-Paket `dotenv` wandelt `\n` in einen Zeilenumbruch um, behält aber `\$` und `` \` `` wörtlich bei.
-  Für Werte mit diesen Zeichen besser `asm run` verwenden.
+- Values are wrapped in double quotes; `\`, `"`, `$` and `` ` `` are escaped with `\`.
+- Line breaks are written as a literal `\n`. When sourced via `sh` (`set -a; . ./.env`), this becomes
+  a backslash followed by `n`, not a line break.
+- The npm package `dotenv` converts `\n` into a line break but keeps `\$` and `` \` `` literally.
+  For values containing these characters, prefer `asm run`.
 
-## Entwicklung
+## Development
 
-Voraussetzungen: Node.js ≥ 24 (LTS), pnpm 11 (Version aus `packageManager` in `package.json`).
+Requirements: Node.js ≥ 24 (LTS), pnpm 11 (version from `packageManager` in `package.json`).
 
 ```sh
 pnpm install
-pnpm test          # Unit- und Integrationstests aller Pakete (vitest)
+pnpm test          # unit and integration tests for all packages (vitest)
 pnpm typecheck
-pnpm build         # shared → dist, server → dist (inkl. SQL-Migrationen), web → dist, cli → dist
-pnpm e2e           # Playwright gegen den gebauten Server (einmalig: pnpm exec playwright install chromium)
+pnpm build         # shared → dist, server → dist (incl. SQL migrations), web → dist, cli → dist
+pnpm e2e           # Playwright against the built server (once: pnpm exec playwright install chromium)
 ```
 
-Server im Dev-Modus (TypeScript direkt, `@asm/shared` aus dem Quellcode über die Export-Bedingung `development`):
+Server in dev mode (TypeScript directly, `@asm/shared` from source via the `development` export condition):
 
 ```sh
 cd apps/server
@@ -251,40 +254,39 @@ ASM_PUBLIC_URL=http://localhost:5173 ASM_MASTER_KEY=$(node -e "console.log(requi
   ASM_DATA_DIR=./.data pnpm dev
 ```
 
-Web-UI mit Vite: `pnpm --filter @asm/web dev` (Port 5173). Vite leitet `/api`, `/oauth`, `/.well-known` und
-`/mcp` an `http://localhost:8080` weiter (anderer Server: `ASM_DEV_SERVER`). Der Server muss dafür mit
-`ASM_PUBLIC_URL=http://localhost:5173` laufen, sonst scheitern Origin-Prüfung und Passkeys.
+Web UI with Vite: `pnpm --filter @asm/web dev` (port 5173). Vite proxies `/api`, `/oauth`, `/.well-known` and
+`/mcp` to `http://localhost:8080` (different server: `ASM_DEV_SERVER`). For this, the server must run with
+`ASM_PUBLIC_URL=http://localhost:5173`, otherwise the origin check and passkeys fail.
 
-`pnpm --filter @asm/server start` startet den gebauten Server (`node dist/main.js`).
+`pnpm --filter @asm/server start` starts the built server (`node dist/main.js`).
 
-## CI & Releases
+## CI & releases
 
 GitHub Actions (`.github/workflows/`):
 
-- **CI** (`ci.yml`) – bei jedem Push auf `main` und jedem Pull Request: Typecheck, Unit-Tests, Web-Build,
-  CLI-Bundle, danach Playwright-e2e (Report/Traces als Artefakt bei Fehlern). Neuere PR-Pushes brechen
-  laufende Runs ab.
-- **Docker** (`docker.yml`) – baut `ghcr.io/eltomato89/asm` für `linux/amd64` und pusht in die
+- **CI** (`ci.yml`) – on every push to `main` and every pull request: typecheck, unit tests, web build,
+  CLI bundle, then Playwright e2e (report/traces as an artifact on failure). Newer PR pushes cancel
+  running runs.
+- **Docker** (`docker.yml`) – builds `ghcr.io/eltomato89/asm` for `linux/amd64` and pushes it to the
   GitHub Container Registry:
-  - nach erfolgreicher CI auf `main` → `edge` und `sha-<kurz>`
-  - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
-  - manuell über „Run workflow“ (`workflow_dispatch`) – nur von `main` oder einem `v*`-Tag aus
-  - Prerelease-Tags (`v1.0.0-rc.1`) bekommen nur `1.0.0-rc.1`, kein `X.Y`/`latest`
-- **Dependabot** – wöchentliche Updates für Actions und npm (Minor/Patch gruppiert).
+  - after successful CI on `main` → `edge` and `sha-<short>`
+  - on tag `vX.Y.Z` (tests run first in the same workflow) → `X.Y.Z`, `X.Y`, `latest`
+  - manually via "Run workflow" (`workflow_dispatch`) – only from `main` or a `v*` tag
+  - prerelease tags (`v1.0.0-rc.1`) only get `1.0.0-rc.1`, no `X.Y`/`latest`
+- **Dependabot** – weekly updates for Actions and npm (minor/patch grouped).
 
-Keine zusätzlichen Secrets nötig: Der Push nutzt das automatische `GITHUB_TOKEN` (`packages: write`).
+No additional secrets needed: the push uses the automatic `GITHUB_TOKEN` (`packages: write`).
 
-Neue GHCR-Packages sind standardmäßig privat. Das Label `org.opencontainers.image.source` verknüpft das Package
-mit dem Repo (Zugriffsrechte werden vom Repo übernommen, die Sichtbarkeit nicht). Der Server muss sich daher vor dem
-Pull anmelden – mit einem Personal Access Token (classic) mit Scope `read:packages`:
+New GHCR packages are private by default. The label `org.opencontainers.image.source` links the package
+to the repo (access permissions are inherited from the repo, visibility is not). The server therefore has to log in before
+pulling – with a personal access token (classic) with scope `read:packages`:
 
 ```sh
 echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
 docker pull ghcr.io/eltomato89/asm:latest
 ```
 
-Alternativ das Package in seinen Einstellungen auf GitHub („Package settings“ → „Change visibility“) öffentlich
-machen.
+Alternatively, make the package public in its settings on GitHub ("Package settings" → "Change visibility").
 
 Release:
 
@@ -292,27 +294,27 @@ Release:
 git tag v0.3.0 && git push origin v0.3.0
 ```
 
-Hinweis: Actions-Minuten sind bei privaten Repos begrenzt; gebaut wird nur `linux/amd64` (Build-Cache über `type=gha`
-beschleunigt Folge-Builds). Für arm64 `platforms` in `docker.yml` ergänzen und `docker/setup-qemu-action` wieder
-aufnehmen.
+Note: Actions minutes are limited for private repos; only `linux/amd64` is built (the build cache via `type=gha`
+speeds up subsequent builds). For arm64, add it to `platforms` in `docker.yml` and re-add
+`docker/setup-qemu-action`.
 
 ## Backup
 
-- `/data/asm.db` sichern (im laufenden Betrieb z. B. mit `sqlite3 /data/asm.db ".backup /backup/asm.db"`,
-  da SQLite im WAL-Modus läuft).
-- Den Master-Key **getrennt** davon sichern. Datenbank ohne Key ist wertlos, Key ohne Datenbank auch.
+- Back up `/data/asm.db` (while running, e.g. with `sqlite3 /data/asm.db ".backup /backup/asm.db"`,
+  since SQLite runs in WAL mode).
+- Back up the master key **separately**. The database is worthless without the key, and so is the key without the database.
 
-## Grenzen (v1)
+## Limitations (v1)
 
-- **Nur eine Instanz.** Live-Events (SSE), laufende OAuth-Autorisierungen und WebAuthn-Challenges liegen im
-  Speicher; kein horizontales Skalieren, ein Neustart bricht laufende Kopplungen ab.
-- **Projekte sind global.** Projektnamen (Slugs) gelten für alle Nutzer der Instanz gemeinsam. Wer zwei Projekte
-  zusammenführt, ändert damit die Zuordnung für alle: Der alte Name zeigt danach auf das Zielprojekt, auch für
-  Agenten anderer Nutzer, die denselben Namen verwenden. Zusammenführen ist nur möglich, wenn du alle betroffenen
-  Nutzungen sehen kannst.
-- **Hash-Kette mit Lücke am Ende.** Die Hash-Kette erkennt geänderte oder gelöschte Einträge in der Mitte des
-  Logs, aber nicht das Löschen der *letzten* Einträge: Wer Schreibzugriff auf die Datenbank hat, kann das Ende
-  abschneiden, ohne dass die Kettenprüfung im Audit-Log anschlägt. Für Revisionssicherheit das Log regelmäßig exportieren
-  (CSV) oder den letzten Hash extern festhalten.
-- **Keine Push-Benachrichtigungen.** Web Push (VAPID) und Freigeben direkt aus der Benachrichtigung kommen in
-  Phase 2. Bis dahin: Tab offen lassen (Browser-Benachrichtigungen lassen sich in der UI aktivieren).
+- **Single instance only.** Live events (SSE), in-progress OAuth authorizations and WebAuthn challenges are kept in
+  memory; no horizontal scaling, and a restart aborts pairings in progress.
+- **Projects are global.** Project names (slugs) are shared by all users of the instance. Merging two projects
+  changes the mapping for everyone: the old name then points to the target project, including for
+  other users' agents that use the same name. Merging is only possible if you can see all affected
+  usages.
+- **Hash chain with a gap at the end.** The hash chain detects modified or deleted entries in the middle of the
+  log, but not the deletion of the *last* entries: anyone with write access to the database can cut off the end
+  without the chain check in the audit log noticing. For tamper-evident records, export the log regularly
+  (CSV) or record the latest hash externally.
+- **No push notifications.** Web Push (VAPID) and approving directly from the notification are coming in
+  phase 2. Until then: keep the tab open (browser notifications can be enabled in the UI).

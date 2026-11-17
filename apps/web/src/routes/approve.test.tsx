@@ -55,14 +55,14 @@ describe('approve page', () => {
     const { calls } = server((c) => (c.path === BASE ? { body: summary() } : undefined));
     renderApp(`/approve/${TOKEN}`);
     const h1 = await screen.findByRole('heading', { level: 1 });
-    expect(h1).toHaveTextContent('claude@mbp-office möchte GITHUB_TOKEN für agent-secrets-manager.');
+    expect(h1).toHaveTextContent('claude@mbp-office wants GITHUB_TOKEN for agent-secrets-manager.');
     expect(screen.getByText('Release-Workflow pushen')).toBeInTheDocument();
-    expect(screen.getByText('via CLI-Übergabe')).toBeInTheDocument();
-    expect(screen.getByRole('progressbar', { name: 'Verbleibende Zeit' })).toBeInTheDocument();
-    expect(screen.getByText(/läuft ab in/)).toHaveTextContent(/0[12]:\d\d/);
-    expect(screen.getByRole('button', { name: 'Verweigern' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Mit Passkey freigeben' })).toBeEnabled();
-    expect(screen.queryByRole('navigation', { name: 'Hauptnavigation' })).toBeNull();
+    expect(screen.getByText('via CLI handoff')).toBeInTheDocument();
+    expect(screen.getByRole('progressbar', { name: 'Time remaining' })).toBeInTheDocument();
+    expect(screen.getByText(/expires in/)).toHaveTextContent(/0[12]:\d\d/);
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Approve with passkey' })).toBeEnabled();
+    expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull();
     expect(otherCalls(calls)).toEqual([]);
     expect(calls.some((c) => c.path === '/api/auth/me' || c.path === '/api/setup/status')).toBe(false);
   });
@@ -70,8 +70,8 @@ describe('approve page', () => {
   it('shows a skeleton while loading', async () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
     renderApp(`/approve/${TOKEN}`);
-    expect(await screen.findByLabelText('Anfrage wird geladen')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Mit Passkey freigeben' })).toBeDisabled();
+    expect(await screen.findByLabelText('Loading request')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Approve with passkey' })).toBeDisabled();
   });
 
   it('update requests show the metadata diff and the value change, never a value', async () => {
@@ -79,11 +79,11 @@ describe('approve page', () => {
       body: summary({ kind: 'update', delivery: null, metaDiff: { title: { from: 'GitHub', to: 'GitHub CI' } }, valueChanged: true }),
     }));
     renderApp(`/approve/${TOKEN}`);
-    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('claude@mbp-office möchte GITHUB_TOKEN ändern.');
-    const title = screen.getByLabelText('Titel');
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('claude@mbp-office wants to change GITHUB_TOKEN.');
+    const title = screen.getByLabelText('Title');
     expect(title).toHaveTextContent('GitHub');
     expect(title).toHaveTextContent('GitHub CI');
-    expect(screen.getByLabelText('Wert')).toHaveTextContent('Wert wird geändert');
+    expect(screen.getByLabelText('Value')).toHaveTextContent('Value will change');
     expect(screen.getByText('agent-secrets-manager')).toBeInTheDocument();
   });
 
@@ -97,10 +97,10 @@ describe('approve page', () => {
     }));
     renderApp(`/approve/${TOKEN}`);
     await screen.findByRole('heading', { level: 1 });
-    expect(screen.getByLabelText('Beschreibung')).toHaveTextContent('Beschreibung wird geändert');
-    expect(screen.getByLabelText('Tags')).toHaveTextContent('Tags wird geändert');
-    expect(screen.getByLabelText('Beschreibung')).not.toHaveTextContent('→');
-    expect(screen.getByLabelText('Titel')).toHaveTextContent('GitHub CI');
+    expect(screen.getByLabelText('Description')).toHaveTextContent('Description will change');
+    expect(screen.getByLabelText('Tags')).toHaveTextContent('Tags will change');
+    expect(screen.getByLabelText('Description')).not.toHaveTextContent('→');
+    expect(screen.getByLabelText('Title')).toHaveTextContent('GitHub CI');
   });
 
   it('approves with a passkey assertion (options → startAuthentication → decision)', async () => {
@@ -112,8 +112,8 @@ describe('approve page', () => {
     });
     const u = userEvent.setup();
     renderApp(`/approve/${TOKEN}`);
-    await u.click(await loaded('Mit Passkey freigeben'));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Freigegeben' })).toBeInTheDocument();
+    await u.click(await loaded('Approve with passkey'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Approved' })).toBeInTheDocument();
     expect(webauthn.startAuthentication).toHaveBeenCalledWith({ optionsJSON: expect.objectContaining({ challenge: 'ch-1' }) });
     const decision = calls.find((c) => c.path === `${BASE}/decision`);
     expect(decision?.body).toEqual({ decision: 'approve', response: expect.objectContaining({ id: 'cred-1' }) });
@@ -131,8 +131,8 @@ describe('approve page', () => {
     });
     const u = userEvent.setup();
     renderApp(`/approve/${TOKEN}`);
-    await u.click(await loaded('Verweigern'));
-    expect(await screen.findByRole('heading', { level: 1, name: 'Verweigert' })).toBeInTheDocument();
+    await u.click(await loaded('Deny'));
+    expect(await screen.findByRole('heading', { level: 1, name: 'Denied' })).toBeInTheDocument();
     expect(calls.find((c) => c.path === `${BASE}/decision`)?.body).toEqual({ decision: 'deny' });
     expect(calls.some((c) => c.path === `${BASE}/options`)).toBe(false);
     expect(webauthn.startAuthentication).not.toHaveBeenCalled();
@@ -141,14 +141,14 @@ describe('approve page', () => {
   it.each([404, 410])('shows one neutral message for %i', async (status) => {
     server(() => ({ status, body: { error: status === 404 ? 'not_found' : 'expired' } }));
     renderApp(`/approve/${TOKEN}`);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Diese Anfrage ist nicht mehr gültig.' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Mit Passkey freigeben' })).toBeNull();
+    expect(await screen.findByRole('heading', { level: 1, name: 'This request is no longer valid.' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve with passkey' })).toBeNull();
   });
 
   it('treats an elapsed expiry as no longer valid', async () => {
     server(() => ({ body: summary({ expiresAt: Date.now() - 1000 }) }));
     renderApp(`/approve/${TOKEN}`);
-    expect(await screen.findByRole('heading', { level: 1, name: 'Diese Anfrage ist nicht mehr gültig.' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { level: 1, name: 'This request is no longer valid.' })).toBeInTheDocument();
   });
 
   it('a failed verification shows a toast and keeps the request open', async () => {
@@ -160,18 +160,18 @@ describe('approve page', () => {
     });
     const u = userEvent.setup();
     renderApp(`/approve/${TOKEN}`);
-    await u.click(await loaded('Mit Passkey freigeben'));
+    await u.click(await loaded('Approve with passkey'));
     const toasts = document.querySelector('.toasts') as HTMLElement;
-    await waitFor(() => expect(within(toasts).getByText('Bestätigung fehlgeschlagen')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Mit Passkey freigeben' })).toBeEnabled();
+    await waitFor(() => expect(within(toasts).getByText('Verification failed')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Approve with passkey' })).toBeEnabled();
   });
 
   it.each([
-    ['plaintext_not_allowed', 403, {}, 'Klartext für dieses Secret nicht erlaubt', false],
-    ['apply_failed', 409, { cause: 'stale' }, 'Änderung konnte nicht übernommen werden (Secret wurde inzwischen geändert)', false],
-    ['already_decided', 409, {}, 'Bereits entschieden', true],
-    ['device_inactive', 409, {}, 'Das Gerät ist nicht mehr aktiv. Die Anfrage wurde verweigert.', true],
-    ['bad_origin', 403, {}, 'Diese Seite wurde über eine unerwartete Adresse geöffnet. Öffne den Link aus der Benachrichtigung erneut.', false],
+    ['plaintext_not_allowed', 403, {}, 'Plaintext is not allowed for this secret', false],
+    ['apply_failed', 409, { cause: 'stale' }, 'Change could not be applied (secret was changed in the meantime)', false],
+    ['already_decided', 409, {}, 'Already decided', true],
+    ['device_inactive', 409, {}, 'The device is no longer active. The request was denied.', true],
+    ['bad_origin', 403, {}, 'This page was opened from an unexpected address. Open the link from the notification again.', false],
   ] as const)('maps %s to a toast', async (code, status, extra, text, final) => {
     server((c) => {
       if (c.path === BASE) return { body: summary() };
@@ -180,11 +180,11 @@ describe('approve page', () => {
     });
     const u = userEvent.setup();
     renderApp(`/approve/${TOKEN}`);
-    await u.click(await loaded('Verweigern'));
+    await u.click(await loaded('Deny'));
     const toasts = document.querySelector('.toasts') as HTMLElement;
     await waitFor(() => expect(within(toasts).getByText(text)).toBeInTheDocument());
-    if (final) expect(screen.getByRole('heading', { level: 1, name: 'Diese Anfrage ist nicht mehr gültig.' })).toBeInTheDocument();
-    else expect(screen.getByRole('button', { name: 'Verweigern' })).toBeEnabled();
+    if (final) expect(screen.getByRole('heading', { level: 1, name: 'This request is no longer valid.' })).toBeInTheDocument();
+    else expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
   });
 
   it('no_passkey on options explains how to add one and skips the prompt', async () => {
@@ -195,9 +195,9 @@ describe('approve page', () => {
     });
     const u = userEvent.setup();
     renderApp(`/approve/${TOKEN}`);
-    await u.click(await loaded('Mit Passkey freigeben'));
+    await u.click(await loaded('Approve with passkey'));
     const toasts = document.querySelector('.toasts') as HTMLElement;
-    await waitFor(() => expect(within(toasts).getByText(/kein Passkey hinterlegt/)).toBeInTheDocument());
+    await waitFor(() => expect(within(toasts).getByText(/no passkey on your account/)).toBeInTheDocument());
     expect(webauthn.startAuthentication).not.toHaveBeenCalled();
   });
 
@@ -210,9 +210,9 @@ describe('approve page', () => {
     });
     const u = userEvent.setup();
     renderApp(`/approve/${TOKEN}`);
-    await u.click(await loaded('Mit Passkey freigeben'));
+    await u.click(await loaded('Approve with passkey'));
     const toasts = document.querySelector('.toasts') as HTMLElement;
-    await waitFor(() => expect(within(toasts).getByText('Bestätigung abgebrochen. Nichts wurde freigegeben.')).toBeInTheDocument());
+    await waitFor(() => expect(within(toasts).getByText('Confirmation cancelled. Nothing was approved.')).toBeInTheDocument());
     expect(calls.some((c) => c.path === `${BASE}/decision`)).toBe(false);
   });
 
@@ -226,7 +226,7 @@ describe('approve page', () => {
   it('uses the title in the sentence when there is no ENV name', async () => {
     server(() => ({ body: summary({ secret: { title: 'GitHub', envName: null } }) }));
     renderApp(`/approve/${TOKEN}`);
-    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('möchte GitHub für');
+    expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('wants GitHub for');
     expect(document.querySelector('.approve-title')).toBeNull();
   });
 
@@ -234,18 +234,18 @@ describe('approve page', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148');
     server(() => ({ body: summary() }));
     renderApp(`/approve/${TOKEN}`);
-    expect(await loaded('Mit Face ID freigeben')).toBeEnabled();
+    expect(await loaded('Approve with Face ID')).toBeEnabled();
     vi.restoreAllMocks();
   });
 });
 
 describe('approveErrorText', () => {
   it.each([
-    ['forbidden', 403, 'Dafür fehlen dir die Rechte.'],
-    ['invalid_request', 400, 'Ungültige Anfrage. Lade die Seite neu und versuche es erneut.'],
-    ['rate_limited', 429, 'Zu viele Versuche. Warte eine Minute und versuche es erneut.'],
-    ['no_passkey', 409, 'Für dein Konto ist kein Passkey hinterlegt – lege im Heimnetz unter Einstellungen einen an.'],
-    ['something_new', 500, 'Entscheidung fehlgeschlagen. Prüfe die Verbindung und versuche es erneut.'],
+    ['forbidden', 403, "You don't have permission to do that."],
+    ['invalid_request', 400, 'Invalid request. Reload the page and try again.'],
+    ['rate_limited', 429, 'Too many attempts. Wait a minute and try again.'],
+    ['no_passkey', 409, "There's no passkey on your account. Add one under Settings on your home network."],
+    ['something_new', 500, 'Decision failed. Check the connection and try again.'],
   ])('%s', (code, status, text) => {
     expect(approveErrorText(new ApiError(status, code, {}))).toBe(text);
   });

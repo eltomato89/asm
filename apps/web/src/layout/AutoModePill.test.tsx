@@ -9,8 +9,8 @@ import { AutoModePill } from './AutoModePill';
 const T0 = Date.UTC(2026, 10, 16, 14, 0, 0);
 const vaults = {
   items: [
-    { id: 'vlt_p', name: 'Persönlich', personal: true, role: 'owner', members: [], createdAt: 0 },
-    { id: 'vlt_w', name: 'Arbeit', personal: false, role: 'owner', members: [], createdAt: 0 },
+    { id: 'vlt_p', name: 'Personal', personal: true, role: 'owner', members: [], createdAt: 0 },
+    { id: 'vlt_w', name: 'Work', personal: false, role: 'owner', members: [], createdAt: 0 },
   ],
 };
 const active = (until: number, vaultIds: string[] | null = null): AutoModeDto => ({ active: true, enabledUntil: until, defaultDurationMin: 30, vaultIds });
@@ -26,15 +26,15 @@ describe('AutoModePill', () => {
     qc.setQueryData(queryKeys.automode, dto);
     renderWithProviders(<AutoModePill />, qc);
 
-    const pill = screen.getByRole('button', { name: /Auto-Modus aktiv/ });
+    const pill = screen.getByRole('button', { name: /Auto mode active/ });
     expect(pill).toHaveTextContent('AUTO');
     expect(pill).toHaveTextContent('30:00');
 
     act(() => vi.advanceTimersByTime(1000));
-    expect(screen.getByRole('button', { name: /Auto-Modus aktiv/ })).toHaveTextContent('29:59');
+    expect(screen.getByRole('button', { name: /Auto mode active/ })).toHaveTextContent('29:59');
 
     act(() => vi.advanceTimersByTime(29 * 60_000 + 59_000));
-    expect(screen.queryByRole('button', { name: /Auto-Modus aktiv/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Auto mode active/ })).toBeNull();
     expect(screen.queryByText(/\d\d:\d\d/)).toBeNull();
   });
 
@@ -44,9 +44,9 @@ describe('AutoModePill', () => {
     qc.setQueryData(queryKeys.automode, inactive);
     renderWithProviders(<AutoModePill />, qc);
     await waitFor(() => expect(qc.getQueryState(queryKeys.automode)?.fetchStatus).toBe('idle'));
-    expect(screen.queryByRole('button', { name: /Auto-Modus aktiv/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Auto mode active/ })).toBeNull();
     act(() => qc.setQueryData(queryKeys.automode, active(Date.now() + 15 * 60_000)));
-    expect(await screen.findByRole('button', { name: /Auto-Modus aktiv/ })).toHaveTextContent(/1[45]:\d\d/);
+    expect(await screen.findByRole('button', { name: /Auto mode active/ })).toHaveTextContent(/1[45]:\d\d/);
   });
 
   it('starts auto mode for the selected duration and vaults', async () => {
@@ -62,18 +62,18 @@ describe('AutoModePill', () => {
     const user = userEvent.setup();
     renderWithProviders(<AutoModePill />);
 
-    await user.click(await screen.findByRole('button', { name: 'Auto-Modus starten' }));
-    const dialog = await screen.findByRole('dialog', { name: 'Auto-Modus' });
+    await user.click(await screen.findByRole('button', { name: 'Start auto mode' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Auto mode' });
     await user.click(screen.getByRole('button', { name: '60 min' }));
-    const all = await screen.findByRole('checkbox', { name: 'Alle Tresore' });
+    const all = await screen.findByRole('checkbox', { name: 'All vaults' });
     expect(all).toBeChecked();
     await user.click(all); // none selected
-    await user.click(screen.getByRole('checkbox', { name: 'Arbeit' }));
-    await user.click(screen.getByRole('button', { name: 'Starten' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Work' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
 
     await waitFor(() => expect(calls.some((c) => c.method === 'PUT')).toBe(true));
     expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ minutes: 60, vaultIds: ['vlt_w'] });
-    expect(await screen.findByRole('button', { name: /Auto-Modus aktiv/ })).toHaveTextContent(/(60:00|59:5\d)/);
+    expect(await screen.findByRole('button', { name: /Auto mode active/ })).toHaveTextContent(/(60:00|59:5\d)/);
     expect(dialog).not.toBeInTheDocument();
   });
 
@@ -87,9 +87,9 @@ describe('AutoModePill', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<AutoModePill />);
-    await user.click(await screen.findByRole('button', { name: /Auto-Modus aktiv/ }));
-    await user.click(await screen.findByRole('button', { name: 'Beenden' }));
-    await waitFor(() => expect(screen.queryByRole('button', { name: /Auto-Modus aktiv/ })).toBeNull());
+    await user.click(await screen.findByRole('button', { name: /Auto mode active/ }));
+    await user.click(await screen.findByRole('button', { name: 'Stop' }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: /Auto mode active/ })).toBeNull());
     expect(calls.some((c) => c.method === 'DELETE' && c.path === '/api/automode')).toBe(true);
   });
 
@@ -102,13 +102,13 @@ describe('AutoModePill', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<AutoModePill />);
-    await user.click(await screen.findByRole('button', { name: 'Auto-Modus starten' }));
-    expect(await screen.findByText('Tresore konnten nicht geladen werden.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Starten' })).toBeNull();
+    await user.click(await screen.findByRole('button', { name: 'Start auto mode' }));
+    expect(await screen.findByText("Couldn't load vaults.")).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
     fail = false;
-    await user.click(screen.getByRole('button', { name: 'Erneut versuchen' }));
-    expect(await screen.findByRole('checkbox', { name: 'Arbeit' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Starten' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(await screen.findByRole('checkbox', { name: 'Work' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start' })).toBeEnabled();
   });
 
   it('accepts a custom duration', async () => {
@@ -120,11 +120,11 @@ describe('AutoModePill', () => {
     });
     const user = userEvent.setup();
     renderWithProviders(<AutoModePill />);
-    await user.click(await screen.findByRole('button', { name: 'Auto-Modus starten' }));
-    await screen.findByRole('checkbox', { name: 'Arbeit' });
-    const custom = screen.getByLabelText('Eigene Dauer in Minuten');
+    await user.click(await screen.findByRole('button', { name: 'Start auto mode' }));
+    await screen.findByRole('checkbox', { name: 'Work' });
+    const custom = screen.getByLabelText('Custom duration in minutes');
     await user.type(custom, '45');
-    await user.click(screen.getByRole('button', { name: 'Starten' }));
+    await user.click(screen.getByRole('button', { name: 'Start' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'PUT')?.body).toEqual({ minutes: 45, vaultIds: null }));
   });
 });

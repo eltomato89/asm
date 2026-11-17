@@ -19,7 +19,7 @@ function server(opts: { hasPasskey?: boolean } = {}) {
   return mockFetch((c: FetchCall) => {
     if (c.path === '/api/automode' && c.method === 'PUT') return recent ? { body: DTO } : { status: 401, body: { error: 'reauth_required' } };
     if (c.path === '/api/auth/reauth/password') {
-      if ((c.body as { password: string }).password !== 'geheim-genug!') return { status: 401, body: { error: 'invalid_credentials' } };
+      if ((c.body as { password: string }).password !== 'secret-enough!') return { status: 401, body: { error: 'invalid_credentials' } };
       recent = true;
       return { body: { ok: true } };
     }
@@ -53,7 +53,7 @@ describe('ReauthDialog', () => {
     const user = userEvent.setup();
     renderHost();
     const result = api.enableAutoMode({ minutes: 30, vaultIds: null });
-    await user.click(await screen.findByRole('button', { name: 'Mit Passkey bestätigen' }));
+    await user.click(await screen.findByRole('button', { name: 'Confirm with passkey' }));
     await expect(result).resolves.toEqual(DTO);
     expect(webauthn.startAuthentication).toHaveBeenCalledWith({ optionsJSON: { challenge: 'c', allowCredentials: [] } });
     expect(calls.find((c) => c.path === '/api/auth/reauth/passkey/verify')?.body).toEqual({ response: expect.objectContaining({ id: 'cred-1' }) });
@@ -67,13 +67,13 @@ describe('ReauthDialog', () => {
     const user = userEvent.setup();
     renderHost();
     const result = api.enableAutoMode({ minutes: 30, vaultIds: null });
-    const field = await screen.findByLabelText('Passwort');
-    await user.type(field, 'falsch');
-    await user.click(screen.getByRole('button', { name: 'Bestätigen' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Das hat nicht gepasst.');
+    const field = await screen.findByLabelText('Password');
+    await user.type(field, 'wrong');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("That didn't match.");
     await user.clear(field);
-    await user.type(field, 'geheim-genug!');
-    await user.click(screen.getByRole('button', { name: 'Bestätigen' }));
+    await user.type(field, 'secret-enough!');
+    await user.click(screen.getByRole('button', { name: 'Confirm' }));
     await expect(result).resolves.toEqual(DTO);
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(2);
   });
@@ -83,10 +83,10 @@ describe('ReauthDialog', () => {
     const user = userEvent.setup();
     renderHost();
     void api.enableAutoMode({ minutes: 30, vaultIds: null }).catch(() => {});
-    await user.click(await screen.findByRole('button', { name: 'Mit Passkey bestätigen' }));
-    expect(await screen.findByLabelText('Passwort')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Confirm with passkey' }));
+    expect(await screen.findByLabelText('Password')).toBeInTheDocument();
     expect(webauthn.startAuthentication).not.toHaveBeenCalled();
-    await user.click(screen.getByRole('button', { name: 'Abbrechen' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
   });
 
   it('cancelling rejects the original request with reauth_required', async () => {
@@ -94,7 +94,7 @@ describe('ReauthDialog', () => {
     const user = userEvent.setup();
     renderHost();
     const result = api.enableAutoMode({ minutes: 30, vaultIds: null }).catch((e: unknown) => e);
-    await screen.findByRole('dialog', { name: 'Bestätige, dass du es bist' });
+    await screen.findByRole('dialog', { name: 'Confirm it’s you' });
     await user.keyboard('{Escape}');
     expect(await result).toMatchObject({ code: 'reauth_required' });
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(1);
