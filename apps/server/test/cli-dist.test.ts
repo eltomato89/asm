@@ -77,6 +77,17 @@ describe('CLI distribution routes', () => {
     expect(res.body).not.toContain('sudo ');
   });
 
+  it('serves THIRD_PARTY_NOTICES as plain text when present', async () => {
+    const dir = makeCliDir();
+    ({ app } = await createTestApp({ config: { cliDir: dir } }));
+    expect((await app.inject({ method: 'GET', url: '/cli/THIRD_PARTY_NOTICES' })).statusCode).toBe(404);
+    writeFileSync(join(dir, 'THIRD_PARTY_NOTICES'), 'Package: commander@1.0.0\n');
+    const res = await app.inject({ method: 'GET', url: '/cli/THIRD_PARTY_NOTICES' });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('text/plain; charset=utf-8');
+    expect(res.body).toBe('Package: commander@1.0.0\n');
+  });
+
   it('returns cli_not_available without a bundle', async () => {
     for (const cliDir of [null, join(tmpdir(), 'asm-cli-missing-xyz'), makeCliDir({ version: '1', sha256: 'zz', size: 1 })]) {
       ({ app } = await createTestApp({ config: { cliDir } }));
@@ -199,6 +210,19 @@ describe('install.sh end to end', () => {
     // The symlinked command runs as ESM (the fake bundle uses an import statement).
     const run = await runFile(join(bin, 'asm'), ['--version'], { PATH: NODE_PATH, HOME: home });
     expect(run).toEqual({ code: 0, stdout: '1.2.3\n' });
+  });
+
+  it('installs THIRD_PARTY_NOTICES next to asm.mjs when the server has it', async () => {
+    const dir = makeCliDir();
+    writeFileSync(join(dir, 'THIRD_PARTY_NOTICES'), 'licenses\n');
+    const { script } = await serve(dir);
+    const home = newHome();
+    const asmHome = join(home, 'share');
+    const r = await runSh(script, { PATH: NODE_PATH, HOME: home, ASM_INSTALL_DIR: join(home, 'bin'), ASM_HOME: asmHome });
+    expect(r.stderr).toBe('');
+    expect(r.code).toBe(0);
+    expect(readdirSync(asmHome).sort()).toEqual(['THIRD_PARTY_NOTICES', 'asm.mjs']);
+    expect(readFileSync(join(asmHome, 'THIRD_PARTY_NOTICES'), 'utf8')).toBe('licenses\n');
   });
 
   it('defaults to $HOME/.local/bin and $HOME/.local/share/asm and replaces an existing asm', async () => {

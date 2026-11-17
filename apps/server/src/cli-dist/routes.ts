@@ -48,7 +48,8 @@ function matchesEtag(req: FastifyRequest, etag: string): boolean {
 
 /**
  * Public CLI distribution (no auth: the CLI is not secret):
- * GET /cli/install.sh (installer with the server origin baked in), /cli/asm.mjs (bundle), /cli/asm.json (manifest).
+ * GET /cli/install.sh (installer with the server origin baked in), /cli/asm.mjs (bundle), /cli/asm.json (manifest),
+ * /cli/THIRD_PARTY_NOTICES (licenses of the third-party packages bundled into asm.mjs).
  */
 export async function registerCliDistRoutes(app: FastifyInstance, opts: CliDistOpts): Promise<void> {
   const { cliDir } = opts;
@@ -67,6 +68,17 @@ export async function registerCliDistRoutes(app: FastifyInstance, opts: CliDistO
   app.get('/cli/asm.json', async (_req, reply) => {
     const manifest = await loadManifest(cliDir);
     return reply.header('cache-control', 'no-cache').header('x-content-type-options', 'nosniff').send(manifest);
+  });
+
+  app.get('/cli/THIRD_PARTY_NOTICES', async (_req, reply) => {
+    await loadManifest(cliDir);
+    const body = await readFile(join(cliDir as string, 'THIRD_PARTY_NOTICES')).catch(() => null);
+    if (!body) throw notAvailable();
+    return reply
+      .header('cache-control', 'no-cache')
+      .header('x-content-type-options', 'nosniff')
+      .type('text/plain; charset=utf-8')
+      .send(body);
   });
 
   app.get('/cli/asm.mjs', async (req, reply) => {

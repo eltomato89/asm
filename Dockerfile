@@ -17,6 +17,12 @@ RUN pnpm --filter @asm/shared build \
  && pnpm --filter @asm/server build \
  && pnpm --filter @asm/web build \
  && pnpm --filter @asm/server deploy --prod --legacy /out
+# Third-party licenses: the CLI and web builds wrote their own notices (dist-bundle/THIRD_PARTY_NOTICES,
+# web/dist/THIRD_PARTY_NOTICES.txt); the combined file adds every package in the deployed server node_modules.
+RUN node scripts/third-party-notices.mjs combine --out /src/THIRD_PARTY_NOTICES \
+      --node-modules /out/node_modules --label server \
+      --from apps/web/dist/THIRD_PARTY_NOTICES.txt --label "web UI" \
+      --from apps/cli/dist-bundle/THIRD_PARTY_NOTICES --label CLI
 
 # --- runtime: server + production node_modules + web UI + CLI bundle (served under /cli), no build toolchain ---
 FROM node:24-alpine
@@ -27,11 +33,13 @@ ENV NODE_ENV=production \
 WORKDIR /app
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 COPY LICENSE NOTICE /app/
+COPY --from=build /src/THIRD_PARTY_NOTICES /app/
 # The server serves the web UI from apps/web/dist (resolved relative to apps/server/dist/web/static.js).
 COPY --from=build /out apps/server
 COPY --from=build /src/apps/web/dist apps/web/dist
-# Single-file CLI bundle + manifest for /cli/install.sh, /cli/asm.mjs, /cli/asm.json (read-only for the node user).
-COPY --from=build /src/apps/cli/dist-bundle/asm.mjs /src/apps/cli/dist-bundle/asm.json /app/cli/
+# Single-file CLI bundle + manifest + licenses for /cli/install.sh, /cli/asm.mjs, /cli/asm.json, /cli/THIRD_PARTY_NOTICES
+# (read-only for the node user).
+COPY --from=build /src/apps/cli/dist-bundle/asm.mjs /src/apps/cli/dist-bundle/asm.json /src/apps/cli/dist-bundle/THIRD_PARTY_NOTICES /app/cli/
 RUN mkdir -p /data && chown node:node /data
 USER node
 EXPOSE 8080

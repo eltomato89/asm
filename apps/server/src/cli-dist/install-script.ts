@@ -12,9 +12,9 @@ export function renderInstallScript(origin: string): string {
   return `#!/bin/sh
 # Installs the asm CLI from ${origin}
 #   curl -fsSL ${origin}/cli/install.sh | sh
-# Installs \${ASM_HOME:-$HOME/.local/share/asm}/asm.mjs and links \${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm to it
+# Installs \${ASM_HOME:-$HOME/.local/share/asm}/asm.mjs (+ THIRD_PARTY_NOTICES) and links \${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm to it
 # (the .mjs extension makes Node load it as ESM regardless of version or surrounding package.json).
-# Needs Node.js >= 22.12 and curl or wget. Never uses sudo. Uninstall: remove both.
+# Needs Node.js >= 22.12 and curl or wget. Never uses sudo. Uninstall: remove the link and the ASM_HOME directory.
 set -eu
 
 main() {
@@ -88,6 +88,11 @@ main() {
   chmod 755 "$PART"
   mv -f "$PART" "$ASM_DIR/asm.mjs"
   PART=''
+
+  # Licenses of the bundled third-party packages, next to the bundle (best effort: older servers lack the file).
+  if fetch "$ASM_URL/cli/THIRD_PARTY_NOTICES" "$TMP_DIR/THIRD_PARTY_NOTICES" 2>/dev/null; then
+    cp "$TMP_DIR/THIRD_PARTY_NOTICES" "$ASM_DIR/THIRD_PARTY_NOTICES"
+  fi
 
   # Replace the command with a symlink to the .mjs (temp link + rename, so asm never disappears).
   LINK_PART="$INSTALL_DIR/.asm.$$.link"
