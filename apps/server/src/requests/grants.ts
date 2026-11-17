@@ -2,7 +2,7 @@ import { newId } from '@asm/shared';
 import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import type { Db } from '../db/client.js';
-import { isGroupRestricted, sameGroup } from '../devices/links.js';
+import { isGroupRestricted, settingsDeviceId } from '../devices/links.js';
 import { HttpError } from '../errors.js';
 import type { DeviceIdentity } from '../oauth/bearer.js';
 import { openVersion } from '../secrets/service.js';
@@ -11,15 +11,23 @@ import { canAccessVault } from '../vaults/service.js';
 export const GRANT_TTL_MS = 15 * 60_000;
 export const GRANT_DEFAULT_USES = 1;
 
-export type Grant = { id: string; requestId: string; userId: string; secretId: string; usesLeft: number; expiresAt: number; createdAt: number };
+export type Grant = {
+  id: string; requestId: string; userId: string; secretId: string; usesLeft: number; expiresAt: number; createdAt: number;
+  /** Main (settings) device of the requesting device's group if that group was restricted at issue time, else null. */
+  restrictedToDeviceId: string | null;
+};
 
 export type Delivery = 'cli' | 'plaintext';
 
 export type RedeemedGrant = { secretId: string; envName: string | null; value: string; delivery: Delivery };
 
-/** Issued on approval of a `read` request (both deliveries); 15 min, 1 use. Call inside the decision transaction. */
-export function issueGrant(ctx: ServiceCtx, request: { id: string; userId: string; secretId: string }): Grant {
+/**
+ * Issued on approval of a `read` request (both deliveries); 15 min, 1 use. Call inside the decision transaction.
+ * Snapshots the requesting device's group (restrictedToDeviceId) so a later change of the group cannot widen who may redeem.
+ */
+export function issueGrant(ctx: ServiceCtx, request: { id: string; userId: string; secretId: string; deviceId: string }): Grant {
   const now = ctx.clock.now();
+  const restrictedToDeviceId = isGroupRestricted(ctx.db, request.deviceId) ? settingsDeviceId(ctx.db, request.deviceId) : null;
   const grant: Grant = {
     id: newId('grt'),
     requestId: request.id,
@@ -28,11 +36,12 @@ export function issueGrant(ctx: ServiceCtx, request: { id: string; userId: strin
     usesLeft: GRANT_DEFAULT_USES,
     expiresAt: now + GRANT_TTL_MS,
     createdAt: now,
+    restrictedToDeviceId,
   };
   ctx.db.$client
     .prepare(
-      `INSERT INTO grants (id, request_id, user_id, secret_id, uses_left, expires_at, created_at)
-       VALUES (@id, @requestId, @userId, @secretId, @usesLeft, @expiresAt, @createdAt)`,
+      `INSERT INTO grants (id, request_id, user_id, secret_id, uses_left, expires_at, created_at, restricted_to_device_id)
+       VALUES (@id, @requestId, @userId, @secretId, @usesLeft, @expiresAt, @createdAt, @restrictedToDeviceId)`,
     )
     .run(grant);
   return grant;
@@ -58,7 +67,7 @@ export function grantIdForRequest(db: Db, requestId: string, deviceId: string): 
 
 type GrantRow = {
   id: string; request_id: string; user_id: string; secret_id: string; uses_left: number; expires_at: number;
-  delivery: Delivery | null; request_device_id: string; request_device_status: string; project: string; reason: string;
+  restricted_to_device_id: string | null; delivery: Delivery | null; request_device_id: string; request_device_status: string; project: string; reason: string;
   vault_id: string; archived_at: number | null; env_name: string | null; current_version: number; allow_plaintext_to_agent: number;
 };
 
@@ -69,8 +78,10 @@ const MAX_HOSTNAME = 255;
  * - malformed id → 404 grant_not_found (not audited); unknown / expired / consumed → 410 grant_gone
  * - plaintext delivery while the secret's plaintext flag is off → 403 plaintext_not_allowed
  * - other user, wrong device kind (cli), not the requesting device (plaintext), inactive device, lost vault access → 403 forbidden
- * - cli delivery for a request of a device group (attached CLI, or main device with attached CLIs) redeemed by a device outside
- *   that group → 403 wrong_device_group (audit cause wrong_group); evaluated live at redemption, not at issue time
+ * - cli delivery for a request of a device group redeemed by a device outside that group → 403 wrong_device_group (audit cause
+ *   wrong_group). The grant is restricted if it was at issue time (snapshot `restricted_to_device_id`, which then fixes the group)
+ *   or if the requesting device is restricted now (attached CLI, or main device with attached CLIs; group = its settings device).
+ *   So a group that dissolves after issue keeps its grants bound; a group formed after issue binds them too.
  * - archived secret → 409 secret_archived
  * Every outcome is audited (grant.redeemed | secret.plaintext_delivered | grant.redeem_denied).
  */
@@ -89,7 +100,7 @@ export function redeemGrant(
     const now = ctx.clock.now();
     const g = db.$client
       .prepare(
-        `SELECT g.id, g.request_id, g.user_id, g.secret_id, g.uses_left, g.expires_at,
+        `SELECT g.id, g.request_id, g.user_id, g.secret_id, g.uses_left, g.expires_at, g.restricted_to_device_id,
                 r.delivery, r.device_id AS request_device_id, rd.status AS request_device_status, r.project, r.reason,
                 s.vault_id, s.archived_at, s.env_name, s.current_version, s.allow_plaintext_to_agent
            FROM grants g
@@ -116,8 +127,10 @@ export function redeemGrant(
     if (g.expires_at <= now) return deny(410, 'grant_gone', 'expired');
     if (g.uses_left <= 0) return deny(410, 'grant_gone', 'consumed');
     if (g.delivery === 'cli' && device.kind !== 'cli') return deny(403, 'forbidden', 'wrong_device_kind');
-    if (g.delivery === 'cli' && isGroupRestricted(db, g.request_device_id) && !sameGroup(db, g.request_device_id, device.id)) {
-      return deny(403, 'wrong_device_group', 'wrong_group');
+    if (g.delivery === 'cli') {
+      const group = g.restricted_to_device_id
+        ?? (isGroupRestricted(db, g.request_device_id) ? settingsDeviceId(db, g.request_device_id) : null);
+      if (group !== null && settingsDeviceId(db, device.id) !== group) return deny(403, 'wrong_device_group', 'wrong_group');
     }
     if (g.delivery === 'plaintext' && device.id !== g.request_device_id) return deny(403, 'forbidden', 'wrong_device');
     if (g.delivery !== 'cli' && g.delivery !== 'plaintext') return deny(403, 'forbidden', 'no_delivery');

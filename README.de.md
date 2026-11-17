@@ -19,8 +19,9 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   den Wert und setzt ihn als Umgebungsvariable nur für diesen Prozess. Der Wert landet so weder im
   Gesprächsverlauf noch beim Modellanbieter. Grants gelten 15 Minuten und standardmäßig für eine Nutzung.
   Gehört das anfragende Gerät zu einer verknüpften Gruppe (ein Claude-Code-Gerät mit seinen angehängten CLIs, siehe
-  Geräte), kann nur die CLI dieser Gruppe den Grant einlösen; jede andere CLI erhält `wrong_device_group`. Grants
-  nicht verknüpfter Geräte kann wie bisher jede deiner CLIs einlösen.
+  Geräte), kann nur die CLI dieser Gruppe den Grant einlösen; jede andere CLI erhält `wrong_device_group`. Ein Grant
+  bleibt an die Gruppe gebunden, für die er ausgestellt wurde, auch wenn sich die Gruppe vor dem Einlösen ändert.
+  Grants nicht verknüpfter Geräte kann wie bisher jede deiner CLIs einlösen.
 - **Klartext ist Opt-in pro Secret.** `delivery: "plaintext"` geht nur, wenn beim Secret „Klartext an Agenten
   erlauben“ aktiv ist (Standard: aus). Ein Klartext-Wert steht danach im Transkript, in Logs und beim
   Modellanbieter – nur für unkritische Werte verwenden. Agenten können diese Einstellung nie ändern.
@@ -50,8 +51,11 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   Geräteliste, mit frischer Anmeldung). Verlierst du den Zugriff auf diesen Tresor, gilt wieder dein persönlicher.
 - **Verknüpfte Geräte.** Eine CLI lässt sich an ein Claude-Code-Gerät (das Hauptgerät) anhängen – beim `asm login`
   auf der Bestätigungsseite im Browser („Mit einem vorhandenen Gerät verknüpfen“) oder später in der Geräteliste
-  („Verknüpfen…“). Die angehängte CLI nutzt dann Dauerfreigabe und Standardtresor des Hauptgeräts; ihre eigenen
-  entfallen beim Verknüpfen. „Lösen“ macht sie wieder zu einem eigenständigen Gerät mit leeren Einstellungen.
+  („Verknüpfen…“). Verknüpfen ist Opt-in: Nichts ist vorausgewählt, und hat das Hauptgerät eine aktive
+  Dauerfreigabe, warnt die Seite, dass die CLI darüber automatisch freigegeben wird – verknüpfe nur eine CLI, die du
+  gerade selbst gestartet hast. Die angehängte CLI nutzt dann Dauerfreigabe und Standardtresor des Hauptgeräts; ihre
+  eigenen entfallen beim Verknüpfen. „Lösen“ macht sie wieder zu einem eigenständigen Gerät mit leeren Einstellungen;
+  Lösen oder Umhängen an ein anderes Hauptgerät verwirft ihre offenen Grants und Anfragen.
   Widerrufst du das Hauptgerät, werden seine angehängten CLIs standardmäßig mit widerrufen; ohne Haken werden sie
   stattdessen nur gelöst.
 - **Konten deaktivieren.** Admins können Konten in den Einstellungen deaktivieren (Offboarding): Die Person wird

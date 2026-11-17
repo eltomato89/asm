@@ -107,9 +107,17 @@ export function setDeviceDefaultVault(
 
 export type LinkCause = 'manual' | 'activation';
 
+/** A CLI leaves its group (unlink / relink): delete its outstanding grants, deny its open requests. In the caller's transaction. */
+function dropInFlight(ctx: ServiceCtx, cliId: string): void {
+  deleteGrantsForDevice(ctx.db, cliId);
+  cancelOpenForDevice(ctx, cliId, 'device_link_changed');
+}
+
 /**
  * Link core (runs in the caller's transaction, does not emit). Attaches the approved CLI `cliId` of `userId` to the approved
  * 'mcp' device `mainId` of the same user. Drops the CLI's own standing approval and default vault (audit cause device_linked).
+ * On a relink (attached to another main before) the CLI's outstanding grants are deleted and its open requests denied
+ * (cause device_link_changed): they belong to the group it leaves.
  * 404 not_found (CLI not own) | 400 invalid_link (self, wrong kinds) | 404 main_not_found | 409 device_inactive.
  * Returns the devices whose view changed (empty when already linked to `mainId`).
  */
@@ -129,6 +137,7 @@ export function linkInTxn(
   if (cli.status !== 'approved') throw new HttpError(409, 'device_inactive');
   if (cli.linkedTo === mainId) return [];
 
+  if (cli.linkedTo !== null) dropInFlight(ctx, cliId);
   const droppedStanding = deleteStandingForDevice(ctx, cliId, 'device_linked', userId);
   db.update(devices).set({ linkedToDeviceId: mainId, defaultVaultId: null }).where(eq(devices.id, cliId)).run();
   if (cli.defaultVaultId !== null) {
@@ -162,7 +171,8 @@ export function linkDevice(
 }
 
 /**
- * Detaches a CLI from its main device; it starts with empty settings. Idempotent. 404 not_found (not own device).
+ * Detaches a CLI from its main device; it starts with empty settings. Its outstanding grants are deleted and its open requests
+ * denied (cause device_link_changed). Idempotent. 404 not_found (not own device).
  * Audit device.unlinked (cause manual); device.changed for CLI and main.
  */
 export function unlinkDevice(ctx: ServiceCtx, userId: string, cliId: string, info: RequestInfo = {}): DeviceDto {
@@ -173,6 +183,7 @@ export function unlinkDevice(ctx: ServiceCtx, userId: string, cliId: string, inf
     if (!cli) throw new HttpError(404, 'not_found');
     if (cli.linkedTo === null) return null;
     db.update(devices).set({ linkedToDeviceId: null }).where(eq(devices.id, cliId)).run();
+    dropInFlight(ctx, cliId);
     appendAudit(db, clock, {
       actorType: 'user', actorId: userId, event: 'device.unlinked', deviceId: cliId, ip: info.ip ?? null,
       meta: { mainDeviceId: cli.linkedTo, cause: 'manual' },
@@ -235,6 +246,7 @@ function revokeInTxn(
       revokeInTxn(ctx, c.id, actor, info, 'detach', affected, 'main_revoked');
     } else {
       db.update(devices).set({ linkedToDeviceId: null }).where(eq(devices.id, c.id)).run();
+      dropInFlight(ctx, c.id);
       appendAudit(db, clock, {
         ...actorFields(actor), event: 'device.unlinked', deviceId: c.id, ip: info.ip ?? null,
         meta: { mainDeviceId: deviceId, cause: 'main_revoked' },
@@ -247,8 +259,8 @@ function revokeInTxn(
  * Revokes a device: status `revoked`, link cleared, all its tokens revoked, outstanding codes and grants deleted, its open
  * requests denied by the system (cause `device_inactive`, emitted after commit), its standing approval deleted (cause
  * `device_revoked`), audit `device.revoked`. CLIs attached to it are revoked too (`attached` 'revoke', audit meta.cause
- * `main_revoked`) or detached ('detach', audit device.unlinked cause `main_revoked`); default: 'revoke' for a user actor,
- * 'detach' for the system (e.g. refresh-token reuse). One transaction; then `device.changed` for every affected device.
+ * `main_revoked`) or detached ('detach', audit device.unlinked cause `main_revoked`, their grants deleted and open requests
+ * denied); default: 'revoke' for a user actor, 'detach' for the system (e.g. refresh-token reuse). One transaction; then `device.changed` for every affected device.
  * Idempotent: an already revoked device is not audited again.
  */
 export function revokeDevice(

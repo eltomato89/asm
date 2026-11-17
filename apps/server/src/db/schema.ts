@@ -193,6 +193,12 @@ export const grants = sqliteTable('grants', {
   secretId: text('secret_id').notNull().references(() => secrets.id, { onDelete: 'cascade' }),
   usesLeft: integer('uses_left').notNull(),
   expiresAt: ts('expires_at').notNull(),
+  /**
+   * Device-group snapshot taken at issue time: the main (settings) device of the requesting device's group when that group was
+   * restricted (CLI attached, or main with attached CLIs). Set → only CLIs of that group may redeem (cli delivery). No FK on
+   * purpose: a dangling id keeps the grant unredeemable instead of unrestricting it.
+   */
+  restrictedToDeviceId: text('restricted_to_device_id'),
   createdAt: ts('created_at').notNull(),
 });
 

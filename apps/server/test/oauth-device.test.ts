@@ -163,7 +163,7 @@ describe('POST /api/devices/activate', () => {
     const s = await setup();
     const r = await s.req(s.alice, 'GET', `/api/devices/activate?user_code=${s.p.user_code.toLowerCase()}`);
     expect(r.statusCode).toBe(200);
-    expect(r.json()).toEqual({ name: 'asm CLI', hostname: 'work-laptop', requestedAt: s.clock.now(), linkCandidates: [], suggestedLinkId: null });
+    expect(r.json()).toEqual({ name: 'asm CLI', hostname: 'work-laptop', requestedAt: s.clock.now(), linkCandidates: [] });
     expect((await s.req(s.alice, 'GET', '/api/devices/activate?user_code=BCDF-BCDF')).json()).toEqual({ error: 'invalid_code' });
     expect((await s.req(undefined, 'GET', `/api/devices/activate?user_code=${s.p.user_code}`)).statusCode).toBe(401);
   });

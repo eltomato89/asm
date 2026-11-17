@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { ApiError, createApiClient } from '@asm/shared';
 import type { DeviceIdentity } from '../src/oauth/bearer.js';
 import { enableAutoMode } from '../src/requests/automode.js';
+import { revokeDevice } from '../src/devices/service.js';
 import { grantIdForRequest } from '../src/requests/grants.js';
 import { createRequest, decideRequest } from '../src/requests/service.js';
 import { createSecret } from '../src/secrets/service.js';
@@ -188,18 +189,41 @@ describe('grant redemption within a device group (linked CLI)', () => {
     expect((await redeem(cli.accessToken, g1)).statusCode).toBe(200);
   });
 
-  it('group membership is evaluated at redemption: linking/unlinking after issue changes the outcome', async () => {
+  it('the restriction is snapshotted at issue: the last CLI unlinked after issue → an outside CLI is still denied', async () => {
     const { w, mcp, cli, grant, redeem } = await setup();
     const other = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli-2' });
     link(w, cli.deviceId, mcp.deviceId);
     const g = grant();
-    expect((await redeem(other.accessToken, g)).statusCode).toBe(403);
-    link(w, cli.deviceId, null);
+    const snap = w.db.$client.prepare('SELECT restricted_to_device_id AS r FROM grants WHERE id = ?').get(g) as { r: string | null };
+    expect(snap.r).toBe(mcp.deviceId);
+    link(w, cli.deviceId, null); // the group dissolves (main has no attached CLI any more)
+    expect((await redeem(other.accessToken, g)).json()).toEqual({ error: 'wrong_device_group' });
+    // The former member is outside the group now, too.
+    expect((await redeem(cli.accessToken, g)).json()).toEqual({ error: 'wrong_device_group' });
+    // A CLI attached to the snapshotted main later may redeem.
+    link(w, other.deviceId, mcp.deviceId);
     expect((await redeem(other.accessToken, g)).statusCode).toBe(200);
-    // And the other way round: issued while unrestricted, linked before redemption.
-    const g2 = grant();
+  });
+
+  it('the last CLI revoked after issue → an outside CLI is still denied', async () => {
+    const { w, mcp, cli, grant, redeem } = await setup();
+    const other = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli-2' });
     link(w, cli.deviceId, mcp.deviceId);
-    expect((await redeem(other.accessToken, g2)).json()).toEqual({ error: 'wrong_device_group' });
+    const g = grant();
+    revokeDevice(w.ctx, cli.deviceId, { type: 'user', userId: w.alice.id });
+    expect((await redeem(other.accessToken, g)).json()).toEqual({ error: 'wrong_device_group' });
+  });
+
+  it('issued while unrestricted, then a CLI is linked to the main: the live rule binds the grant to the new group', async () => {
+    const { w, mcp, cli, grant, redeem } = await setup();
+    const other = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli-2' });
+    const g = grant();
+    const snap = w.db.$client.prepare('SELECT restricted_to_device_id AS r FROM grants WHERE id = ?').get(g) as { r: string | null };
+    expect(snap.r).toBeNull();
+    link(w, cli.deviceId, mcp.deviceId);
+    // No snapshot, but the requesting main is restricted now: only its group (the newly linked CLI) may redeem.
+    expect((await redeem(other.accessToken, g)).json()).toEqual({ error: 'wrong_device_group' });
+    expect((await redeem(cli.accessToken, g)).statusCode).toBe(200);
   });
 });
 

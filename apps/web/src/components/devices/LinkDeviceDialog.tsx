@@ -8,6 +8,7 @@ import { vaultLabel } from '../../lib/vault';
 import { Button } from '../ui/Button';
 import { Dialog } from '../ui/Dialog';
 import { Select } from '../ui/Field';
+import { StandingInheritWarning } from './StandingBadge';
 import { useToast } from '../ui/Toast';
 
 type Props = {
@@ -71,6 +72,7 @@ export function LinkDeviceDialog({ device, mains, onOpenChange }: Props) {
             </option>
           ))}
         </Select>
+        {main ? <StandingInheritWarning summary={main.standingApproval} main={main.name} /> : null}
         {drops.length > 0 ? (
           <div className="link-drops" role="note">
             <p>{t.devices.linkDrops}</p>

@@ -1,6 +1,7 @@
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
+import { StandingInheritWarning } from '../components/devices/StandingBadge';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Field';
 import { t } from '../i18n';
@@ -34,7 +35,8 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
     mutationFn: () => api.activationInfo(code),
     onSuccess: (info) => {
       setPreview(info);
-      setLinkTo(info.suggestedLinkId ?? '');
+      // Never preselect a link: a phished code would otherwise inherit the main device's standing approval.
+      setLinkTo('');
       setError(null);
     },
     onError: (e) => setError(codeError(e)),
@@ -53,7 +55,8 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
   };
 
   const candidates = preview?.linkCandidates ?? [];
-  const linkedName = candidates.find((c) => c.id === linkTo)?.name;
+  const linkTarget = candidates.find((c) => c.id === linkTo);
+  const linkedName = linkTarget?.name;
 
   if (result) {
     return (
@@ -148,6 +151,7 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
                   </option>
                 ))}
               </Select>
+              {linkTarget ? <StandingInheritWarning summary={linkTarget.standing} main={linkTarget.name} /> : null}
             </div>
           ) : null}
           <Rights />

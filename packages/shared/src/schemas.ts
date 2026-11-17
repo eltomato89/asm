@@ -240,7 +240,8 @@ export const DeviceDtoSchema = z.strictObject({
   defaultVault: z.strictObject({ id: z.string(), name: z.string(), personal: z.boolean() }).nullable(),
   /**
    * Main device this CLI is attached to (standing approval + default vault come from it). Null when not attached.
-   * For an attached CLI, `standingApproval` / `defaultVault` reflect the main device's settings.
+   * For an attached CLI, `defaultVault` is the main device's; `standingApproval` is null (the CLI has none of its own; the
+   * main device's entry carries the one that applies).
    */
   linkedTo: z.strictObject({ id: z.string(), name: z.string() }).nullable(),
 });
@@ -268,17 +269,20 @@ export const LinkCandidateSchema = z.strictObject({
   createdAt: z.number(),
   /** Number of approved CLIs already attached. */
   attachedCount: z.number().int(),
+  /** The main device's standing approval (an attached CLI is auto-approved under it), or null. */
+  standing: StandingApprovalSummarySchema.nullable(),
 });
 export type LinkCandidate = z.infer<typeof LinkCandidateSchema>;
 
-/** GET /api/devices/activate response: what is being paired, plus main devices it could be attached to. */
+/**
+ * GET /api/devices/activate response: what is being paired, plus main devices it could be attached to. Nothing is preselected:
+ * linking is opt-in, since a phished user_code would otherwise inherit the main device's standing approval.
+ */
 export const ActivationInfoSchema = z.strictObject({
   name: z.string(),
   hostname: z.string().nullable(),
   requestedAt: z.number(),
   linkCandidates: z.array(LinkCandidateSchema),
-  /** Preselected candidate (only when exactly one exists), else null. */
-  suggestedLinkId: z.string().nullable(),
 });
 export type ActivationInfo = z.infer<typeof ActivationInfoSchema>;
 

@@ -152,6 +152,8 @@ describe('openDb', () => {
     expect(() => ins.run('dev_bad', 'cli', 'dev_missing')).toThrow(/FOREIGN KEY/);
     db.$client.prepare("DELETE FROM devices WHERE id = 'dev_main'").run();
     expect(db.$client.prepare("SELECT linked_to_device_id AS l FROM devices WHERE id = 'dev_cli'").get()).toEqual({ l: null });
+    const gcols = db.$client.prepare("SELECT name, \"notnull\" AS nn FROM pragma_table_info('grants') WHERE name = 'restricted_to_device_id'").all();
+    expect(gcols).toEqual([{ name: 'restricted_to_device_id', nn: 0 }]);
   });
 
   it('standing approval rows cascade with the device and the secret', () => {

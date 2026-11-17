@@ -40,7 +40,7 @@ const LIST_LIMIT = 100;
 const SYSTEM = 'system';
 
 export type RequestStatus = AccessRequestDto['status'];
-export type SystemCause = 'archived' | 'member_removed' | 'device_inactive' | 'plaintext_disabled' | 'deleted';
+export type SystemCause = 'archived' | 'member_removed' | 'device_inactive' | 'plaintext_disabled' | 'deleted' | 'device_link_changed';
 export const MAX_WAITERS_PER_DEVICE = 20;
 
 /** Raised inside a decision transaction when applying an approved update fails (carries the error code only). */
@@ -264,7 +264,7 @@ function applyApproval(ctx: ServiceCtx, r: RequestRow): void {
     if (r.delivery === 'plaintext' && cur.flag !== 1) throw new HttpError(403, 'plaintext_not_allowed');
     const project = touchProject(ctx, r.project);
     recordUsage(ctx, project.id, r.secret_id, r.device_id);
-    issueGrant(ctx, { id: r.id, userId: r.user_id, secretId: r.secret_id });
+    issueGrant(ctx, { id: r.id, userId: r.user_id, secretId: r.secret_id, deviceId: r.device_id });
     return;
   }
   const pm = r.proposed_meta ? (JSON.parse(r.proposed_meta) as ProposedMeta) : { diff: {}, valueChanged: false };
@@ -631,10 +631,13 @@ export function cancelOpenForDeletedSecret(ctx: ServiceCtx, secretId: string): v
   emitSnapshotsAfterCommit(ctx, rows.filter((r) => systemDeny(ctx, r, 'deleted')).map((r) => r.id));
 }
 
-/** Device revocation (inside revokeDevice's transaction): deny the device's open requests (cause 'device_inactive'). */
-export function cancelOpenForDevice(ctx: ServiceCtx, deviceId: string): void {
+/**
+ * Device revocation (inside revokeDevice's transaction): deny the device's open requests (cause 'device_inactive').
+ * Also used when a CLI leaves its device group (unlink / relink, cause 'device_link_changed').
+ */
+export function cancelOpenForDevice(ctx: ServiceCtx, deviceId: string, cause: SystemCause = 'device_inactive'): void {
   const rows = ctx.db.$client.prepare(`${REQUEST_SELECT} WHERE r.device_id = ? AND r.status = 'pending'`).all(deviceId) as RequestRow[];
-  emitAfterCommit(ctx, rows.filter((r) => systemDeny(ctx, r, 'device_inactive')).map((r) => r.id));
+  emitAfterCommit(ctx, rows.filter((r) => systemDeny(ctx, r, cause)).map((r) => r.id));
 }
 
 /**

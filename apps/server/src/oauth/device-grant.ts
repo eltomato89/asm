@@ -11,7 +11,7 @@ import type { ActivationInfo } from '@asm/shared';
 import { deviceCodes, devices } from '../db/schema.js';
 import { linkCandidates } from '../devices/links.js';
 import { createDevice, linkInTxn } from '../devices/service.js';
-import { emitDeviceChanged } from '../standing/service.js';
+import { emitDeviceChanged, standingSummaryForDevice } from '../standing/service.js';
 import { HttpError, OAuthError } from '../errors.js';
 
 export const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
@@ -150,11 +150,9 @@ export function registerActivateRoutes(app: FastifyInstance, deps: OAuthDeps): v
   // Lets the UI show what is being paired (client name, hostname) and the main devices it could be attached to.
   app.get('/api/devices/activate', { preHandler: requireUser, config: perUser }, async (req): Promise<ActivationInfo> => {
     const row = findPendingCode(ctx, userCodeQuery.parse(req.query).user_code);
-    const candidates = linkCandidates(db, req.user!.id);
-    return {
-      name: row.name, hostname: row.hostname, requestedAt: row.createdAt,
-      linkCandidates: candidates, suggestedLinkId: candidates.length === 1 ? candidates[0]!.id : null,
-    };
+    // No preselection (linking is opt-in); each candidate carries its standing approval so the page can warn before linking.
+    const candidates = linkCandidates(db, req.user!.id).map((c) => ({ ...c, standing: standingSummaryForDevice(ctx, c.id) }));
+    return { name: row.name, hostname: row.hostname, requestedAt: row.createdAt, linkCandidates: candidates };
   });
 
   app.post('/api/devices/activate', { preHandler: [requireUser, requireRecentAuth(clock)], config: perUser }, async (req) => {

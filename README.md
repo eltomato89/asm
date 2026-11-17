@@ -20,8 +20,9 @@ browser. By default the value never reaches the agent, only the process it start
   the value and sets it as an environment variable for that process only. The value therefore never ends up in
   the conversation history or at the model provider. Grants are valid for 15 minutes and, by default, for a single use.
   If the requesting device belongs to a linked group (a Claude Code device with its attached CLIs, see Devices), only
-  that group's CLI can redeem the grant; any other CLI gets `wrong_device_group`. Grants of unlinked devices can be
-  redeemed by any of your CLIs, as before.
+  that group's CLI can redeem the grant; any other CLI gets `wrong_device_group`. A grant stays bound to the group it
+  was issued for, even if the group changes before it is redeemed. Grants of unlinked devices can be redeemed by any of
+  your CLIs, as before.
 - **Plaintext is opt-in per secret.** `delivery: "plaintext"` only works if "Allow plaintext to agents" is enabled
   on the secret (default: off). A plaintext value then appears in the transcript, in logs and at the model
   provider – use it only for non-critical values. Agents can never change this setting.
@@ -49,9 +50,12 @@ browser. By default the value never reaches the agent, only the process it start
   creates secrets when it doesn't name one (initially your personal vault; changeable in the device list, which needs a
   recent sign-in). If you lose access to that vault, it falls back to your personal vault.
 - **Linked devices.** A CLI can be attached to a Claude Code device (the main device) – during `asm login` on the
-  browser confirmation page ("Link to an existing device"), or later in the device list ("Link…"). The attached CLI
+  browser confirmation page ("Link to an existing device"), or later in the device list ("Link…"). Linking is opt-in:
+  nothing is preselected, and if the main device has an active standing approval, the page warns that the CLI will be
+  approved automatically under it – only link a CLI you just started yourself. The attached CLI
   then uses the main device's standing approval and default vault; its own are dropped when you link it. "Unlink"
-  makes it a standalone device again with empty settings. Revoking the main device also revokes its attached CLIs by
+  makes it a standalone device again with empty settings; unlinking or moving a CLI to another main device cancels its
+  open grants and requests. Revoking the main device also revokes its attached CLIs by
   default; uncheck the option to detach them instead.
 - **Deactivating accounts.** Admins can deactivate accounts in Settings (offboarding): the person is
   signed out, can no longer sign in, and all their devices are revoked.

@@ -119,7 +119,7 @@ export async function deviceIdByName(page: Page, name: string): Promise<string> 
 
 /**
  * Pairs a simulated `asm` CLI the real way: device authorization request (like `asm login`), approval on the signed-in
- * browser page `/activate` (optionally linked to an existing Claude Code device, else explicitly "Don't link"),
+ * browser page `/activate` (optionally linked to an existing Claude Code device, else left at the default "Don't link"),
  * then the device_code token exchange. Returns the CLI's bearer access token.
  */
 export async function pairCliDevice(
@@ -136,7 +136,7 @@ export async function pairCliDevice(
   await expect(page.getByRole('heading', { name: `${opts.clientName} wants to connect to ASM` })).toBeVisible();
   const link = page.getByLabel('Link to an existing device');
   if (opts.linkTo) await link.selectOption(await deviceIdByName(page, opts.linkTo));
-  else await link.selectOption({ label: "Don't link" }); // a single MCP device would be preselected
+  else if ((await link.count()) > 0) await expect(link).toHaveValue(''); // linking is opt-in: "Don't link" is the default
   await page.getByRole('button', { name: 'Approve' }).click();
   await confirmReauthIfAsked(page, page.getByRole('heading', { name: 'Connected' }));
 

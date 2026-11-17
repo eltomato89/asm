@@ -55,7 +55,7 @@ export const connect = {
     requestedAt: (time: string) => time,
     linkLabel: 'Link to an existing device',
     linkNone: "Don't link",
-    linkHelp: 'The CLI then uses the standing approval and default vault of that device. Handoffs for the group can only be redeemed within it.',
+    linkHelp: 'Optional. The CLI then uses the standing approval and default vault of that device. Handoffs for the group can only be redeemed within it.',
     pairedLinked: (main: string) => ` is now paired and linked to ${main}. The terminal will continue on its own in a few seconds.`,
   },
 };

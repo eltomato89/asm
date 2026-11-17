@@ -884,5 +884,8 @@ button { cursor: pointer; }
   .link-drops { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font-size: var(--fs-13); color: var(--amber); }
   .link-drops p { margin: 0; }
   .link-drops ul { margin: 4px 0 0; padding-left: 18px; }
+  .link-warn { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--amber); border-radius: var(--radius); background: var(--bg); font-size: var(--fs-13); color: var(--amber); }
+  .link-warn p { margin: 0; }
+  .consent-sec .link-warn { margin-top: 10px; }
 }
 /* ---------- end linked devices ---------- */

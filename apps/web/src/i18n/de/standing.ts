@@ -16,6 +16,13 @@ export const standing: Messages['standing'] = {
     afterAsk: 'fragt nach Ablauf jedes Mal',
     afterRenew: (n) => `fragt nach Ablauf einmal und verlängert dann um ${n === 1 ? '1 Tag' : `${n} Tage`}`,
   },
+  inherit: {
+    all: 'alle Secrets',
+    list: (n) => (n === 1 ? '1 Secret' : `${n} Secrets`),
+    vaults: (n) => (n === 1 ? 'Secrets in 1 Tresor' : `Secrets in ${n} Tresoren`),
+    text: (scope, date, main) => `Diese CLI wird bis ${date} automatisch für ${scope} freigegeben (Dauerfreigabe von ${main}).`,
+    updates: 'Auch Änderungen werden ohne Rückfrage freigegeben.',
+  },
   title: (device) => `Dauerfreigabe für ${device}`,
   description: 'Anfragen dieses Geräts werden bis zum Enddatum ohne Rückfrage freigegeben. Jeder Zugriff landet weiterhin im Audit-Log.',
   loading: 'Dauerfreigabe wird geladen',

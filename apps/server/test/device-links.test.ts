@@ -6,6 +6,8 @@ import type { RequestEvent } from '../src/requests/events.js';
 import { disableUser } from '../src/auth/admin.js';
 import { devices } from '../src/db/schema.js';
 import { linkDevice, revokeDevice, setDeviceDefaultVault, unlinkDevice } from '../src/devices/service.js';
+import { createRequest, decideRequest } from '../src/requests/service.js';
+import { createSecret } from '../src/secrets/service.js';
 import { setStandingApproval } from '../src/standing/service.js';
 import { createVault } from '../src/vaults/service.js';
 import { auditRows, login, pairDevice, world } from './helpers/fixtures.js';
@@ -139,6 +141,50 @@ describe('linking a CLI to a main device', () => {
     expect(() => unlinkDevice(s.ctx, s.alice.id, 'dev_nope')).toThrow();
   });
 
+  describe('in-flight state of a CLI leaving its group', () => {
+    async function inFlight(s: Awaited<ReturnType<typeof setup>>) {
+      const secret = createSecret(s.ctx, s.alice.actor, { title: 'Token', envName: 'TOKEN', value: 'v' });
+      const device = { id: s.cli, userId: s.alice.id, kind: 'cli' as const, name: 'cli' };
+      const approved = createRequest(s.ctx, { device, secretId: secret.id, project: 'p', reason: 'r', delivery: 'cli' });
+      decideRequest(s.ctx, { requestId: approved.id, userId: s.alice.id, decision: 'approve' });
+      const open = createRequest(s.ctx, { device, secretId: secret.id, project: 'p', reason: 'r', delivery: 'cli' });
+      const grants = () => (s.db.$client.prepare('SELECT count(*) AS n FROM grants WHERE request_id = ?').get(approved.id) as { n: number }).n;
+      const status = () => (s.db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(open.id) as { status: string }).status;
+      expect([grants(), status()]).toEqual([1, 'pending']);
+      return { grants, status, openId: open.id };
+    }
+    const denyCause = (s: Awaited<ReturnType<typeof setup>>, requestId: string) =>
+      meta(auditRows(s.db, 'request.denied').find((r) => meta(r)?.requestId === requestId));
+
+    it('unlink deletes the grants and denies the open requests (cause device_link_changed)', async () => {
+      const s = await setup();
+      linkDevice(s.ctx, s.alice.id, s.cli, s.main);
+      const f = await inFlight(s);
+      unlinkDevice(s.ctx, s.alice.id, s.cli);
+      expect([f.grants(), f.status()]).toEqual([0, 'denied']);
+      expect(denyCause(s, f.openId)).toMatchObject({ cause: 'device_link_changed' });
+    });
+
+    it('relink to another main drops them too; relinking to the same main keeps them', async () => {
+      const s = await setup();
+      linkDevice(s.ctx, s.alice.id, s.cli, s.main);
+      const f = await inFlight(s);
+      linkDevice(s.ctx, s.alice.id, s.cli, s.main);
+      expect([f.grants(), f.status()]).toEqual([1, 'pending']);
+      linkDevice(s.ctx, s.alice.id, s.cli, s.main2);
+      expect([f.grants(), f.status()]).toEqual([0, 'denied']);
+      expect(denyCause(s, f.openId)).toMatchObject({ cause: 'device_link_changed' });
+    });
+
+    it('detaching with the main device revoked (attached: detach) drops them too', async () => {
+      const s = await setup();
+      linkDevice(s.ctx, s.alice.id, s.cli, s.main);
+      const f = await inFlight(s);
+      revokeDevice(s.ctx, s.main, { type: 'user', userId: s.alice.id }, {}, { attached: 'detach' });
+      expect([f.grants(), f.status()]).toEqual([0, 'denied']);
+    });
+  });
+
   it('PUT and DELETE require recent auth', async () => {
     const s = await setup();
     linkDevice(s.ctx, s.alice.id, s.cli, s.main2);
@@ -255,20 +301,25 @@ describe('activation with a link', () => {
   const newDeviceId = (s: Awaited<ReturnType<typeof setup>>) =>
     (s.db.$client.prepare("SELECT id FROM devices WHERE name = 'asm CLI'").get() as { id: string }).id;
 
-  it('GET lists candidates; suggestedLinkId only with exactly one candidate', async () => {
+  it('GET lists candidates with their standing approval; nothing is preselected (also with exactly one candidate)', async () => {
     const s = await setup();
     const code = await pending(s);
-    const info = (await s.req(s.alice, 'GET', `/api/devices/activate?user_code=${code}`)).json();
-    ActivationInfoSchema.parse(info);
-    expect(info.linkCandidates.map((c: { id: string }) => c.id).sort()).toEqual([s.main, s.main2].sort());
-    expect(info.suggestedLinkId).toBeNull();
+    const info = ActivationInfoSchema.parse((await s.req(s.alice, 'GET', `/api/devices/activate?user_code=${code}`)).json());
+    expect(info.linkCandidates.map((c) => c.id).sort()).toEqual([s.main, s.main2].sort());
+    expect(info).not.toHaveProperty('suggestedLinkId');
     s.setStatus(s.main2, 'revoked');
-    const one = (await s.req(s.alice, 'GET', `/api/devices/activate?user_code=${code}`)).json();
-    ActivationInfoSchema.parse(one);
-    expect(one.linkCandidates).toEqual([{ id: s.main, name: 'main', lastUsedAt: null, createdAt: s.clock.now(), attachedCount: 0 }]);
-    expect(one.suggestedLinkId).toBe(s.main);
+    const until = s.clock.now() + 7 * DAY;
+    setStandingApproval(s.ctx, s.alice.id, s.main, StandingApprovalInputSchema.parse({ until, scope: 'all' }), {});
+    const one = ActivationInfoSchema.parse((await s.req(s.alice, 'GET', `/api/devices/activate?user_code=${code}`)).json());
+    expect(one).not.toHaveProperty('suggestedLinkId');
+    expect(one.linkCandidates).toHaveLength(1);
+    expect(one.linkCandidates[0]).toMatchObject({ id: s.main, name: 'main', lastUsedAt: null, createdAt: s.clock.now(), attachedCount: 0 });
+    expect(one.linkCandidates[0]!.standing).toMatchObject({ active: true, scope: 'all', until });
+    s.db.update(devices).set({ status: 'approved' }).where(eq(devices.id, s.main2)).run();
+    const two = ActivationInfoSchema.parse((await s.req(s.alice, 'GET', `/api/devices/activate?user_code=${code}`)).json());
+    expect(two.linkCandidates.find((c) => c.id === s.main2)!.standing).toBeNull();
     const none = (await s.req(s.bob, 'GET', `/api/devices/activate?user_code=${code}`)).json();
-    expect(ActivationInfoSchema.parse(none)).toMatchObject({ linkCandidates: [], suggestedLinkId: null });
+    expect(ActivationInfoSchema.parse(none)).toMatchObject({ linkCandidates: [] });
   });
 
   it('approve with link_to_device_id attaches the new CLI (cause activation, device.approved meta.linkedTo)', async () => {

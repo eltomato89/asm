@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it } from 'vitest';
 import { AppProviders } from '../../app';
+import { formatDay } from '../../lib/format';
 import { makeDevice } from '../../test/fixtures';
 import { makeQueryClient, mockFetch } from '../../test/utils';
 import { LinkDeviceDialog } from './LinkDeviceDialog';
@@ -58,5 +59,21 @@ describe('LinkDeviceDialog', () => {
     expect(note).toHaveTextContent('Its own settings will be removed:');
     expect(note).toHaveTextContent('the standing approval');
     expect(note).toHaveTextContent('the default vault Work');
+    expect(screen.queryByRole('alert')).toBeNull(); // the main has no standing approval
+  });
+
+  it('warns when the chosen main device has an active standing approval (not for an expired one)', async () => {
+    const until = Date.now() + 3 * 86_400_000;
+    const withStanding = { ...MAIN_B, standingApproval: { ...STANDING, until, scope: 'list' as const, secretCount: 3 } };
+    const expired = { ...MAIN_A, standingApproval: { ...STANDING, active: false } };
+    renderDialog(CLI, [expired, withStanding]);
+    const d = await screen.findByRole('dialog', { name: 'Link asm@mbp' });
+    const u = userEvent.setup();
+    await u.selectOptions(within(d).getByLabelText('Main device'), 'dev_a');
+    expect(within(d).queryByRole('alert')).toBeNull();
+    await u.selectOptions(within(d).getByLabelText('Main device'), 'dev_b');
+    expect(within(d).getByRole('alert')).toHaveTextContent(
+      `This CLI will be approved automatically for 3 secrets until ${formatDay(until)} (standing approval of claude@studio).`,
+    );
   });
 });

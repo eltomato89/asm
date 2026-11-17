@@ -2,6 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AuditRow } from '../lib/api';
+import { formatDay } from '../lib/format';
 import { makeSecret, T0 } from '../test/fixtures';
 import { renderApp } from '../test/renderApp';
 import { appServer, query } from '../test/server';
@@ -165,7 +166,7 @@ describe('connect page', () => {
 describe('activate page', () => {
   it('uppercases and formats the code, previews the device and approves', async () => {
     const { calls } = appServer((c) => {
-      if (c.path === '/api/devices/activate' && c.method === 'GET') return { body: { name: 'asm-cli', hostname: 'mbp-home', requestedAt: T0, linkCandidates: [], suggestedLinkId: null } };
+      if (c.path === '/api/devices/activate' && c.method === 'GET') return { body: { name: 'asm-cli', hostname: 'mbp-home', requestedAt: T0, linkCandidates: [] } };
       if (c.path === '/api/devices/activate' && c.method === 'POST') return { body: { deviceId: 'dev_9', status: 'approved' } };
       return undefined;
     });
@@ -190,16 +191,17 @@ describe('activate page', () => {
     await u.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText(/invalid or has expired/)).toBeInTheDocument();
   });
-  it('offers linking to an existing device, preselected, and sends link_to_device_id', async () => {
+  it('offers linking to an existing device (nothing preselected), warns about its standing approval, sends link_to_device_id', async () => {
+    const until = Date.now() + 5 * 86_400_000;
+    const standing = { until, active: true, scope: 'vaults' as const, secretCount: 0, vaultCount: 2, allowUpdates: true, afterExpiry: 'ask' as const, renewDays: 7 };
     const info = {
       name: 'asm@mbp',
       hostname: 'mbp',
       requestedAt: T0,
       linkCandidates: [
-        { id: 'dev_1', name: 'claude@mbp-office', lastUsedAt: T0, createdAt: T0, attachedCount: 0 },
-        { id: 'dev_2', name: 'claude@studio', lastUsedAt: null, createdAt: T0, attachedCount: 1 },
+        { id: 'dev_1', name: 'claude@mbp-office', lastUsedAt: T0, createdAt: T0, attachedCount: 0, standing },
+        { id: 'dev_2', name: 'claude@studio', lastUsedAt: null, createdAt: T0, attachedCount: 1, standing: null },
       ],
-      suggestedLinkId: 'dev_1',
     };
     const { calls } = appServer((c) => {
       if (c.path === '/api/devices/activate' && c.method === 'GET') return { body: info };
@@ -211,9 +213,17 @@ describe('activate page', () => {
     await u.type(await screen.findByLabelText('Code'), 'BCDFGHJK');
     await u.click(screen.getByRole('button', { name: 'Continue' }));
     const select = await screen.findByLabelText('Link to an existing device');
-    expect(select).toHaveValue('dev_1');
+    expect(select).toHaveValue('');
     expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(["Don't link", 'claude@mbp-office', 'claude@studio']);
+    expect(screen.queryByRole('alert')).toBeNull();
+    await u.selectOptions(select, 'dev_1');
+    const warn = await screen.findByRole('alert');
+    expect(warn).toHaveTextContent(
+      `This CLI will be approved automatically for secrets in 2 vaults until ${formatDay(until)} (standing approval of claude@mbp-office).`,
+    );
+    expect(warn).toHaveTextContent('Changes are approved without asking, too.');
     await u.selectOptions(select, 'dev_2');
+    expect(screen.queryByRole('alert')).toBeNull();
     await u.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ user_code: 'BCDF-GHJK', decision: 'approve', link_to_device_id: 'dev_2' }));
     expect(await screen.findByText(/is now paired and linked to claude@studio/)).toBeInTheDocument();
@@ -222,7 +232,7 @@ describe('activate page', () => {
   it('sends no link when "Don\'t link" is chosen and hides the select without candidates', async () => {
     const { calls } = appServer((c) => {
       if (c.path === '/api/devices/activate' && c.method === 'GET')
-        return { body: { name: 'asm@mbp', hostname: null, requestedAt: T0, linkCandidates: [{ id: 'dev_1', name: 'claude@mbp-office', lastUsedAt: null, createdAt: T0, attachedCount: 0 }], suggestedLinkId: null } };
+        return { body: { name: 'asm@mbp', hostname: null, requestedAt: T0, linkCandidates: [{ id: 'dev_1', name: 'claude@mbp-office', lastUsedAt: null, createdAt: T0, attachedCount: 0, standing: null }] } };
       if (c.path === '/api/devices/activate' && c.method === 'POST') return { body: { deviceId: 'dev_9', status: 'approved' } };
       return undefined;
     });

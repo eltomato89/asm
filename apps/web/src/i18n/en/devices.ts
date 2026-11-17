@@ -60,7 +60,7 @@ export const devices = {
   unlinkAria: (name: string) => `Unlink ${name}`,
   unlinkTitle: (name: string, main: string) => `Unlink ${name} from ${main}?`,
   unlinkText:
-    'The CLI starts without settings of its own: no standing approval, and new secrets go to your personal vault. Handoffs for the main device can no longer be redeemed by it.',
+    'The CLI starts without settings of its own: no standing approval, and new secrets go to your personal vault. Handoffs for the main device can no longer be redeemed by it; its open handoffs and requests are cancelled.',
   unlinked: (name: string) => `${name} is no longer linked.`,
   unlinkFailed: 'Unlinking failed.',
   revokeAttached: (names: string[]) => `Also revoke the attached ${names.length === 1 ? 'CLI' : 'CLIs'} (${names.join(', ')})`,

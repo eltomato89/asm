@@ -1,4 +1,4 @@
-import type { LinkCandidate } from '@asm/shared';
+import type { LinkCandidate as LinkCandidateDto } from '@asm/shared';
 import type { Db } from '../db/client.js';
 
 /**
@@ -10,7 +10,8 @@ import type { Db } from '../db/client.js';
  */
 
 export type AttachedCli = { id: string; name: string; hostname: string | null; lastUsedAt: number | null };
-export type { LinkCandidate };
+/** A link candidate without its standing approval summary (added by the activation route). */
+export type LinkCandidate = Omit<LinkCandidateDto, 'standing'>;
 
 /** The device whose settings (standing approval, default vault) apply: the main device for an attached CLI, else itself. */
 export function settingsDeviceId(db: Db, deviceId: string): string {

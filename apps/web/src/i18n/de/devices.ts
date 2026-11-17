@@ -60,7 +60,7 @@ export const devices: Messages['devices'] = {
   unlinkAria: (name) => `Verknüpfung von ${name} lösen`,
   unlinkTitle: (name, main) => `Verknüpfung von ${name} mit ${main} lösen?`,
   unlinkText:
-    'Die CLI startet ohne eigene Einstellungen: keine Dauerfreigabe, neue Secrets landen in deinem persönlichen Tresor. Übergaben für das Hauptgerät kann sie nicht mehr einlösen.',
+    'Die CLI startet ohne eigene Einstellungen: keine Dauerfreigabe, neue Secrets landen in deinem persönlichen Tresor. Übergaben für das Hauptgerät kann sie nicht mehr einlösen; ihre offenen Übergaben und Anfragen verfallen.',
   unlinked: (name) => `${name} ist nicht mehr verknüpft.`,
   unlinkFailed: 'Lösen der Verknüpfung fehlgeschlagen.',
   revokeAttached: (names) => `Verknüpfte ${names.length === 1 ? 'CLI' : 'CLIs'} ebenfalls widerrufen (${names.join(', ')})`,

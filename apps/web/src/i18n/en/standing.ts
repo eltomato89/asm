@@ -15,6 +15,15 @@ export const standing = {
     afterAsk: 'asks every time after expiry',
     afterRenew: (n: number) => `asks once after expiry, then extends by ${n === 1 ? '1 day' : `${n} days`}`,
   },
+  // Shown before a CLI is linked to a main device with an active standing approval (activation page, link dialog).
+  inherit: {
+    all: 'all secrets',
+    list: (n: number) => (n === 1 ? '1 secret' : `${n} secrets`),
+    vaults: (n: number) => (n === 1 ? 'secrets in 1 vault' : `secrets in ${n} vaults`),
+    text: (scope: string, date: string, main: string) =>
+      `This CLI will be approved automatically for ${scope} until ${date} (standing approval of ${main}).`,
+    updates: 'Changes are approved without asking, too.',
+  },
   title: (device: string) => `Standing approval for ${device}`,
   description: 'Requests from this device are approved without asking until the end date. Every access is still recorded in the audit log.',
   loading: 'Loading standing approval',
