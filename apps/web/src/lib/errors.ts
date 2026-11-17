@@ -17,6 +17,20 @@ export function decisionErrorText(e: unknown): string {
   return m.decisionFailed;
 }
 
+/** Toast text for a failed decision on a proposed standing approval (app and push page). */
+export function standingDecisionErrorText(e: unknown): string {
+  const m = t.errors;
+  if (isApiError(e, 'not_narrower')) return m.notNarrower;
+  if (isApiError(e, 'invalid_days')) return m.invalidDays;
+  if (isApiError(e, 'standing_active')) return m.standingActive;
+  if (isApiError(e, 'standing_requests_disabled') || isApiError(e, 'standing_disabled')) return m.standingRequestsDisabled;
+  if (isApiError(e, 'secret_not_found')) return m.secretNotFound;
+  if (isApiError(e, 'vault_not_found')) return m.vaultNotFound;
+  if (isApiError(e, 'rate_limited')) return m.rateLimited;
+  if (isApiError(e, 'not_found')) return m.standingRequestNotFound;
+  return decisionErrorText(e);
+}
+
 /** Generic error text for mutations; `fallback` describes what failed. */
 export function errorText(e: unknown, fallback: string): string {
   const m = t.errors;
@@ -36,6 +50,12 @@ export function errorText(e: unknown, fallback: string): string {
   if (isApiError(e, 'device_linked')) return m.deviceLinked;
   if (isApiError(e, 'main_not_found')) return m.mainNotFound;
   if (isApiError(e, 'invalid_link')) return m.invalidLink;
+  if (isApiError(e, 'standing_active')) return m.standingActive;
+  if (isApiError(e, 'standing_request_pending')) return m.standingRequestPending;
+  if (isApiError(e, 'standing_request_cooldown')) return m.standingRequestCooldown;
+  if (isApiError(e, 'standing_requests_disabled')) return m.standingRequestsDisabled;
+  if (isApiError(e, 'not_narrower')) return m.notNarrower;
+  if (isApiError(e, 'invalid_days')) return m.invalidDays;
   if (isApiError(e, 'forbidden') || isApiError(e, 'not_owner')) return m.forbidden;
   if (isApiError(e, 'not_found')) return m.notFound;
   return fallback;

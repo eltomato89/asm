@@ -8,14 +8,15 @@ import { issueTokens } from '../src/oauth/token.js';
 import { enableAutoMode } from '../src/requests/automode.js';
 import { decideRequest } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
-import { setStandingApproval } from '../src/standing/service.js';
+import { cancelStandingRequestsForDevice, decideStandingRequest, expireStandingRequests } from '../src/standing/requests.js';
+import { setStandingApproval, standingSummaryForDevice } from '../src/standing/service.js';
 import { addMember, createVault, personalVaultId } from '../src/vaults/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, allKeys, auditRows, pairDevice, world } from './helpers/fixtures.js';
 
 const MIN = 60_000;
 const SECRET_VALUE = 'sk_live_MCP_TOPSECRET_42';
 const PLAIN_VALUE = 'pt_PLAINTEXT_ONLY_VIA_AWAIT';
-const TOOL_NAMES = ['archive_secret', 'await_request', 'create_secret', 'list_vaults', 'request_secret', 'search_secrets', 'update_secret', 'whoami'];
+const TOOL_NAMES = ['archive_secret', 'await_request', 'create_secret', 'list_vaults', 'request_secret', 'request_standing_approval', 'search_secrets', 'update_secret', 'whoami'];
 const INSTRUCTIONS = (id: string) => `Run: asm run --grant ${id} -- <command>  |  asm write --grant ${id} <file>`;
 const MCP_HEADERS = { accept: 'application/json, text/event-stream', 'content-type': 'application/json' };
 const LIST_BODY = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
@@ -27,8 +28,8 @@ afterEach(async () => {
   while (cleanups.length) await cleanups.pop()!();
 });
 
-async function setup(opts: { awaitTimeoutMs?: number } = {}) {
-  const w = await world({ app: { mcpAwaitTimeoutMs: opts.awaitTimeoutMs ?? 200 } });
+async function setup(opts: { awaitTimeoutMs?: number; config?: Record<string, unknown> } = {}) {
+  const w = await world({ app: { mcpAwaitTimeoutMs: opts.awaitTimeoutMs ?? 200, config: opts.config as never } });
   await w.app.listen({ host: '127.0.0.1', port: 0 });
   cleanups.push(() => w.app.close());
   const base = `http://127.0.0.1:${(w.app.server.address() as AddressInfo).port}`;
@@ -122,7 +123,7 @@ describe('mcp: transport and auth', () => {
 });
 
 describe('mcp: tool list and validation', () => {
-  it('lists exactly the 8 tools; no reactivate/delete tool; no plaintext flag in inputs', async () => {
+  it('lists exactly the 9 tools; no reactivate/delete tool; no plaintext flag in inputs', async () => {
     const { client } = await setup();
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(TOOL_NAMES);
@@ -155,6 +156,7 @@ describe('mcp: tool list and validation', () => {
       archive_secret: { secret_id: secret.id, reason: 'r' },
       list_vaults: {},
       whoami: {},
+      request_standing_approval: { vault_ids: ['vlt_x'], days: 3, reason: 'r' },
     };
     for (const [tool, a] of Object.entries(args)) {
       const r = await call(tool, a);
@@ -437,6 +439,7 @@ describe('mcp: create, update, archive, vaults, whoami', () => {
       standing_approval: null,
       default_vault: { id: personalVaultId(w.db, w.alice.id), name: 'Personal' },
       attached_cli: [],
+      standing_request: { allowed: true, max_days: 14 },
     });
     const project = w.db.$client.prepare("SELECT last_seen FROM projects WHERE slug = 'foo'").get();
     expect(project).toBeDefined();
@@ -509,6 +512,161 @@ describe('mcp: standing approval', () => {
     const r = await t.call('request_secret', { secret_id: t.secret.id, reason: 'deploy', ...P }, c);
     expect(r.data.status).toBe('pending');
     expect(r.data.hint).toMatch(/standing approval has expired/);
+  });
+});
+
+describe('mcp: request_standing_approval', () => {
+  const DAY = 24 * 60 * MIN;
+  const propose = (t: Awaited<ReturnType<typeof setup>>, args: Record<string, unknown> = {}) =>
+    t.call('request_standing_approval', {
+      vault_ids: [personalVaultId(t.w.db, t.w.alice.id)], days: 7, reason: 'daily deploys this sprint', ...P, ...args,
+    });
+  const decide = (t: Awaited<ReturnType<typeof setup>>, id: string, decision: 'approve' | 'deny', settings?: Record<string, unknown>) =>
+    decideStandingRequest(t.w.ctx, { id, userId: t.w.alice.id, decision, ...(settings ? { settings: settings as never } : {}) });
+
+  it('description stresses genuine repeated need and its limits', async () => {
+    const { client } = await setup();
+    const { tools } = await client.listTools();
+    const d = tools.find((x) => x.name === 'request_standing_approval')!;
+    expect(d.description).toMatch(/genuine, repeated need/);
+    expect(d.description).toMatch(/reads only/);
+    expect(d.description).toMatch(/24 h/);
+    expect(d.description).toMatch(/narrow/);
+    expect(d.description).toMatch(/whoami\.standing_request/);
+    const props = Object.keys(d.inputSchema.properties ?? {});
+    for (const k of ['scope', 'allow_updates', 'include_created']) expect(props).not.toContain(k);
+    expect(tools.find((x) => x.name === 'await_request')!.description).toMatch(/srq_/);
+  });
+
+  it('creates a pending proposal (srq_) with a hint; audited; vault or secret scope', async () => {
+    const t = await setup();
+    const r = await propose(t, { after_expiry: 'renew', renew_days: 5 });
+    expect(r.isError).toBe(false);
+    expect(r.data).toEqual({
+      request_id: expect.stringMatching(/^srq_/), status: 'pending', expires_at: new Date(t.w.clock.now() + 30 * MIN).toISOString(),
+      hint: 'Ask the user to review it in ASM, then call await_request with this request_id',
+    });
+    const row = t.w.db.$client.prepare('SELECT * FROM standing_requests WHERE id = ?').get(r.data.request_id) as Record<string, unknown>;
+    expect(row).toMatchObject({ device_id: t.dev.deviceId, scope: 'vaults', days: 7, after_expiry: 'renew', renew_days: 5, status: 'pending' });
+    expect(auditRows(t.w.db, 'standing_request.created')).toHaveLength(1);
+
+    cancelStandingRequestsForDevice(t.w.ctx, t.dev.deviceId, 'superseded');
+    const s = await propose(t, { vault_ids: undefined, secret_ids: [t.secret.id] });
+    expect(s.isError).toBe(false);
+    const row2 = t.w.db.$client.prepare('SELECT scope, secret_ids, after_expiry, renew_days FROM standing_requests WHERE id = ?').get(s.data.request_id);
+    expect(row2).toEqual({ scope: 'list', secret_ids: JSON.stringify([t.secret.id]), after_expiry: 'ask', renew_days: null });
+  });
+
+  it('scope / allow_updates / include_created → field_not_allowed with a hint', async () => {
+    const t = await setup();
+    for (const [key, v] of [['scope', 'all'], ['allow_updates', true], ['include_created', true], ['allowUpdates', true]] as const) {
+      const r = await propose(t, { [key]: v });
+      expect(r, key).toMatchObject({ isError: true, data: { error: 'field_not_allowed', hint: 'agent proposals never cover changes or all secrets' } });
+    }
+    expect(t.w.db.$client.prepare('SELECT count(*) AS n FROM standing_requests').get()).toEqual({ n: 0 });
+  });
+
+  it('exactly one of vault_ids / secret_ids; list sizes and days validated', async () => {
+    const t = await setup();
+    const both = await propose(t, { secret_ids: [t.secret.id] });
+    expect(both).toMatchObject({ isError: true, data: { error: 'invalid_request' } });
+    const none = await propose(t, { vault_ids: undefined });
+    expect(none).toMatchObject({ isError: true, data: { error: 'invalid_request' } });
+    for (const bad of [{ vault_ids: [] }, { vault_ids: Array.from({ length: 11 }, (_, i) => `vlt_${i}`) }, { days: 0 }, { days: 1.5 }, { after_expiry: 'never' }]) {
+      expect((await propose(t, bad)).data.error, JSON.stringify(bad)).toBe('invalid_request');
+    }
+    expect((await propose(t, { renew_days: 3 })).data.error).toBe('invalid_request'); // renew_days without renew
+    expect(t.w.db.$client.prepare('SELECT count(*) AS n FROM standing_requests').get()).toEqual({ n: 0 });
+  });
+
+  it('maps service errors: invalid_days, vault_not_found, secret_not_found, secret_archived, pending (with request_id), active', async () => {
+    const t = await setup();
+    expect((await propose(t, { days: 15 })).data).toMatchObject({ error: 'invalid_days' });
+    const foreign = createVault(t.w.ctx, t.w.bob.id, 'Bob only');
+    expect((await propose(t, { vault_ids: [foreign.id] })).data).toMatchObject({ error: 'vault_not_found' });
+    expect((await propose(t, { vault_ids: undefined, secret_ids: ['sec_nope'] })).data).toMatchObject({ error: 'secret_not_found' });
+    archiveSecret(t.w.ctx, t.w.alice.actor, t.plain.id, { reason: 'old' });
+    expect((await propose(t, { vault_ids: undefined, secret_ids: [t.plain.id] })).data).toMatchObject({ error: 'secret_archived' });
+
+    const first = await propose(t);
+    const again = await propose(t);
+    expect(again).toMatchObject({ isError: true, data: { error: 'standing_request_pending', request_id: first.data.request_id } });
+    expect((await t.call('whoami', P)).data.standing_request).toEqual({
+      allowed: false, reason: 'pending', pending_request_id: first.data.request_id, max_days: 14,
+    });
+
+    decide(t, first.data.request_id as string, 'approve');
+    expect((await propose(t)).data).toMatchObject({ error: 'standing_active' });
+    expect((await t.call('whoami', P)).data.standing_request).toMatchObject({ allowed: false, reason: 'active' });
+  });
+
+  it('disabled (max days 0): standing_requests_disabled; whoami says so', async () => {
+    const t = await setup({ config: { standingRequestMaxDays: 0 } });
+    expect((await propose(t)).data).toMatchObject({ error: 'standing_requests_disabled' });
+    expect((await t.call('whoami', P)).data.standing_request).toEqual({ allowed: false, reason: 'disabled', max_days: 0 });
+  });
+
+  it('await_request srq_: pending → hint; approved (narrowed) → standing_approval with adjusted', async () => {
+    const t = await setup();
+    const personal = personalVaultId(t.w.db, t.w.alice.id);
+    const team = createVault(t.w.ctx, t.w.alice.id, 'Team');
+    const r = await propose(t, { vault_ids: [personal, team.id], after_expiry: 'renew', renew_days: 7 });
+    const id = r.data.request_id as string;
+    expect((await t.call('await_request', { request_id: id })).data).toEqual({ status: 'pending', hint: 'Call await_request again' });
+    decide(t, id, 'approve', { scope: 'vaults', vaultIds: [team.id], secretIds: [], days: 3, afterExpiry: 'ask', renewDays: null });
+    const done = await t.call('await_request', { request_id: id });
+    expect(done.isError).toBe(false);
+    const until = standingSummaryForDevice(t.w.ctx, t.dev.deviceId)!.until;
+    expect(until).toBe(t.w.clock.now() + 3 * DAY);
+    expect(done.data).toEqual({
+      status: 'approved',
+      standing_approval: { until: new Date(until).toISOString(), scope: 'vaults', vault_ids: [team.id], after_expiry: 'ask', adjusted: true },
+    });
+  });
+
+  it('await_request srq_ long-polls until the decision', async () => {
+    const t = await setup({ awaitTimeoutMs: 5000 });
+    const r = await propose(t, { vault_ids: undefined, secret_ids: [t.secret.id] });
+    const id = r.data.request_id as string;
+    setTimeout(() => decide(t, id, 'approve'), 50);
+    const done = await t.call('await_request', { request_id: id });
+    expect(done.data).toMatchObject({
+      status: 'approved', standing_approval: { scope: 'list', secret_ids: [t.secret.id], after_expiry: 'ask', adjusted: false },
+    });
+  });
+
+  it('await_request srq_: denied → retry_after; then cooldown on the next proposal and in whoami', async () => {
+    const t = await setup();
+    const r = await propose(t);
+    decide(t, r.data.request_id as string, 'deny');
+    const retry = new Date(t.w.clock.now() + DAY).toISOString();
+    expect((await t.call('await_request', { request_id: r.data.request_id })).data).toEqual({ status: 'denied', retry_after: retry });
+    const next = await propose(t);
+    expect(next).toMatchObject({ isError: true, data: { error: 'standing_request_cooldown' } });
+    expect((await t.call('whoami', P)).data.standing_request).toEqual({ allowed: false, reason: 'cooldown', retry_after: retry, max_days: 14 });
+  });
+
+  it('await_request srq_: expired and cancelled (with cause)', async () => {
+    const t = await setup();
+    const r = await propose(t);
+    t.w.clock.advance(31 * MIN);
+    expireStandingRequests(t.w.ctx);
+    expect((await t.call('await_request', { request_id: r.data.request_id })).data).toEqual({ status: 'expired' });
+
+    const c = await propose(t);
+    expect(c.isError).toBe(false);
+    cancelStandingRequestsForDevice(t.w.ctx, t.dev.deviceId, 'superseded');
+    expect((await t.call('await_request', { request_id: c.data.request_id })).data).toEqual({ status: 'cancelled', cause: 'superseded' });
+  });
+
+  it("another device cannot await someone else's proposal", async () => {
+    const t = await setup();
+    const r = await propose(t);
+    const other = pairDevice(t.w.ctx, { userId: t.w.alice.id, kind: 'mcp', name: 'other' });
+    const c = await t.connect(other.accessToken);
+    const res = await t.call('await_request', { request_id: r.data.request_id }, c);
+    expect(res.isError).toBe(true);
+    expect(res.data.error).toBe('not_found');
   });
 });
 

@@ -145,6 +145,39 @@ describe('useEvents', () => {
     expect(seen).toEqual(['device.changed']);
   });
 
+  it('standing_request events invalidate the proposal lists (sidebar, devices badge), not the access requests', () => {
+    const qc = makeQueryClient();
+    qc.setQueryData(queryKeys.standingRequests('pending'), { items: [] });
+    qc.setQueryData(queryKeys.standingRequests('all'), { items: [] });
+    qc.setQueryData(queryKeys.requests('pending'), { items: [] });
+    render(
+      <QueryClientProvider client={qc}>
+        <Probe />
+      </QueryClientProvider>,
+    );
+    const seen: string[] = [];
+    const off = subscribeEvents((e) => seen.push(e.type));
+    act(() => last().emit('standing_request.created', { id: 'srq_1', status: 'pending' }));
+    expect(qc.getQueryState(queryKeys.standingRequests('pending'))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKeys.standingRequests('all'))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKeys.requests('pending'))?.isInvalidated).toBe(false);
+    act(() => last().emit('standing_request.updated', { id: 'srq_1', status: 'approved' }));
+    off();
+    expect(seen).toEqual(['standing_request.created', 'standing_request.updated']);
+  });
+
+  it('request events and reconnects refresh the proposals too (same requests prefix)', () => {
+    const qc = makeQueryClient();
+    qc.setQueryData(queryKeys.standingRequests('pending'), { items: [] });
+    render(
+      <QueryClientProvider client={qc}>
+        <Probe />
+      </QueryClientProvider>,
+    );
+    act(() => last().emit('request.created', { id: 'req_1' }));
+    expect(qc.getQueryState(queryKeys.standingRequests('pending'))?.isInvalidated).toBe(true);
+  });
+
   it('refreshes devices after reconnecting', () => {
     vi.useFakeTimers();
     const qc = makeQueryClient();

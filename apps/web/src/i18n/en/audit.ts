@@ -122,6 +122,14 @@ export const audit = {
     droppedVault: 'its own default vault was reset',
     deviceLinked: 'linked to a main device',
     mainRevoked: 'main device revoked',
+    // Standing approvals proposed by an agent
+    scopeVaults: (n: number) => (n === 1 ? '1 vault' : `${n} vaults`),
+    scopeSecrets: (n: number) => (n === 1 ? '1 secret' : `${n} secrets`),
+    days: (n: number) => (n === 1 ? '1 day' : `${n} days`),
+    adjusted: (parts: string) => `adjusted: ${parts}`,
+    proposedByAgent: 'proposed by the agent',
+    proposedAdjusted: 'proposed by the agent, adjusted by you',
+    superseded: 'a standing approval was set by hand',
   },
   events: {
     requestCreated: (c: AuditCtx, update: boolean) => f(c.device, ' requested ', c.secret, forProject(c), update ? ' (change)' : ''),
@@ -167,6 +175,12 @@ export const audit = {
     standingRenewed: (c: AuditCtx, days: string, until: ReactNode) =>
       f(c.subject, ' extended the standing approval for ', c.device, ' by ', days, ' days, until ', until),
     standingExpired: (c: AuditCtx) => f('The standing approval for ', c.device, ' expired'),
+    standingRequested: (c: AuditCtx, scope: string, days: string) => f(c.device, ' asked for standing access to ', scope, ' for ', days, forProject(c)),
+    standingRequestApproved: (c: AuditCtx, scope: string, days: string) =>
+      f(c.subject, ' approved standing access for ', c.device, ' to ', scope, ' for ', days),
+    standingRequestDenied: (c: AuditCtx) => f(c.subject, ' denied standing access for ', c.device),
+    standingRequestExpired: (c: AuditCtx) => f('The request for standing access from ', c.device, ' expired'),
+    standingRequestCancelled: (c: AuditCtx) => f('The request for standing access from ', c.device, ' was withdrawn'),
     standingSecretAdded: (c: AuditCtx) => f(c.device, ' created ', c.secret, ', which was added to its standing approval'),
     memberAdded: (c: AuditCtx, who: ReactNode, vault: ReactNode) => f(c.subject, ' added ', who, ' to the vault ', vault),
     memberRemoved: (c: AuditCtx, who: ReactNode, vault: ReactNode) => f(c.subject, ' removed ', who, ' from the vault ', vault),

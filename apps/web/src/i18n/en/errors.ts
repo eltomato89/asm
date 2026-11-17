@@ -30,4 +30,12 @@ export const errors = {
   deviceLinked: 'This CLI is linked to a main device and uses its settings. Unlink it first.',
   mainNotFound: 'The main device no longer exists or is no longer active.',
   invalidLink: 'Only a CLI can be linked, and only to an active MCP device.',
+  // Standing approvals proposed by agents
+  standingActive: 'This device already has an active standing approval.',
+  standingRequestPending: 'This device already has an open request for standing access.',
+  standingRequestCooldown: 'This device asked for standing access too recently. Try again later.',
+  standingRequestsDisabled: 'Requests for standing access are turned off on this server.',
+  notNarrower: 'You can only narrow the proposal before approving. Reload and try again.',
+  invalidDays: 'The duration is outside the allowed range.',
+  standingRequestNotFound: 'The request for standing access no longer exists.',
 };

@@ -25,6 +25,8 @@ import type { RequestEvents } from './requests/events.js';
 import { registerRequestRoutes } from './requests/routes.js';
 import { expireDue, requestHooks } from './requests/service.js';
 import { emitDeviceChanged, removeAllStandingApprovals } from './standing/service.js';
+import { cancelAllStandingRequests } from './standing/requests.js';
+import { registerStandingRequestRoutes } from './standing/routes.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
@@ -160,6 +162,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: root.log,
   });
   hooks.onRequestPending = (c, requestId) => void push.notifyPending(c, requestId);
+  hooks.onStandingRequestPending = (c, id) => void push.notifyStandingPending(c, id);
   const moduleDeps: ModuleDeps = { ...deps, ctx };
   await root.register(registerAdminRoutes, moduleDeps);
   await root.register(registerVaultRoutes, moduleDeps);
@@ -167,6 +170,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(registerProjectRoutes, moduleDeps);
   await root.register(registerAuditRoutes, moduleDeps);
   await root.register(registerRequestRoutes, moduleDeps);
+  await root.register(registerStandingRequestRoutes, moduleDeps);
   await root.register(registerPushRoutes, { ...moduleDeps, push });
   let sweep: NodeJS.Timeout | undefined;
   root.addHook('onReady', async () => {
@@ -176,6 +180,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         for (const s of removeAllStandingApprovals(ctx)) emitDeviceChanged(ctx, s.userId, s.deviceId);
       } catch (err) {
         root.log.error({ errName: (err as Error).name }, 'standing approval cleanup failed');
+      }
+    }
+    // Agent proposals disabled (either max days 0): cancel pending ones right away (cause disabled_by_admin).
+    if (ctx.standingMaxDays <= 0 || ctx.standingRequestMaxDays <= 0) {
+      try {
+        cancelAllStandingRequests(ctx, 'disabled_by_admin');
+      } catch (err) {
+        root.log.error({ errName: (err as Error).name }, 'standing request cleanup failed');
       }
     }
     sweep = setInterval(() => {

@@ -32,4 +32,12 @@ export const errors: Messages['errors'] = {
   deviceLinked: 'Diese CLI ist mit einem Hauptgerät verknüpft und nutzt dessen Einstellungen. Löse zuerst die Verknüpfung.',
   mainNotFound: 'Das Hauptgerät gibt es nicht mehr, oder es ist nicht mehr aktiv.',
   invalidLink: 'Nur eine CLI lässt sich verknüpfen, und nur mit einem aktiven MCP-Gerät.',
+  // Von Agenten vorgeschlagene Dauerfreigaben
+  standingActive: 'Dieses Gerät hat bereits eine aktive Dauerfreigabe.',
+  standingRequestPending: 'Für dieses Gerät ist bereits eine Anfrage nach Dauerfreigabe offen.',
+  standingRequestCooldown: 'Dieses Gerät hat erst vor Kurzem eine Dauerfreigabe angefragt. Versuche es später erneut.',
+  standingRequestsDisabled: 'Anfragen nach Dauerfreigabe sind auf diesem Server abgeschaltet.',
+  notNarrower: 'Vor dem Freigeben kannst du den Vorschlag nur einschränken. Lade neu und versuche es erneut.',
+  invalidDays: 'Die Dauer liegt außerhalb des erlaubten Bereichs.',
+  standingRequestNotFound: 'Die Anfrage nach Dauerfreigabe gibt es nicht mehr.',
 };

@@ -9,7 +9,19 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
-import type { ActivationInfo, ApproveSummaryDto, DeviceDto, PushSubscriptionDto, PushSubscribeInput, StandingApprovalInputRaw, StandingApprovalResponse } from '@asm/shared';
+import type {
+  ActivationInfo,
+  ApproveSummaryDto,
+  DeviceDto,
+  PushSubscriptionDto,
+  PushSubscribeInput,
+  StandingApprovalInputRaw,
+  StandingApprovalResponse,
+  StandingApproveSummaryDto,
+  StandingNarrowInput,
+  StandingRequestDecisionInput,
+  StandingRequestDto,
+} from '@asm/shared';
 
 export { ApiError };
 
@@ -172,6 +184,11 @@ export const api = {
   requests: (status: 'pending' | 'all') => get<{ items: AccessRequestDto[] }>('/api/requests', { status }),
   searchSecrets: (q: string, signal?: AbortSignal) => get<{ items: SecretMeta[] }>('/api/secrets', { q }, signal),
   decide: (requestId: string, decision: 'approve' | 'deny') => post<AccessRequestDto>(`/api/requests/${id(requestId)}/decision`, { decision }),
+  /** Standing approvals proposed by agents ('pending' = open proposals only). */
+  standingRequests: (status: 'pending' | 'all') => get<{ items: StandingRequestDto[] }>('/api/standing-requests', { status }),
+  /** Approve needs recent auth (sessionFetch opens the ReauthDialog on `reauth_required`); `settings` narrows the proposal. */
+  decideStandingRequest: (requestId: string, body: StandingRequestDecisionInput) =>
+    post<StandingRequestDto>(`/api/standing-requests/${id(requestId)}/decision`, body),
 
   secrets: (status: SecretStatus, q = '', opts: { vault?: string; cursor?: string; limit?: number } = {}) =>
     get<{ items: SecretMeta[]; nextCursor?: string }>('/api/secrets', { q, status, vault: opts.vault, cursor: opts.cursor, limit: opts.limit }),
@@ -244,6 +261,11 @@ export const api = {
   approveOptions: (token: string) => post<PublicKeyCredentialRequestOptionsJSON>(`/api/approve/${id(token)}/options`),
   approveDecision: (token: string, body: { decision: 'approve' | 'deny'; response?: AuthenticationResponseJSON }) =>
     post<ApproveSummaryDto>(`/api/approve/${id(token)}/decision`, body),
+  // Public approve page for a proposed standing approval (same rules: token + passkey with UV to approve).
+  standingApproveSummary: (token: string) => get<StandingApproveSummaryDto>(`/api/approve/standing/${id(token)}`),
+  standingApproveOptions: (token: string) => post<PublicKeyCredentialRequestOptionsJSON>(`/api/approve/standing/${id(token)}/options`),
+  standingApproveDecision: (token: string, body: { decision: 'approve' | 'deny'; response?: AuthenticationResponseJSON; settings?: StandingNarrowInput }) =>
+    post<StandingApproveSummaryDto>(`/api/approve/standing/${id(token)}/decision`, body),
 };
 
 /** URL of the CSV export for the given filters (same-origin link; cookies authenticate the download). */
@@ -261,6 +283,9 @@ export const queryKeys = {
   vaults: ['vaults'] as const,
   requestsAll: ['requests'] as const,
   requests: (status: 'pending' | 'all') => ['requests', status] as const,
+  /** Under the requests prefix, so invalidating `requestsAll` refreshes proposals too. */
+  standingRequestsAll: ['requests', 'standing'] as const,
+  standingRequests: (status: 'pending' | 'all') => ['requests', 'standing', status] as const,
   secretsAll: ['secrets'] as const,
   secrets: (status: SecretStatus, q: string, vault?: string) => ['secrets', 'list', status, q, vault ?? null] as const,
   users: ['admin-users'] as const,
@@ -278,6 +303,7 @@ export const queryKeys = {
   passkeys: ['passkeys'] as const,
   pushSubscriptions: ['push-subscriptions'] as const,
   approve: (token: string) => ['approve', token] as const,
+  approveStanding: (token: string) => ['approve', 'standing', token] as const,
 };
 
 export const isApiError = (e: unknown, code?: string): e is ApiError => e instanceof ApiError && (code === undefined || e.code === code);

@@ -2,8 +2,11 @@ import type { AuthenticationResponseJSON } from '@simplewebauthn/server';
 import {
   ApproveDecisionInputSchema,
   PushSubscribeInputSchema,
+  StandingApproveDecisionInputSchema,
   type AccessRequestDto,
   type ApproveSummaryDto,
+  type StandingApproveSummaryDto,
+  type StandingRequestDto,
 } from '@asm/shared';
 import rateLimit from '@fastify/rate-limit';
 import { and, eq } from 'drizzle-orm';
@@ -15,6 +18,7 @@ import { ChallengeStore, realWebAuthn, verifyAssertion } from '../auth/webauthn.
 import { passkeys } from '../db/schema.js';
 import { HttpError } from '../errors.js';
 import { decideRequest, getRequestDto } from '../requests/service.js';
+import { decideStandingRequest, getStandingRequestDto } from '../standing/requests.js';
 import { deleteSubscription, hashApproveToken, listSubscriptions, TEST_PAYLOAD, upsertSubscription, type PushService } from './service.js';
 
 export type PushDeps = ModuleDeps & { push: PushService };
@@ -76,6 +80,30 @@ function toSummary(dto: AccessRequestDto): ApproveSummaryDto {
   };
 }
 
+function toStandingSummary(dto: StandingRequestDto): StandingApproveSummaryDto {
+  return {
+    device: { name: dto.device.name },
+    attachedCli: dto.attachedCli,
+    project: dto.project,
+    reason: dto.reason,
+    proposal: dto.proposal,
+    items: dto.items,
+    limits: dto.limits,
+    status: dto.status,
+    expiresAt: dto.expiresAt,
+    final: dto.final,
+    adjusted: dto.adjusted,
+  };
+}
+
+/** Token tables behind push approval links: access requests and standing approval proposals. */
+const LINK_KINDS = {
+  access: { tokens: 'approve_tokens', fk: 'request_id', requests: 'access_requests', challengePrefix: 'approve' },
+  standing: { tokens: 'standing_approve_tokens', fk: 'standing_request_id', requests: 'standing_requests', challengePrefix: 'approve-standing' },
+} as const;
+type LinkKind = keyof typeof LINK_KINDS;
+type ResolvedToken = { kind: LinkKind; tokenHash: string; requestId: string; userId: string };
+
 /** Public, session-less approval API for push links (/api/approve/*); rate limited per IP, never cached. */
 async function registerApproveApi(app: FastifyInstance, deps: PushDeps): Promise<void> {
   const { ctx, config } = deps;
@@ -91,19 +119,22 @@ async function registerApproveApi(app: FastifyInstance, deps: PushDeps): Promise
     reply.header('cache-control', 'no-store');
   });
 
-  const markRequestTokensUsed = (requestId: string) =>
-    db.$client.prepare('UPDATE approve_tokens SET used_at = ? WHERE request_id = ? AND used_at IS NULL').run(clock.now(), requestId);
+  const markRequestTokensUsed = (kind: LinkKind, requestId: string) => {
+    const k = LINK_KINDS[kind];
+    db.$client.prepare(`UPDATE ${k.tokens} SET used_at = ? WHERE ${k.fk} = ? AND used_at IS NULL`).run(clock.now(), requestId);
+  };
 
   /** Valid = unused, unexpired token of an active owner whose request is still open; anything else is the same 404. */
-  function resolveToken(token: string): { tokenHash: string; requestId: string; userId: string } {
+  function resolveToken(kind: LinkKind, token: string): ResolvedToken {
     if (!TOKEN_RE.test(token)) throw new HttpError(404, 'not_found');
+    const k = LINK_KINDS[kind];
     const tokenHash = hashApproveToken(token);
     const row = db.$client
       .prepare(
-        `SELECT t.request_id, t.user_id, t.used_at, t.expires_at, r.status AS req_status, r.expires_at AS req_expires,
+        `SELECT t.${k.fk} AS request_id, t.user_id, t.used_at, t.expires_at, r.status AS req_status, r.expires_at AS req_expires,
                 r.user_id AS req_user, u.disabled_at
-           FROM approve_tokens t
-           JOIN access_requests r ON r.id = t.request_id
+           FROM ${k.tokens} t
+           JOIN ${k.requests} r ON r.id = t.${k.fk}
            JOIN users u ON u.id = t.user_id
           WHERE t.token_hash = ?`,
       )
@@ -115,26 +146,20 @@ async function registerApproveApi(app: FastifyInstance, deps: PushDeps): Promise
     const now = clock.now();
     if (row.req_status !== 'pending' || row.req_expires <= now) {
       // Decided elsewhere (dashboard, system) or overdue: every link for it is dead.
-      markRequestTokensUsed(row.request_id);
+      markRequestTokensUsed(kind, row.request_id);
       throw new HttpError(404, 'not_found');
     }
     if (row.used_at !== null || row.expires_at <= now || row.req_user !== row.user_id || row.disabled_at !== null) {
       throw new HttpError(404, 'not_found');
     }
-    return { tokenHash, requestId: row.request_id, userId: row.user_id };
+    return { kind, tokenHash, requestId: row.request_id, userId: row.user_id };
   }
 
-  const challengeKey = (tokenHash: string) => `approve:${tokenHash}`;
+  const challengeKey = (t: ResolvedToken) => `${LINK_KINDS[t.kind].challengePrefix}:${t.tokenHash}`;
   const ownerPasskeys = (userId: string) => db.select().from(passkeys).where(eq(passkeys.userId, userId)).all();
 
-  app.get('/api/approve/:token', async (req) => {
-    const t = resolveToken(tokenParams.parse(req.params).token);
-    return toSummary(getRequestDto(ctx, t.requestId));
-  });
-
-  app.post('/api/approve/:token/options', async (req) => {
-    checkLoginOrigin(req, origin);
-    const t = resolveToken(tokenParams.parse(req.params).token);
+  /** WebAuthn options (UV required) for the link owner's passkeys; the challenge is bound to this link. */
+  async function passkeyOptions(t: ResolvedToken) {
     const mine = ownerPasskeys(t.userId);
     if (mine.length === 0) throw new HttpError(409, 'no_passkey');
     const options = await adapter.generateAuthenticationOptions({
@@ -142,34 +167,95 @@ async function registerApproveApi(app: FastifyInstance, deps: PushDeps): Promise
       userVerification: 'required',
       allowCredentials: mine.map((p) => ({ id: p.credentialId, ...(p.transports ? { transports: p.transports } : {}) })) as never,
     });
-    challenges.put(options.challenge, 'approve', t.userId, challengeKey(t.tokenHash));
+    challenges.put(options.challenge, 'approve', t.userId, challengeKey(t));
     return options;
+  }
+
+  /** Face ID / device PIN required: the assertion must be for this link's challenge, by the owner's passkey, with the UV flag. */
+  async function requireUserVerification(t: ResolvedToken, rawResponse: unknown): Promise<void> {
+    const expected = challenges.take(challengeKey(t), 'approve', t.userId);
+    const response = rawResponse as AuthenticationResponseJSON | undefined;
+    const row = response
+      ? db.select().from(passkeys).where(and(eq(passkeys.credentialId, response.id), eq(passkeys.userId, t.userId))).get()
+      : undefined;
+    if (!expected || !response || !row || !(await verifyAssertion({ db, adapter, origin, rpID }, response, expected, row, true))) {
+      throw new HttpError(401, 'verification_failed');
+    }
+  }
+
+  /** Atomic single use (also guards approve/deny racing on the same link). */
+  function consumeToken(t: ResolvedToken): void {
+    const k = LINK_KINDS[t.kind];
+    const consumed = db.$client.prepare(`UPDATE ${k.tokens} SET used_at = ? WHERE token_hash = ? AND used_at IS NULL`).run(clock.now(), t.tokenHash);
+    if (consumed.changes === 0) throw new HttpError(404, 'not_found');
+  }
+
+  /** Once the request is no longer pending, all its links are dead. */
+  function retireIfDecided(t: ResolvedToken): void {
+    const cur = db.$client.prepare(`SELECT status FROM ${LINK_KINDS[t.kind].requests} WHERE id = ?`).get(t.requestId) as { status: string } | undefined;
+    if (cur && cur.status !== 'pending') markRequestTokensUsed(t.kind, t.requestId);
+  }
+
+  // ---------- access requests ----------
+
+  app.get('/api/approve/:token', async (req) => {
+    const t = resolveToken('access', tokenParams.parse(req.params).token);
+    return toSummary(getRequestDto(ctx, t.requestId));
+  });
+
+  app.post('/api/approve/:token/options', async (req) => {
+    checkLoginOrigin(req, origin);
+    return passkeyOptions(resolveToken('access', tokenParams.parse(req.params).token));
   });
 
   app.post('/api/approve/:token/decision', async (req) => {
     checkLoginOrigin(req, origin);
-    const t = resolveToken(tokenParams.parse(req.params).token);
+    const t = resolveToken('access', tokenParams.parse(req.params).token);
     const body = ApproveDecisionInputSchema.parse(req.body);
-    if (body.decision === 'approve') {
-      const expected = challenges.take(challengeKey(t.tokenHash), 'approve', t.userId);
-      const response = body.response as unknown as AuthenticationResponseJSON | undefined;
-      const row = response
-        ? db.select().from(passkeys).where(and(eq(passkeys.credentialId, response.id), eq(passkeys.userId, t.userId))).get()
-        : undefined;
-      // Face ID / device PIN required: the assertion must carry the UV flag.
-      if (!expected || !response || !row || !(await verifyAssertion({ db, adapter, origin, rpID }, response, expected, row, true))) {
-        throw new HttpError(401, 'verification_failed');
-      }
-    }
-    // Atomic single use (also guards approve/deny racing on the same link).
-    const consumed = db.$client.prepare('UPDATE approve_tokens SET used_at = ? WHERE token_hash = ? AND used_at IS NULL').run(clock.now(), t.tokenHash);
-    if (consumed.changes === 0) throw new HttpError(404, 'not_found');
+    if (body.decision === 'approve') await requireUserVerification(t, body.response);
+    consumeToken(t);
     try {
       const dto = decideRequest(ctx, { requestId: t.requestId, userId: t.userId, decision: body.decision }, { ip: req.ip }, { via: 'push' });
       return toSummary(dto);
     } finally {
-      const cur = db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(t.requestId) as { status: string } | undefined;
-      if (cur && cur.status !== 'pending') markRequestTokensUsed(t.requestId);
+      retireIfDecided(t);
+    }
+  });
+
+  // ---------- standing approval proposals ----------
+
+  app.get('/api/approve/standing/:token', async (req) => {
+    const t = resolveToken('standing', tokenParams.parse(req.params).token);
+    return toStandingSummary(getStandingRequestDto(ctx, t.requestId));
+  });
+
+  app.post('/api/approve/standing/:token/options', async (req) => {
+    checkLoginOrigin(req, origin);
+    return passkeyOptions(resolveToken('standing', tokenParams.parse(req.params).token));
+  });
+
+  app.post('/api/approve/standing/:token/decision', async (req) => {
+    checkLoginOrigin(req, origin);
+    const t = resolveToken('standing', tokenParams.parse(req.params).token);
+    const body = StandingApproveDecisionInputSchema.parse(req.body);
+    if (body.decision === 'approve') await requireUserVerification(t, body.response);
+    try {
+      // Consume and decide atomically: a rejected narrowing (not_narrower) leaves the link usable.
+      const dto = db.$client.transaction(() => {
+        consumeToken(t);
+        return decideStandingRequest(
+          ctx,
+          {
+            id: t.requestId, userId: t.userId, decision: body.decision,
+            ...(body.decision === 'approve' && body.settings ? { settings: body.settings } : {}),
+          },
+          { ip: req.ip },
+          { via: 'push' },
+        );
+      })();
+      return toStandingSummary(dto);
+    } finally {
+      retireIfDecided(t);
     }
   });
 }

@@ -889,3 +889,26 @@ button { cursor: pointer; }
   .consent-sec .link-warn { margin-top: 10px; }
 }
 /* ---------- end linked devices ---------- */
+
+/* ---------- Standing requests (agent-proposed standing approval: card, form, push page, devices badge) ---------- */
+@layer components {
+  .req.req-standing { border-color: var(--amber-line); box-shadow: inset 2px 0 0 var(--amber-fill); }
+  .req-standing .req-top .kind .icon { color: var(--amber); }
+  .standing-req-attached { margin-top: 8px; }
+  .proposal-form { display: grid; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .proposal-form .standing-sec + .standing-sec { padding-top: 12px; }
+  .proposal-items label { flex-wrap: wrap; }
+  .proposal-items .faint { font-size: var(--fs-12); }
+  .proposal-items label.is-unavailable { cursor: default; }
+  .proposal-items label.is-unavailable .proposal-item-name { text-decoration: line-through; color: var(--text-3); }
+  .proposal-label { font-size: var(--fs-13); font-weight: 500; color: var(--text); }
+  .proposal-adjusted { margin: 0; font-size: var(--fs-13); color: var(--amber); }
+  .proposal-adjusted > span { font-weight: 500; }
+  .standing-req-note { margin: 12px 0 0; font-size: var(--fs-12); color: var(--text-3); max-width: 70ch; }
+  .standing-req-actions .standing-req-btn { min-width: 112px; justify-content: center; }
+  .approve-standing .proposal-form { margin-top: 0; padding-top: 0; border-top: 0; }
+  .approve-standing .approve-kind .icon { color: var(--amber); }
+  .badge-link { text-decoration: none; }
+  .badge-link:hover { border-color: var(--amber-line); }
+}
+/* ---------- end standing requests ---------- */

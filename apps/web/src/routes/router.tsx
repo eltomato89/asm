@@ -14,6 +14,7 @@ import { AppShell } from '../layout/AppShell';
 import { api, isApiError, queryKeys } from '../lib/api';
 import { ActivatePage } from './activate';
 import { ApprovePage } from './approve';
+import { ApproveStandingPage } from './approve-standing';
 import { AuditPage, validateAuditSearch } from './audit';
 import { ConnectPage } from './connect';
 import { DevicesPage } from './devices';
@@ -121,6 +122,13 @@ const approveRoute = createRoute({
   component: () => <ApprovePage token={approveRoute.useParams().token} />,
 });
 
+/** Public approve page for an agent's proposed standing approval (same rules as /approve/$token). */
+const approveStandingRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/approve/standing/$token',
+  component: () => <ApproveStandingPage token={approveStandingRoute.useParams().token} />,
+});
+
 /** Signed-in pages without the app shell (pairing flows opened from a terminal). */
 const bareRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -184,6 +192,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
   approveRoute,
+  approveStandingRoute,
   bareRoute.addChildren([connectRoute, activateRoute]),
   appRoute.addChildren([overviewRoute, requestsRoute, secretsRoute, projectsRoute, vaultsRoute, devicesRoute, auditRoute, settingsRoute]),
 ]);

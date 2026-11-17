@@ -2,9 +2,15 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import { ZodError } from 'zod';
 import { AuditCursorError, AuditMetaError } from './audit/audit.js';
 
-/** Approval links are capabilities: never log the token part of /approve/<token> or /api/approve/<token>/…. */
+/**
+ * Approval links are capabilities: never log the token part of /approve/<token>, /approve/standing/<token>
+ * or their /api/approve/… counterparts.
+ */
 export function redactApproveUrl(url: string): string {
-  return url.replace(/\/(api\/)?approve\/[^/?#]+/g, (_m, api: string | undefined) => `/${api ?? ''}approve/[REDACTED]`);
+  return url.replace(
+    /\/(api\/)?approve\/(standing\/)?[^/?#]+/g,
+    (_m, api: string | undefined, standing: string | undefined) => `/${api ?? ''}approve/${standing ?? ''}[REDACTED]`,
+  );
 }
 
 export class HttpError extends Error {

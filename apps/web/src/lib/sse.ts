@@ -1,16 +1,17 @@
-import type { AccessRequestDto, AutoModeDto } from '@asm/shared';
+import type { AccessRequestDto, AutoModeDto, StandingRequestDto } from '@asm/shared';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { queryKeys } from './api';
 
 export type ServerEvent =
   | { type: 'request.created' | 'request.updated'; data: AccessRequestDto }
+  | { type: 'standing_request.created' | 'standing_request.updated'; data: StandingRequestDto }
   | { type: 'automode.changed'; data: AutoModeDto }
   | { type: 'device.changed'; data: { deviceId: string } };
 
 type Listener = (e: ServerEvent) => void;
 
-const EVENT_TYPES = ['request.created', 'request.updated', 'automode.changed', 'device.changed'] as const;
+const EVENT_TYPES = ['request.created', 'request.updated', 'standing_request.created', 'standing_request.updated', 'automode.changed', 'device.changed'] as const;
 export const SSE_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 
 const listeners = new Set<Listener>();
@@ -39,7 +40,8 @@ export function useEventSubscription(fn: Listener): void {
 
 /**
  * Opens the SSE stream /api/events, reconnects with exponential backoff and feeds the query cache:
- * request events invalidate request lists, automode.changed replaces the auto mode state,
+ * request events invalidate request lists, standing_request events the proposal lists (sidebar count, devices badge),
+ * automode.changed replaces the auto mode state,
  * device.changed (standing approval set/renewed/expired, …) invalidates the devices queries.
  */
 export function useEvents(): void {
@@ -54,6 +56,8 @@ export function useEvents(): void {
     const dispatch = (event: ServerEvent) => {
       if (event.type === 'automode.changed') qc.setQueryData(queryKeys.automode, event.data);
       else if (event.type === 'device.changed') void qc.invalidateQueries({ queryKey: queryKeys.devices });
+      else if (event.type === 'standing_request.created' || event.type === 'standing_request.updated')
+        void qc.invalidateQueries({ queryKey: queryKeys.standingRequestsAll });
       else void qc.invalidateQueries({ queryKey: queryKeys.requestsAll });
       for (const fn of [...listeners]) {
         try {

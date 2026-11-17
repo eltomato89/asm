@@ -47,6 +47,8 @@ export function groupDevices(items: DeviceDto[]): { device: DeviceDto; attached:
 
 export function DevicesPage() {
   const devices = useQuery({ queryKey: queryKeys.devices, queryFn: api.devices });
+  const proposals = useQuery({ queryKey: queryKeys.standingRequests('pending'), queryFn: () => api.standingRequests('pending') });
+  const proposing = new Set((proposals.data?.items ?? []).filter((p) => p.status === 'pending').map((p) => p.device.id));
   const [revoking, setRevoking] = useState<DeviceDto | null>(null);
   const [alsoRevokeAttached, setAlsoRevokeAttached] = useState(true);
   const [standingFor, setStandingFor] = useState<DeviceDto | null>(null);
@@ -179,6 +181,11 @@ export function DevicesPage() {
                     <span className="device-status">
                       <Badge tone={STATUS_TONE[d.status]}>{t.devices.status[d.status]}</Badge>
                       {d.status === 'approved' && d.standingApproval && !attached ? <StandingBadge summary={d.standingApproval} /> : null}
+                      {d.status === 'approved' && proposing.has(d.id) ? (
+                        <Link to="/requests" className="badge badge-amber badge-link" title={t.standingRequest.devicesBadgeTitle}>
+                          {t.standingRequest.devicesBadge}
+                        </Link>
+                      ) : null}
                     </span>
                   </Td>
                   <Td className="r">

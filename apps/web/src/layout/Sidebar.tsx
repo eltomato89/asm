@@ -9,12 +9,14 @@ import { useCurrentVault, vaultLabel } from '../lib/vault';
 import { t } from '../i18n';
 import { NAV_ITEMS } from './nav';
 
-/** Left rail: vault switcher on top, grouped navigation with the pending-requests counter. */
+/** Left rail: vault switcher on top, grouped navigation with the pending-requests counter (incl. standing proposals). */
 export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const vaults = useQuery({ queryKey: queryKeys.vaults, queryFn: api.vaults });
   const pending = useQuery({ queryKey: queryKeys.requests('pending'), queryFn: () => api.requests('pending') });
+  const proposals = useQuery({ queryKey: queryKeys.standingRequests('pending'), queryFn: () => api.standingRequests('pending') });
   const { vault, select } = useCurrentVault(vaults.data?.items);
-  const pendingCount = pending.data?.items.length ?? 0;
+  // Open access requests plus open proposals for a standing approval.
+  const pendingCount = (pending.data?.items.length ?? 0) + (proposals.data?.items.filter((p) => p.status === 'pending').length ?? 0);
 
   return (
     <aside className="sidebar">

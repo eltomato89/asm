@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pino } from 'pino';
 import { describe, expect, it, vi } from 'vitest';
-import { ApproveSummaryDtoSchema, newId, PushSubscriptionDtoSchema } from '@asm/shared';
+import { ApproveSummaryDtoSchema, newId, PushSubscriptionDtoSchema, StandingApproveSummaryDtoSchema } from '@asm/shared';
 import type { WebAuthnAdapter } from '../src/auth/webauthn.js';
 import { FakeClock } from '../src/clock.js';
 import { openDb } from '../src/db/client.js';
@@ -15,7 +15,9 @@ import type { PushSender } from '../src/push/service.js';
 import { enableAutoMode } from '../src/requests/automode.js';
 import { createRequest, createUpdateRequest, decideRequest } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
-import { setStandingApproval } from '../src/standing/service.js';
+import { createStandingRequest, decideStandingRequest } from '../src/standing/requests.js';
+import { setStandingApproval, standingSummaryForDevice } from '../src/standing/service.js';
+import { createVault, personalVaultId } from '../src/vaults/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, ORIGIN, allKeys, auditRows, pairDevice, world, type TestUser } from './helpers/fixtures.js';
 import { TEST_KEY } from './helpers/testApp.js';
 
@@ -579,5 +581,159 @@ describe('approval tokens are never logged', () => {
     expect(out).toContain('/api/approve/[REDACTED]/options?x=1');
     expect(out).toContain('"/approve/[REDACTED]"');
     expect(out).not.toContain(token);
+  });
+
+  it('request logs redact /approve/standing/<token> and /api/approve/standing/<token>', async () => {
+    const lines: string[] = [];
+    const logger = pino({ level: 'info' }, { write: (l: string) => void lines.push(l) });
+    const w = await world({ app: { webauthn: stubWebAuthn(), pushSender: stubSender().sender, logger } });
+    const token = 'S'.repeat(43);
+    await w.app.inject({ method: 'GET', url: `/api/approve/standing/${token}` });
+    await w.app.inject({ method: 'POST', url: `/api/approve/standing/${token}/options`, headers: { origin: ORIGIN } });
+    await w.app.inject({ method: 'GET', url: `/approve/standing/${token}` });
+    expect(lines.join('')).not.toContain(token);
+  });
+});
+
+describe('standing approval proposals via push', () => {
+  const DAY = 24 * 60 * MIN;
+
+  async function proposal(subs = ['https://web.push.apple.com/a1']) {
+    const t = await setup();
+    for (const e of subs) await t.subscribe(t.alice, e);
+    const personal = personalVaultId(t.db, t.alice.id);
+    const team = createVault(t.ctx, t.alice.id, 'Team');
+    const sr = createStandingRequest(t.ctx, t.device, {
+      scope: 'vaults', vaultIds: [personal, team.id], secretIds: [], days: 7, afterExpiry: 'renew', renewDays: 7,
+      project: 'Secret Project', reason: 'daily deploys',
+    });
+    await vi.waitFor(() => expect(t.push.sent.filter((x) => x.payload.tag === sr.id)).toHaveLength(subs.length));
+    const tokens = t.push.sent.filter((x) => x.payload.tag === sr.id).map((x) => x.payload.url!.slice('/approve/standing/'.length));
+    const sOptions = (token: string) => t.api('POST', `/api/approve/standing/${token}/options`);
+    const sDecide = (token: string, body: unknown) => t.api('POST', `/api/approve/standing/${token}/decision`, body);
+    const sStatus = () => (t.db.$client.prepare('SELECT status FROM standing_requests WHERE id = ?').get(sr.id) as { status: string }).status;
+    return { ...t, sr, personal, team, tokens, token: tokens[0]!, sOptions, sDecide, sStatus };
+  }
+
+  it('pending proposal → one standing token per subscription, neutral payload, hashed at rest, TTL = proposal expiry', async () => {
+    const t = await proposal(['https://web.push.apple.com/a1', 'https://web.push.apple.com/a2']);
+    expect(new Set(t.tokens).size).toBe(2);
+    for (const s of t.push.sent) {
+      expect(s.payload).toEqual({ title: 'ASM', body: 'A device asks for standing access', url: expect.stringMatching(/^\/approve\/standing\/[A-Za-z0-9_-]{43}$/), tag: t.sr.id });
+      for (const leak of ['Secret Project', 'secret-project', 'daily deploys', 'alice-laptop', 'Team']) expect(JSON.stringify(s.payload)).not.toContain(leak);
+    }
+    const rows = t.db.$client.prepare('SELECT * FROM standing_approve_tokens').all() as Record<string, unknown>[];
+    expect(rows.map((r) => r.token_hash).sort()).toEqual(t.tokens.map((tok) => createHash('sha256').update(tok).digest('hex')).sort());
+    for (const row of rows) expect(row).toMatchObject({ standing_request_id: t.sr.id, user_id: t.alice.id, expires_at: t.sr.expiresAt, used_at: null });
+    expect(t.db.$client.prepare('SELECT count(*) AS n FROM approve_tokens').get()).toEqual({ n: 0 });
+  });
+
+  it('GET summary (no-store); tokens are not interchangeable between access and standing links', async () => {
+    const t = await proposal();
+    const res = await t.api('GET', `/api/approve/standing/${t.token}`);
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['cache-control']).toBe('no-store');
+    const body = StandingApproveSummaryDtoSchema.parse(res.json());
+    expect(body).toMatchObject({
+      device: { name: 'alice-laptop' }, project: 'secret-project', reason: 'daily deploys', status: 'pending', expiresAt: t.sr.expiresAt,
+      proposal: { scope: 'vaults', vaultIds: [t.personal, t.team.id], days: 7, afterExpiry: 'renew', renewDays: 7 }, final: null, adjusted: false,
+    });
+    for (const k of FORBIDDEN_RESPONSE_KEYS) expect(allKeys(res.json()).has(k)).toBe(false);
+    expect((await t.api('GET', `/api/approve/${t.token}`)).statusCode).toBe(404);
+    const [accessToken] = t.tokensOf(t.read().id);
+    expect((await t.api('GET', `/api/approve/standing/${accessToken}`)).statusCode).toBe(404);
+    expect((await t.api('GET', '/api/approve/standing/nope')).json()).toEqual({ error: 'not_found' });
+  });
+
+  it('approve requires a UV passkey assertion of the owner; link stays usable on failure', async () => {
+    const t = await proposal();
+    expect((await t.sDecide(t.token, { decision: 'approve' })).statusCode).toBe(401);
+    const opts = await t.sOptions(t.token);
+    expect(opts.statusCode).toBe(200);
+    expect(t.webauthn.generateAuthenticationOptions.mock.calls.at(-1)![0]).toMatchObject({ userVerification: 'required', allowCredentials: [{ id: 'cred-alice' }] });
+    expect((await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice', uv: false } })).json()).toEqual({ error: 'verification_failed' });
+    await t.sOptions(t.token);
+    expect((await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-bob' } })).statusCode).toBe(401);
+    // An access-link challenge does not unlock a standing link.
+    const [accessToken] = t.tokensOf(t.read().id);
+    await t.options(accessToken!);
+    expect((await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice' } })).statusCode).toBe(401);
+    expect(t.sStatus()).toBe('pending');
+    expect(standingSummaryForDevice(t.ctx, t.device.id)).toBeNull();
+  });
+
+  it('approve with narrowing via push → standing approval with the narrowed settings, audited via push, single use', async () => {
+    const t = await proposal(['https://web.push.apple.com/a1', 'https://web.push.apple.com/a2']);
+    await t.sOptions(t.token);
+    const settings = { scope: 'vaults', vaultIds: [t.team.id], secretIds: [], days: 3, afterExpiry: 'ask', renewDays: null };
+    const res = await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice' }, settings });
+    expect(res.statusCode).toBe(200);
+    expect(StandingApproveSummaryDtoSchema.parse(res.json())).toMatchObject({ status: 'approved', final: settings, adjusted: true });
+    expect(t.webauthn.verifyAuthentication.mock.calls[0]![0]).toMatchObject({ requireUserVerification: true, credential: { id: 'cred-alice' } });
+    expect(standingSummaryForDevice(t.ctx, t.device.id)).toMatchObject({ scope: 'vaults', until: t.clock.now() + 3 * DAY });
+    const audit = auditRows(t.db, 'standing_request.approved')[0]!;
+    expect(audit).toMatchObject({ actor_type: 'user', actor_id: t.alice.id });
+    expect(JSON.parse(audit.meta as string)).toMatchObject({ via: 'push' });
+    for (const tok of t.tokens) {
+      expect((await t.api('GET', `/api/approve/standing/${tok}`)).statusCode).toBe(404);
+      expect((await t.sDecide(tok, { decision: 'deny' })).statusCode).toBe(404);
+    }
+    expect(t.db.$client.prepare('SELECT count(*) AS n FROM standing_approve_tokens WHERE used_at IS NULL').get()).toEqual({ n: 0 });
+  });
+
+  it('a wider setting → 400 not_narrower and the link stays usable', async () => {
+    const t = await proposal();
+    await t.sOptions(t.token);
+    const wider = { scope: 'vaults', vaultIds: [t.personal, t.team.id], secretIds: [], days: 10, afterExpiry: 'renew', renewDays: 7 };
+    const res = await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice' }, settings: wider });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: 'not_narrower' });
+    expect(t.sStatus()).toBe('pending');
+    expect((await t.api('GET', `/api/approve/standing/${t.token}`)).statusCode).toBe(200);
+    await t.sOptions(t.token);
+    const ok = await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice' } });
+    expect(ok.json()).toMatchObject({ status: 'approved', adjusted: false });
+  });
+
+  it('deny without assertion (settings ignored); audited via push; links dead afterwards', async () => {
+    const t = await proposal();
+    const res = await t.sDecide(t.token, { decision: 'deny' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ status: 'denied' });
+    expect(t.webauthn.verifyAuthentication).not.toHaveBeenCalled();
+    expect(JSON.parse(auditRows(t.db, 'standing_request.denied')[0]!.meta as string)).toMatchObject({ via: 'push' });
+    expect((await t.sDecide(t.token, { decision: 'deny' })).statusCode).toBe(404);
+  });
+
+  it('decided in the app or expired → neutral 404; prune removes expired standing tokens', async () => {
+    const t = await proposal();
+    decideStandingRequest(t.ctx, { id: t.sr.id, userId: t.alice.id, decision: 'deny' });
+    expect((await t.api('GET', `/api/approve/standing/${t.token}`)).json()).toEqual({ error: 'not_found' });
+    expect(t.db.$client.prepare('SELECT used_at FROM standing_approve_tokens').get()).toEqual({ used_at: t.clock.now() });
+
+    const t2 = await proposal();
+    t2.clock.advance(30 * MIN);
+    expect((await t2.api('GET', `/api/approve/standing/${t2.token}`)).statusCode).toBe(404);
+    expect((await t2.sDecide(t2.token, { decision: 'deny' })).statusCode).toBe(404);
+    expect((await t2.sOptions(t2.token)).statusCode).toBe(404);
+    const { createPushService } = await import('../src/push/service.js');
+    createPushService({ vapid: { publicKey: 'x', privateKey: 'y' } as never, subject: 'mailto:x' }).prune(t2.ctx);
+    expect(t2.db.$client.prepare('SELECT count(*) AS n FROM standing_approve_tokens').get()).toEqual({ n: 0 });
+  });
+
+  it('shares the per-IP rate limit with the access approval routes', async () => {
+    const t = await setup();
+    for (let i = 0; i < 15; i++) await t.api('GET', `/api/approve/tok${i}`);
+    for (let i = 0; i < 15; i++) expect((await t.api('GET', `/api/approve/standing/tok${i}`)).statusCode).toBe(404);
+    expect((await t.api('GET', '/api/approve/standing/x')).statusCode).toBe(429);
+    expect((await t.api('POST', '/api/approve/standing/x/decision', { decision: 'deny' })).statusCode).toBe(429);
+    expect((await t.api('GET', '/api/approve/x')).statusCode).toBe(429);
+  });
+
+  it('rejects foreign Origin on POST', async () => {
+    const t = await proposal();
+    const res = await t.app.inject({ method: 'POST', url: `/api/approve/standing/${t.token}/decision`, headers: { origin: 'https://evil.test' }, payload: { decision: 'deny' } });
+    expect(res.statusCode).toBe(403);
+    expect(t.sStatus()).toBe('pending');
   });
 });

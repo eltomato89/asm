@@ -4,6 +4,7 @@ import { createRequest, waitForRequest } from '../src/requests/service.js';
 import { RequestEvents } from '../src/requests/events.js';
 import { createSecret } from '../src/secrets/service.js';
 import { setStandingApproval } from '../src/standing/service.js';
+import { createStandingRequest, decideStandingRequest } from '../src/standing/requests.js';
 import { pairDevice, world } from './helpers/fixtures.js';
 
 type Stream = { text: () => string; ended: () => boolean; close: () => void; status: number; contentType: string | null };
@@ -87,6 +88,33 @@ describe('SSE /api/events', () => {
       expect(JSON.parse(frame.split('\n').find((l) => l.startsWith('data: '))!.slice(6))).toEqual({ deviceId });
       await new Promise((res) => setTimeout(res, 50));
       expect(b.text()).not.toContain('device.changed');
+    } finally {
+      await w.app.close();
+      a.close();
+      b.close();
+    }
+  });
+
+  it('streams standing_request.created / .updated to the owner only', async () => {
+    const w = await world();
+    await w.app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = w.app.server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    const a = await openStream(base, w.alice.cookie);
+    const b = await openStream(base, w.bob.cookie);
+    try {
+      const secret = createSecret(w.ctx, w.alice.actor, { title: 'K', value: 'v' });
+      const { deviceId } = pairDevice(w.ctx, { userId: w.alice.id, kind: 'mcp', name: 'agent' });
+      const srq = createStandingRequest(w.ctx, { id: deviceId, userId: w.alice.id, kind: 'mcp', name: 'agent' }, {
+        scope: 'list', vaultIds: [], secretIds: [secret.id], days: 3, afterExpiry: 'ask', renewDays: null, project: 'p', reason: 'r',
+      });
+      await until(() => a.text().includes('event: standing_request.created'));
+      const frame = a.text().split('\n\n').find((f) => f.startsWith('event: standing_request.created'))!;
+      expect(JSON.parse(frame.split('\n').find((l) => l.startsWith('data: '))!.slice(6))).toMatchObject({ id: srq.id, status: 'pending' });
+      decideStandingRequest(w.ctx, { id: srq.id, userId: w.alice.id, decision: 'deny' });
+      await until(() => a.text().includes('event: standing_request.updated'));
+      await new Promise((res) => setTimeout(res, 50));
+      expect(b.text()).not.toContain('standing_request');
     } finally {
       await w.app.close();
       a.close();

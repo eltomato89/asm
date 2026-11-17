@@ -12,6 +12,8 @@ import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import { settingsDeviceId } from '../devices/links.js';
 import { HttpError } from '../errors.js';
+// Cyclic import (requests.ts imports this module); only used at call time.
+import { cancelStandingRequestsForDevice } from './requests.js';
 import { canAccessVault, deviceDefaultVault } from '../vaults/service.js';
 
 // NOTE: must not import secrets/service.ts or requests/service.ts (both import this module).
@@ -36,6 +38,12 @@ export function isActive(row: Pick<StandingRow, 'until' | 'granted_at'>, maxDays
 
 function loadStanding(ctx: ServiceCtx, deviceId: string): StandingRow | undefined {
   return ctx.db.$client.prepare('SELECT * FROM standing_approvals WHERE device_id = ?').get(deviceId) as StandingRow | undefined;
+}
+
+/** Whether the device has its own standing approval that is currently active (feature on, not elapsed). */
+export function hasActiveStanding(ctx: ServiceCtx, deviceId: string): boolean {
+  const row = loadStanding(ctx, deviceId);
+  return !!row && isActive(row, ctx.standingMaxDays, ctx.clock.now());
 }
 
 function secretCount(ctx: ServiceCtx, deviceId: string): number {
@@ -194,7 +202,11 @@ export function setStandingApproval(
   const vaultIds = input.scope === 'vaults' ? [...new Set(input.vaultIds)] : [];
   for (const id of vaultIds) if (!canAccessVault(db, userId, id)) throw new HttpError(404, 'vault_not_found');
 
-  const res = writeStandingApproval(ctx, userId, deviceId, input, info);
+  // A manual set supersedes an open agent proposal for this device (cancelled in the same transaction).
+  const res = ctx.db.$client.transaction(() => {
+    cancelStandingRequestsForDevice(ctx, deviceId, 'superseded');
+    return writeStandingApproval(ctx, userId, deviceId, input, info);
+  })();
   emitDeviceChanged(ctx, userId, deviceId);
   return res;
 }

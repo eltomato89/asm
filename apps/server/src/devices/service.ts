@@ -8,6 +8,7 @@ import type { RequestInfo, ServiceCtx } from '../context.js';
 import { deviceCodes, devices, oauthCodes, tokens } from '../db/schema.js';
 import { HttpError } from '../errors.js';
 import { canAccessVault, deviceDefaultVault, personalVaultId } from '../vaults/service.js';
+import { cancelStandingRequestsForDevice } from '../standing/requests.js';
 import { deleteForRevokedDevice, deleteStandingForDevice, emitDeviceChanged, standingSummariesForUser, standingSummaryForDevice } from '../standing/service.js';
 
 export type DeviceKind = DeviceDto['kind'];
@@ -222,6 +223,7 @@ function revokeInTxn(
   db.delete(deviceCodes).where(eq(deviceCodes.deviceId, deviceId)).run();
   deleteGrantsForDevice(db, deviceId);
   cancelOpenForDevice(ctx, deviceId);
+  cancelStandingRequestsForDevice(ctx, deviceId, 'device_revoked');
   const hadStanding = deleteForRevokedDevice(ctx, deviceId);
   const metaCause = cause ?? (actor.type === 'system' ? actor.cause : undefined);
   appendAudit(db, clock, {

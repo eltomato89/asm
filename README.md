@@ -37,6 +37,17 @@ browser. By default the value never reaches the agent, only the process it start
   by a preset number of days when you approve. Every automatic approval is recorded as "via standing approval"; revoking
   the device removes it. A CLI attached to a Claude Code device has no standing approval of its own: its requests are
   covered by the main device's standing approval (and extend it on renewal).
+- **Agents may propose a standing approval.** A Claude Code device that keeps asking for the same secrets can propose
+  one itself (MCP `request_standing_approval`). It shows up as a separate card "… wants standing access" above the
+  requests (and as a push notification). The proposal is limited: selected vaults or a list of secrets only (never all
+  secrets), reads only, at most `ASM_STANDING_REQUEST_MAX_DAYS` days. An agent can only propose while its device has no
+  active standing approval, with at most one open proposal per device, at most 3 proposals per device in 24 hours, and
+  not within 24 hours of a denial; a proposal expires after 30 minutes. You can only narrow it before approving
+  (deselect vaults or secrets, shorten the duration, switch renewal to "ask again"); anything wider you set afterwards
+  in the regular dialog. Approving always needs a recent sign-in (or a passkey on the push page), "Deny" needs nothing,
+  and a proposal is never approved automatically – not by auto mode, not by a standing approval. The audit log records
+  it as "proposed by agent, adjusted by you" with what you changed. `whoami` tells the agent whether it may propose
+  right now (`standing_request`).
 - **What agents may do.** Create secrets (immediately), change them (only with approval), archive them (immediately,
   with a reason). Never delete, never restore.
 - **Archive instead of delete.** Archived secrets no longer show up in searches and can be neither read nor
@@ -61,6 +72,7 @@ browser. By default the value never reaches the agent, only the process it start
   signed out, can no longer sign in, and all their devices are revoked.
 - **Encryption.** AES-256-GCM, with a separate key per secret that is encrypted with the master key.
   Sensitive actions (reveal a value, pair a device, auto mode, setting a standing approval or a device's default vault,
+  approving a standing approval proposed by an agent,
   linking or unlinking a device) require a sign-in no older than
   10 minutes. Sign in with password or passkey.
 
@@ -99,6 +111,7 @@ Add more users under "Settings". You can also add a passkey there.
 | `ASM_TRUST_PROXY` | Behind a reverse proxy: number of proxy hops (usually `1`) or comma-separated IPs/CIDRs of the proxies. `true` trusts every `X-Forwarded-For` entry (spoofable, logs a warning) and is not allowed together with `ASM_TRUSTED_NETWORKS`. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximum duration of auto mode. | `240` |
 | `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximum duration of a standing approval per device, in days (at most `3650`). Also caps renewals; lowering it shortens existing standing approvals. `0` turns the feature off and removes existing standing approvals. | `90` |
+| `ASM_STANDING_REQUEST_MAX_DAYS` | Maximum duration an agent may propose for a standing approval, in days. `0` turns proposals off. A value greater than `ASM_STANDING_APPROVAL_MAX_DAYS` stops the server at startup. | `min(14, ASM_STANDING_APPROVAL_MAX_DAYS)` |
 | `ASM_DATA_DIR` | Data directory (`asm.db`). | `/data` |
 | `PORT` | HTTP port. | `8080` |
 | `ASM_CLI_DIR` | Directory containing the CLI bundle (`asm.mjs`, `asm.json`) for `/cli/install.sh`. | Image: `/app/cli` |
@@ -182,6 +195,8 @@ are ignored. The proxy or Docker network (e.g. `172.16.0.0/12`) does **not** bel
 - ASM does not write the tokens to its log. The proxy's access logs, however, do contain the links – turn them off for `/approve/` and
   `/api/approve/` (see above).
 - Decisions appear in the audit log as usual (`request.approved`/`request.denied`) with `via: push`.
+- A standing approval proposed by an agent also arrives as a push ("A device asks for standing access"). Its page
+  (`/approve/standing/…`) lets you narrow the proposal before "Approve" (passkey with Face ID); "Deny" works without one.
 
 ## Connecting Claude Code
 
@@ -191,7 +206,8 @@ claude mcp add --transport http asm https://asm.example.com/mcp
 
 On first use, Claude Code opens the browser: sign in, check the pairing, "Approve". After that, Claude can
 search secrets (`search_secrets`), request them (`request_secret` + `await_request`), create them, propose
-changes and archive them. `asm mcp-config` prints the matching command for your server.
+changes and archive them, and – for genuine, repeated need – propose a standing approval for its device
+(`request_standing_approval`, then `await_request` with the `srq_…` id). `asm mcp-config` prints the matching command for your server.
 
 ## CLI
 

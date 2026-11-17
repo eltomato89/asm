@@ -28,6 +28,9 @@ services:
       # ASM_AUTO_MODE_MAX_MIN: "240"
       # Standing approval per device: maximum days (0 turns the feature off).
       # ASM_STANDING_APPROVAL_MAX_DAYS: "90"
+      # Agent-proposed standing approvals: maximum days an agent may propose (0 turns proposals off;
+      # default min(14, ASM_STANDING_APPROVAL_MAX_DAYS); larger than that maximum fails at startup).
+      # ASM_STANDING_REQUEST_MAX_DAYS: "14"
       # Push approval: allow only the approval page from outside (see README).
       # ASM_TRUSTED_NETWORKS: "192.168.0.0/16,100.64.0.0/10"
       # ASM_VAPID_SUBJECT: "mailto:admin@example.com"

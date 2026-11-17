@@ -166,3 +166,59 @@ describe('describeAudit: linked devices', () => {
     expect(AUDIT_EVENTS).toContain('device.unlinked');
   });
 });
+
+describe('describeAudit: standing access proposed by an agent', () => {
+  const proposal = { scope: 'list', vaultIds: [], secretIds: ['sec_1', 'sec_2'], days: 7, afterExpiry: 'renew', renewDays: 7 };
+  const dev = { actorType: 'device' as const, actorId: 'dev_1' };
+
+  it('created', () => {
+    const r = text(row({ event: 'standing_request.created', ...dev, project: 'asm', meta: { requestId: 'srq_1', ...proposal } }));
+    expect(r.sentence).toBe('claude@mbp-office asked for standing access to 2 secrets for 7 days for asm');
+    expect(r.tone).toBe('amber');
+    const vaults = text(row({ event: 'standing_request.created', ...dev, meta: { proposal: { ...proposal, scope: 'vaults', vaultIds: ['vlt_w'], secretIds: [], days: 1 } } }));
+    expect(vaults.sentence).toBe('claude@mbp-office asked for standing access to 1 vault for 1 day');
+  });
+
+  it('approved as proposed, adjusted and via push', () => {
+    const plain = text(row({ event: 'standing_request.approved', meta: { requestId: 'srq_1', final: proposal, diff: {}, adjusted: false, via: 'web' } }));
+    expect(plain.sentence).toBe('You approved standing access for claude@mbp-office to 2 secrets for 7 days');
+    expect(plain.note).toBeUndefined();
+    expect(plain.tone).toBe('ok');
+    const final = { ...proposal, secretIds: ['sec_1'], days: 3, afterExpiry: 'ask', renewDays: null };
+    const diff = { days: { from: 7, to: 3 }, removedSecretIds: ['sec_2'], afterExpiry: { from: 'renew', to: 'ask' } };
+    const adj = text(row({ event: 'standing_request.approved', meta: { final, diff, adjusted: true, via: 'push' } }));
+    expect(adj.sentence).toBe('You approved standing access for claude@mbp-office to 1 secret for 3 days');
+    expect(adj.note).toBe('adjusted: 1 secret removed, 3 days instead of 7, asks every time after expiry instead of extending; via push');
+  });
+
+  it('denied, expired and cancelled with cause', () => {
+    const denied = text(row({ event: 'standing_request.denied', meta: { requestId: 'srq_1' } }));
+    expect(denied.sentence).toBe('You denied standing access for claude@mbp-office');
+    expect(denied.tone).toBe('danger');
+    const sys = { actorType: 'system' as const, actorId: null };
+    expect(text(row({ event: 'standing_request.expired', ...sys, meta: {} })).sentence).toBe('The request for standing access from claude@mbp-office expired');
+    const cancelled = (cause: string) => text(row({ event: 'standing_request.cancelled', ...sys, meta: { cause } }));
+    expect(cancelled('superseded').sentence).toBe('The request for standing access from claude@mbp-office was withdrawn');
+    expect(cancelled('superseded').note).toBe('a standing approval was set by hand');
+    expect(cancelled('device_revoked').note).toBe('device revoked');
+    expect(cancelled('disabled_by_admin').note).toBe('standing approvals were turned off by the admin');
+  });
+
+  it('standing_approval.set notes the agent origin and whether you adjusted it', () => {
+    const meta = { until: UNTIL, scope: 'list', secretCount: 2, allowUpdates: false, afterExpiry: 'ask', renewDays: 7, previous: null };
+    const asIs = text(row({ event: 'standing_approval.set', meta: { ...meta, origin: { type: 'agent_request', requestId: 'srq_1', proposed: proposal, diff: {} } } }));
+    expect(asIs.note).toBe('proposed by the agent; afterwards, every request asks again');
+    const adj = text(
+      row({ event: 'standing_approval.set', meta: { ...meta, origin: { type: 'agent_request', requestId: 'srq_1', proposed: proposal, diff: { days: { from: 7, to: 3 } } } } }),
+    );
+    expect(adj.note).toBe('proposed by the agent, adjusted by you; afterwards, every request asks again');
+    expect(text(row({ event: 'standing_approval.set', meta })).note).toBe('afterwards, every request asks again');
+  });
+
+  it('lists the events in the filter', () => {
+    for (const e of ['created', 'approved', 'denied', 'expired', 'cancelled']) {
+      expect(AUDIT_EVENTS).toContain(`standing_request.${e}`);
+      expect(isAutoEvent(`standing_request.${e}`)).toBe(true);
+    }
+  });
+});

@@ -19,5 +19,6 @@ import { connect } from './connect';
 import { devices } from './devices';
 import { settings } from './settings';
 import { standing } from './standing';
+import { standingRequest } from './standingRequest';
 
-export const de: Messages = { common, nav, errors, time, layout, autoMode, palette, reauth, secrets, vaults, projects, requests, approve, audit, auth, connect, devices, settings, standing };
+export const de: Messages = { common, nav, errors, time, layout, autoMode, palette, reauth, secrets, vaults, projects, requests, approve, audit, auth, connect, devices, settings, standing, standingRequest };

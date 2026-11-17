@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { t } from '../../i18n';
 import type { AuditCtx } from '../../i18n/en/audit';
 import type { AuditRow } from '../../lib/api';
+import type { StandingRequestDiff } from '@asm/shared';
+import { diffParts } from '../standing/ProposalForm';
 import { formatAbsolute, formatDay } from '../../lib/format';
 import type { Names } from '../../lib/names';
 
@@ -30,6 +32,9 @@ const TONES: Record<string, Tone> = {
   'standing_approval.renewed': 'amber',
   'standing_approval.expired': 'amber',
   'standing_approval.secret_added': 'amber',
+  'standing_request.created': 'amber',
+  'standing_request.approved': 'ok',
+  'standing_request.denied': 'danger',
 };
 
 const Host = ({ children }: { children: ReactNode }) => <span className="host">{children}</span>;
@@ -51,6 +56,23 @@ function vaultScope(meta: Record<string, unknown>, names: Names): string {
   const labels = ids.map((id) => names.vault(id));
   if (ids.length > 0 && ids.length <= MAX_VAULT_NAMES && labels.every((l) => l !== undefined)) return w.vaultNames(labels as string[]);
   return w.vaultCount(num(meta.vaultCount) ?? ids.length);
+}
+
+const obj = (v: unknown): Record<string, unknown> | undefined => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : undefined);
+const ids = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+
+/** "2 vaults" / "1 secret" and "7 days" of a proposal or final settings in meta. */
+function proposalScope(p: Record<string, unknown> | undefined): { scope: string; days: string } {
+  const w = t.audit.words;
+  const days = num(p?.days);
+  const scope = p?.scope === 'vaults' ? w.scopeVaults(ids(p.vaultIds).length) : w.scopeSecrets(ids(p?.secretIds).length);
+  return { scope, days: days === undefined ? '?' : w.days(days) };
+}
+
+/** Readable parts of a diff from meta (tolerates missing/foreign shapes). */
+function metaDiffParts(v: unknown): string[] {
+  const d = obj(v);
+  return d ? diffParts(d as StandingRequestDiff) : [];
 }
 
 /** Readable sentence for an audit row ("claude@mbp received GITHUB_TOKEN for asm automatically"). */
@@ -88,8 +110,31 @@ export function describeAudit(r: AuditRow, names: Names): Described {
       const scope = <span className="muted">{meta.scope === 'vaults' ? vaultScope(meta, names) : meta.scope === 'list' && count !== undefined ? w.secretCount(count) : w.allSecrets}</span>;
       const changed = meta.previous !== undefined && meta.previous !== null;
       const after = meta.afterExpiry === 'renew' ? w.thenRenew(str(meta.renewDays) ?? null) : w.thenAsk;
-      const note = meta.allowUpdates === true || meta.allowUpdates === 'true' ? `${w.withUpdates}; ${after}` : after;
-      return s(ev.standingSet(c, <Day ts={num(meta.until)} />, scope, changed), note);
+      const notes = [meta.allowUpdates === true || meta.allowUpdates === 'true' ? w.withUpdates : null, after];
+      const origin = obj(meta.origin);
+      if (origin?.type === 'agent_request') notes.unshift(metaDiffParts(origin.diff).length > 0 ? w.proposedAdjusted : w.proposedByAgent);
+      return s(ev.standingSet(c, <Day ts={num(meta.until)} />, scope, changed), notes.filter(Boolean).join('; '));
+    }
+    case 'standing_request.created': {
+      // The server writes the proposal flat into meta; a nested `proposal` is accepted too.
+      const p = proposalScope(obj(meta.proposal) ?? meta);
+      return s(ev.standingRequested(c, p.scope, p.days));
+    }
+    case 'standing_request.approved': {
+      const p = proposalScope(obj(meta.final) ?? obj(meta.proposal));
+      const parts = metaDiffParts(meta.diff);
+      const notes = [parts.length > 0 ? w.adjusted(parts.join(', ')) : null, meta.via === 'push' ? w.viaPush : null].filter(Boolean);
+      return s(ev.standingRequestApproved(c, p.scope, p.days), notes.length ? notes.join('; ') : undefined);
+    }
+    case 'standing_request.denied':
+      return s(ev.standingRequestDenied(c), meta.via === 'push' ? w.viaPush : undefined);
+    case 'standing_request.expired':
+      return s(ev.standingRequestExpired(c));
+    case 'standing_request.cancelled': {
+      const cause = str(meta.cause);
+      const note =
+        cause === 'superseded' ? w.superseded : cause === 'device_revoked' ? w.deviceRevoked : cause === 'disabled_by_admin' ? w.disabledByAdmin : cause;
+      return s(ev.standingRequestCancelled(c), note);
     }
     case 'standing_approval.removed':
       if (meta.cause === 'device_linked') return s(ev.standingRemovedRevoked(c), w.deviceLinked);
@@ -183,7 +228,7 @@ export function describeAudit(r: AuditRow, names: Names): Described {
 }
 
 export const toneDot = (t: Tone) => (t === 'neutral' ? 'dot' : `dot dot-${t}`);
-export const isAutoEvent = (event: string) => event.includes('auto') || event.startsWith('standing_approval.');
+export const isAutoEvent = (event: string) => event.includes('auto') || event.startsWith('standing_approval.') || event.startsWith('standing_request.');
 
 /** All event codes the server writes (filter options). */
 export const AUDIT_EVENTS = [
@@ -193,6 +238,7 @@ export const AUDIT_EVENTS = [
   'secret.archived', 'secret.unarchived', 'secret.searched',
   'automode.enabled', 'automode.disabled',
   'standing_approval.set', 'standing_approval.removed', 'standing_approval.renewed', 'standing_approval.expired', 'standing_approval.secret_added',
+  'standing_request.created', 'standing_request.approved', 'standing_request.denied', 'standing_request.expired', 'standing_request.cancelled',
   'auth.login', 'auth.login_failed',
   'device.pair_requested', 'device.approved', 'device.denied', 'device.revoked', 'device.default_vault_changed', 'device.linked', 'device.unlinked',
   'vault.member_added', 'vault.member_removed',

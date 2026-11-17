@@ -15,6 +15,7 @@ export function appServer(extra: (c: FetchCall) => Answer = () => undefined, opt
     if (c.path === '/api/automode') return { body: { active: false, enabledUntil: null, defaultDurationMin: 30, vaultIds: null } };
     if (c.path === '/api/vaults' && c.method === 'GET') return { body: VAULTS };
     if (c.path === '/api/requests') return { body: { items: [] } };
+    if (c.path === '/api/standing-requests' && c.method === 'GET') return { body: { items: [] } };
     if (c.path === '/api/secrets' && c.method === 'GET') return { body: { items: [] } };
     if (c.path === '/api/devices' && c.method === 'GET') return { body: { items: [] } };
     if (/^\/api\/devices\/[^/]+\/standing-approval$/.test(c.path) && c.method === 'GET') return { body: { standingApproval: null, maxDays: 90 } };

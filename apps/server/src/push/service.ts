@@ -44,6 +44,10 @@ export const pendingPayload = (token: string, requestId: string): PushPayload =>
   title: 'ASM', body: 'New request waiting for approval', url: `/approve/${token}`, tag: requestId,
 });
 
+export const standingPendingPayload = (token: string, standingRequestId: string): PushPayload => ({
+  title: 'ASM', body: 'A device asks for standing access', url: `/approve/standing/${token}`, tag: standingRequestId,
+});
+
 export const hashApproveToken = (token: string) => createHash('sha256').update(token, 'utf8').digest('hex');
 
 type SubRow = {
@@ -100,7 +104,9 @@ export type PushService = {
   sendToUser(ctx: Pick<ServiceCtx, 'db' | 'clock'>, userId: string, payload: PushPayload): Promise<number>;
   /** New pending request: one approval token per subscription of the device owner, then push. Never rejects. */
   notifyPending(ctx: Pick<ServiceCtx, 'db' | 'clock'>, requestId: string): Promise<number>;
-  /** Deletes expired approval tokens. */
+  /** New pending standing approval proposal: one token per subscription of the owner (standing_approve_tokens), then push. Never rejects. */
+  notifyStandingPending(ctx: Pick<ServiceCtx, 'db' | 'clock'>, standingRequestId: string): Promise<number>;
+  /** Deletes expired approval tokens (access and standing requests). */
   prune(ctx: Pick<ServiceCtx, 'db' | 'clock'>): void;
 };
 
@@ -137,6 +143,36 @@ export function createPushService(deps: { vapid: VapidKeys; subject: string; sen
 
   const count = async (sends: Promise<boolean>[]) => (await Promise.all(sends)).filter(Boolean).length;
 
+  /** Owner and expiry of a pending request in `table` whose owner is active; else null. */
+  function pendingOwner(ctx: Pick<ServiceCtx, 'db'>, table: 'access_requests' | 'standing_requests', id: string) {
+    const req = ctx.db.$client
+      .prepare(`SELECT r.user_id, r.status, r.expires_at, u.disabled_at FROM ${table} r JOIN users u ON u.id = r.user_id WHERE r.id = ?`)
+      .get(id) as { user_id: string | null; status: string; expires_at: number; disabled_at: number | null } | undefined;
+    if (!req || req.status !== 'pending' || !req.user_id || req.disabled_at !== null) return null;
+    return { userId: req.user_id, expiresAt: req.expires_at };
+  }
+
+  /** One fresh token per subscription in `table` (TTL = request expiry), then one push each. */
+  async function notifyWithTokens(
+    ctx: Pick<ServiceCtx, 'db' | 'clock'>,
+    table: 'approve_tokens' | 'standing_approve_tokens',
+    id: string,
+    owner: { userId: string; expiresAt: number },
+    payload: (token: string) => PushPayload,
+  ): Promise<number> {
+    const now = ctx.clock.now();
+    const fk = table === 'approve_tokens' ? 'request_id' : 'standing_request_id';
+    const insert = ctx.db.$client.prepare(
+      `INSERT INTO ${table} (token_hash, ${fk}, user_id, subscription_id, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)`,
+    );
+    const sends = subsOf(ctx, owner.userId).map((sub) => {
+      const token = randomBytes(32).toString('base64url');
+      insert.run(hashApproveToken(token), id, owner.userId, sub.id, owner.expiresAt, now);
+      return sendOne(ctx, sub, payload(token));
+    });
+    return await count(sends);
+  }
+
   return {
     publicKey: deps.vapid.publicKey,
 
@@ -151,25 +187,20 @@ export function createPushService(deps: { vapid: VapidKeys; subject: string; sen
 
     async notifyPending(ctx, requestId) {
       try {
-        const req = ctx.db.$client
-          .prepare(
-            `SELECT r.user_id, r.status, r.expires_at, u.disabled_at
-               FROM access_requests r JOIN users u ON u.id = r.user_id WHERE r.id = ?`,
-          )
-          .get(requestId) as { user_id: string | null; status: string; expires_at: number; disabled_at: number | null } | undefined;
-        if (!req || req.status !== 'pending' || !req.user_id || req.disabled_at !== null) return 0;
-        const userId = req.user_id;
-        const now = ctx.clock.now();
-        const insert = ctx.db.$client.prepare(
-          `INSERT INTO approve_tokens (token_hash, request_id, user_id, subscription_id, expires_at, used_at, created_at)
-           VALUES (?, ?, ?, ?, ?, NULL, ?)`,
-        );
-        const sends = subsOf(ctx, userId).map((sub) => {
-          const token = randomBytes(32).toString('base64url');
-          insert.run(hashApproveToken(token), requestId, userId, sub.id, req.expires_at, now);
-          return sendOne(ctx, sub, pendingPayload(token, requestId));
-        });
-        return await count(sends);
+        const owner = pendingOwner(ctx, 'access_requests', requestId);
+        return owner ? await notifyWithTokens(ctx, 'approve_tokens', requestId, owner, (token) => pendingPayload(token, requestId)) : 0;
+      } catch (err) {
+        deps.logger?.error({ errName: (err as Error)?.name }, 'push notify failed');
+        return 0;
+      }
+    },
+
+    async notifyStandingPending(ctx, standingRequestId) {
+      try {
+        const owner = pendingOwner(ctx, 'standing_requests', standingRequestId);
+        return owner
+          ? await notifyWithTokens(ctx, 'standing_approve_tokens', standingRequestId, owner, (token) => standingPendingPayload(token, standingRequestId))
+          : 0;
       } catch (err) {
         deps.logger?.error({ errName: (err as Error)?.name }, 'push notify failed');
         return 0;
@@ -177,7 +208,9 @@ export function createPushService(deps: { vapid: VapidKeys; subject: string; sen
     },
 
     prune(ctx) {
-      ctx.db.$client.prepare('DELETE FROM approve_tokens WHERE expires_at <= ?').run(ctx.clock.now());
+      const now = ctx.clock.now();
+      ctx.db.$client.prepare('DELETE FROM approve_tokens WHERE expires_at <= ?').run(now);
+      ctx.db.$client.prepare('DELETE FROM standing_approve_tokens WHERE expires_at <= ?').run(now);
     },
   };
 }

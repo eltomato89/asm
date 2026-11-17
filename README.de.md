@@ -37,6 +37,18 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   verlängert die Dauerfreigabe um eine voreingestellte Anzahl Tage. Jede automatische Freigabe steht als „per
   Dauerfreigabe“ im Audit-Log; Widerrufen des Geräts entfernt sie. Eine an ein Claude-Code-Gerät angehängte CLI hat
   keine eigene Dauerfreigabe: Ihre Anfragen deckt die Dauerfreigabe des Hauptgeräts ab (und verlängern sie bei Bedarf).
+- **Agenten dürfen eine Dauerfreigabe vorschlagen.** Ein Claude-Code-Gerät, das immer wieder dieselben Secrets braucht,
+  kann selbst eine vorschlagen (MCP `request_standing_approval`). Der Vorschlag erscheint als eigene Karte „… möchte
+  Dauerzugriff“ über den Anfragen (und als Push-Benachrichtigung). Er ist begrenzt: nur ausgewählte Tresore oder eine
+  Liste von Secrets (nie alle Secrets), nur Abrufe, höchstens `ASM_STANDING_REQUEST_MAX_DAYS` Tage. Ein Agent kann nur
+  vorschlagen, solange sein Gerät keine aktive Dauerfreigabe hat – höchstens ein offener Vorschlag pro Gerät, höchstens
+  3 Vorschläge pro Gerät in 24 Stunden und keiner innerhalb von 24 Stunden nach einer Ablehnung; ein Vorschlag verfällt
+  nach 30 Minuten. Vor dem Freigeben kannst du ihn nur einschränken (Tresore oder Secrets abwählen, die Dauer
+  verkürzen, Verlängern auf „wieder fragen“ umstellen); alles Weitergehende stellst du danach im normalen Dialog ein.
+  Freigeben verlangt immer eine frische Anmeldung (oder einen Passkey auf der Push-Seite), „Verweigern“ nichts, und ein
+  Vorschlag wird nie automatisch freigegeben – weder vom Auto-Modus noch von einer Dauerfreigabe. Das Audit-Log
+  vermerkt ihn als „vom Agenten vorgeschlagen, von dir angepasst“ samt deinen Änderungen. `whoami` sagt dem Agenten,
+  ob er gerade vorschlagen darf (`standing_request`).
 - **Was Agenten dürfen.** Secrets anlegen (sofort), ändern (nur mit Freigabe), archivieren (sofort, mit Grund).
   Nie löschen, nie reaktivieren.
 - **Archiv statt Löschen.** Archivierte Secrets tauchen in Suchen nicht mehr auf und lassen sich weder abrufen
@@ -62,6 +74,7 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   abgemeldet, kann sich nicht mehr anmelden, und alle ihre Geräte werden widerrufen.
 - **Verschlüsselung.** AES-256-GCM, pro Secret ein eigener Schlüssel, der mit dem Master-Key verschlüsselt ist.
   Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus, Dauerfreigabe oder Standardtresor eines Geräts setzen,
+  von einem Agenten vorgeschlagene Dauerfreigabe freigeben,
   Gerät verknüpfen oder lösen) verlangen eine Anmeldung, die höchstens
   10 Minuten alt ist. Anmeldung mit Passwort oder Passkey.
 
@@ -100,6 +113,7 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
 | `ASM_TRUST_PROXY` | Hinter einem Reverse Proxy: Anzahl der Proxy-Hops (meist `1`) oder kommagetrennte IPs/CIDRs der Proxys. `true` vertraut jedem `X-Forwarded-For`-Eintrag (fälschbar, Warnung im Log) und ist zusammen mit `ASM_TRUSTED_NETWORKS` verboten. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximale Dauer des Auto-Modus. | `240` |
 | `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximale Dauer einer Dauerfreigabe pro Gerät in Tagen (höchstens `3650`). Begrenzt auch Verlängerungen; ein kleinerer Wert verkürzt bestehende Dauerfreigaben. `0` schaltet die Funktion ab und entfernt bestehende Dauerfreigaben. | `90` |
+| `ASM_STANDING_REQUEST_MAX_DAYS` | Maximale Dauer, die ein Agent für eine Dauerfreigabe vorschlagen darf, in Tagen. `0` schaltet Vorschläge ab. Ein Wert größer als `ASM_STANDING_APPROVAL_MAX_DAYS` beendet den Server beim Start mit einem Fehler. | `min(14, ASM_STANDING_APPROVAL_MAX_DAYS)` |
 | `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
 | `PORT` | HTTP-Port. | `8080` |
 | `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |
@@ -183,6 +197,9 @@ werden ignoriert. Das Proxy- bzw. Docker-Netz (z. B. `172.16.0.0/12`) gehört **
 - ASM schreibt die Tokens nicht in sein Log. Access-Logs des Proxys enthalten die Links jedoch – für `/approve/` und
   `/api/approve/` abschalten (siehe oben).
 - Entscheidungen erscheinen im Audit-Log wie gewohnt (`request.approved`/`request.denied`) mit `via: push`.
+- Eine von einem Agenten vorgeschlagene Dauerfreigabe kommt ebenfalls als Push („Ein Gerät bittet um Dauerzugriff“).
+  Auf ihrer Seite (`/approve/standing/…`) kannst du den Vorschlag vor „Freigeben“ (Passkey mit Face ID) einschränken;
+  „Verweigern“ geht ohne.
 
 ## Claude Code verbinden
 
@@ -192,7 +209,8 @@ claude mcp add --transport http asm https://asm.example.com/mcp
 
 Beim ersten Aufruf öffnet Claude Code den Browser: anmelden, Kopplung prüfen, „Freigeben“. Danach kann Claude
 Secrets suchen (`search_secrets`), anfordern (`request_secret` + `await_request`), anlegen, Änderungen
-vorschlagen und archivieren. `asm mcp-config` gibt den passenden Befehl für deinen Server aus.
+vorschlagen und archivieren – und bei echtem, wiederholtem Bedarf eine Dauerfreigabe für sein Gerät vorschlagen
+(`request_standing_approval`, danach `await_request` mit der `srq_…`-ID). `asm mcp-config` gibt den passenden Befehl für deinen Server aus.
 
 ## CLI
 

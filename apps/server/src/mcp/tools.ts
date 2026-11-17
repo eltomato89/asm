@@ -8,6 +8,7 @@ import {
   TagsSchema,
   TitleSchema,
   type AccessRequestDto,
+  type StandingRequestDto,
 } from '@asm/shared';
 import { z, ZodError } from 'zod';
 import { appendAudit } from '../audit/audit.js';
@@ -20,7 +21,13 @@ import { getAutoMode } from '../requests/automode.js';
 import { grantIdForRequest, redeemGrant } from '../requests/grants.js';
 import { createRequest, createUpdateRequest, waitForRequest } from '../requests/service.js';
 import { archiveSecret, createSecret, searchSecrets } from '../secrets/service.js';
-import { standingSummaryForDevice } from '../standing/service.js';
+import {
+  createStandingRequest,
+  STANDING_REQUEST_COOLDOWN_MS,
+  standingRequestEligibility,
+  waitForStandingRequest,
+} from '../standing/requests.js';
+import { DAY_MS, standingSummaryForDevice } from '../standing/service.js';
 import { deviceDefaultVault, listVaultsForUser } from '../vaults/service.js';
 
 /** Per-HTTP-request context of a tool call. */
@@ -145,6 +152,51 @@ function defaultVault(t: ToolContext): ToolPayload | null {
   return v ? { id: v.id, name: v.name } : null;
 }
 
+/** Whether this device may propose a standing approval now (whoami.standing_request). */
+function standingRequestStatus(t: ToolContext): ToolPayload {
+  const e = standingRequestEligibility(t.ctx, t.device.id);
+  return {
+    allowed: e.allowed,
+    ...(e.reason ? { reason: e.reason } : {}),
+    ...(e.pendingId ? { pending_request_id: e.pendingId } : {}),
+    ...(e.retryAfter !== undefined ? { retry_after: iso(e.retryAfter) } : {}),
+    max_days: e.maxDays,
+  };
+}
+
+const STANDING_PENDING_HINT = 'Ask the user to review it in ASM, then call await_request with this request_id';
+
+/** What the agent gets for a standing approval proposal in its current state. */
+function standingOutcome(t: ToolContext, dto: StandingRequestDto): ToolPayload {
+  const { status } = dto;
+  switch (status) {
+    case 'pending':
+      return { status, hint: 'Call await_request again' };
+    case 'approved': {
+      const final = dto.final ?? dto.proposal;
+      const s = standingSummaryForDevice(t.ctx, t.device.id);
+      const until = s?.until ?? (dto.decidedAt ?? t.ctx.clock.now()) + final.days * DAY_MS;
+      return {
+        status,
+        standing_approval: {
+          until: iso(until),
+          scope: final.scope,
+          ...(final.scope === 'vaults' ? { vault_ids: final.vaultIds } : { secret_ids: final.secretIds }),
+          after_expiry: final.afterExpiry,
+          ...(final.afterExpiry === 'renew' ? { renew_days: final.renewDays } : {}),
+          adjusted: dto.adjusted,
+        },
+      };
+    }
+    case 'denied':
+      return { status, retry_after: iso((dto.decidedAt ?? t.ctx.clock.now()) + STANDING_REQUEST_COOLDOWN_MS) };
+    case 'cancelled':
+      return { status, ...(dto.cause ? { cause: dto.cause } : {}) };
+    default:
+      return { status };
+  }
+}
+
 /** CLIs attached to this device (it is their main device) for whoami; grants of this device are redeemable only by them. */
 function attachedCli(t: ToolContext): ToolPayload[] {
   return attachedClis(t.ctx.db, t.device.id).map((c) => ({ name: c.name, hostname: c.hostname }));
@@ -156,6 +208,8 @@ type ToolDef<S extends z.ZodObject> = {
   name: string;
   description: string;
   schema: S;
+  /** Keys rejected with field_not_allowed + hint before validation (besides FORBIDDEN_INPUT_KEYS). */
+  forbidden?: { keys: string[]; hint: string };
   run: (t: ToolContext, args: z.output<S>, project: Project | undefined) => ToolPayload | Promise<ToolPayload>;
 };
 
@@ -215,17 +269,76 @@ export const TOOLS = [
   tool({
     name: 'await_request',
     description:
-      'Wait up to ~50 s for the decision on a request you created (request_secret or update_secret). If status is still "pending", call it again. ' +
+      'Wait up to ~50 s for the decision on a request you created (request_secret, update_secret or request_standing_approval). ' +
+      'If status is still "pending", call it again. ' +
       'approved + cli → grant_id and instructions for the asm CLI; approved + plaintext → value (delivered exactly once); approved update → new version; ' +
-      `denied/expired → status (and cause). ${NEVER_LEAK}`,
-    schema: z.strictObject({ request_id: id('Request id (req_…) returned by request_secret or update_secret.') }),
+      'denied/expired → status (and cause). For a standing approval proposal (srq_…): approved → standing_approval (until, scope, ids, ' +
+      'after_expiry, adjusted = the user narrowed it); denied → retry_after (no new proposal before then); expired; cancelled → cause. ' +
+      NEVER_LEAK,
+    schema: z.strictObject({
+      request_id: id('Request id (req_… from request_secret / update_secret, srq_… from request_standing_approval).'),
+    }),
     run: async (t, a) => {
       try {
+        if (a.request_id.startsWith('srq_')) {
+          return standingOutcome(t, await waitForStandingRequest(t.ctx, a.request_id, t.device.id, t.awaitTimeoutMs, t.signal));
+        }
         return requestOutcome(t, await waitForRequest(t.ctx, a.request_id, t.device.id, t.awaitTimeoutMs, t.signal));
       } catch (err) {
         if ((err as Error).name === 'AbortError') throw new ToolError({ error: 'aborted' });
         throw err;
       }
+    },
+  }),
+  tool({
+    name: 'request_standing_approval',
+    description:
+      'Propose a standing approval for this device: for `days` days, requests to read the listed vaults or secrets are approved ' +
+      'automatically. Use it ONLY for a genuine, repeated need over several days (e.g. the same secrets needed in many sessions) — ' +
+      'never for a one-off request (use request_secret). Covers reads only, never changes and never all secrets. ' +
+      'Not possible while this device has an active standing approval or an open proposal; after a denial wait 24 h (retry_after). ' +
+      'The user may narrow it (fewer vaults/secrets, fewer days, ask instead of renew) or deny it. ' +
+      'Maximum days and current eligibility: whoami.standing_request. Give exactly one of vault_ids or secret_ids. ' +
+      'Returns request_id (srq_…); then call await_request. Always pass the git repo / working-folder name as project and a concrete reason.',
+    schema: z.strictObject({
+      vault_ids: z.array(id('Vault id (vlt_…, see list_vaults).')).min(1).max(10).optional().describe('Vaults to cover (exactly one of vault_ids / secret_ids).'),
+      secret_ids: z.array(secretId).min(1).max(50).optional().describe('Secrets to cover (exactly one of vault_ids / secret_ids).'),
+      days: z.number().int().min(1).describe('Duration in days (at most whoami.standing_request.max_days).'),
+      after_expiry: z
+        .enum(['ask', 'renew'])
+        .default('ask')
+        .describe('"ask" (default): afterwards the next request asks the user again; "renew": approving that request renews it by renew_days.'),
+      renew_days: z.number().int().min(1).optional().describe('Days per renewal (only with after_expiry "renew"; default: days).'),
+      project,
+      reason: reason.describe('Concrete reason for the repeated need, shown to the user (e.g. "daily deploys of the staging stack this sprint").'),
+    }),
+    forbidden: {
+      keys: ['scope', 'allow_updates', 'allowUpdates', 'include_created', 'includeCreated'],
+      hint: 'agent proposals never cover changes or all secrets',
+    },
+    run: (t, a) => {
+      if ((a.vault_ids === undefined) === (a.secret_ids === undefined)) {
+        throw new ToolError({ error: 'invalid_request', hint: 'Give exactly one of vault_ids or secret_ids' });
+      }
+      if (a.renew_days !== undefined && a.after_expiry !== 'renew') {
+        throw new ToolError({ error: 'invalid_request', hint: 'renew_days is only allowed with after_expiry "renew"' });
+      }
+      const dto = createStandingRequest(
+        t.ctx,
+        t.device,
+        {
+          scope: a.vault_ids ? 'vaults' : 'list',
+          vaultIds: a.vault_ids ?? [],
+          secretIds: a.secret_ids ?? [],
+          days: a.days,
+          afterExpiry: a.after_expiry,
+          renewDays: a.after_expiry === 'renew' ? (a.renew_days ?? a.days) : null,
+          project: a.project,
+          reason: a.reason,
+        },
+        t.info,
+      );
+      return { request_id: dto.id, status: dto.status, expires_at: iso(dto.expiresAt), hint: STANDING_PENDING_HINT };
     },
   }),
   tool({
@@ -312,8 +425,9 @@ export const TOOLS = [
     description:
       'Show which device and user this connection acts as, whether auto mode (automatic approval of requests) is active, and ' +
       "this device's standing approval (automatic approval for this device until a date; null if none) and its default vault " +
-      '(where create_secret puts secrets without vault_id), and the CLIs attached to this device (attached_cli; only they can ' +
-      'redeem its cli grants when non-empty). Always pass project.',
+      '(where create_secret puts secrets without vault_id), the CLIs attached to this device (attached_cli; only they can ' +
+      'redeem its cli grants when non-empty), and whether it may propose a standing approval now (standing_request: allowed, ' +
+      'reason, pending_request_id, retry_after, max_days). Always pass project.',
     schema: z.strictObject({ project }),
     run: (t) => {
       const user = t.ctx.db.$client.prepare('SELECT id, username FROM users WHERE id = ?').get(t.device.userId) as { id: string; username: string };
@@ -324,6 +438,7 @@ export const TOOLS = [
         standing_approval: standingApproval(t),
         default_vault: defaultVault(t),
         attached_cli: attachedCli(t),
+        standing_request: standingRequestStatus(t),
       };
     },
   }),
@@ -367,6 +482,9 @@ export async function callTool(t: ToolContext, name: string, rawArgs: unknown): 
   try {
     const args = rawArgs ?? {};
     if (typeof args === 'object' && FORBIDDEN_INPUT_KEYS.some((k) => Object.hasOwn(args, k))) throw new ValidationError('field_not_allowed');
+    if (typeof args === 'object' && def.forbidden?.keys.some((k) => Object.hasOwn(args, k))) {
+      throw new ToolError({ error: 'field_not_allowed', hint: def.forbidden.hint });
+    }
     const parsed = def.schema.parse(args) as { project?: string };
     const p = parsed.project === undefined ? undefined : touchProject(t.ctx, parsed.project);
     return result(await def.run(t, parsed, p));

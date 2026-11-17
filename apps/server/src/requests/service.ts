@@ -29,6 +29,7 @@ import {
   renewOnApproval,
   standingCoverage,
 } from '../standing/service.js';
+import { expireStandingRequests } from '../standing/requests.js';
 import { canAccessVault } from '../vaults/service.js';
 import { expireAutoModes, isAutoApproved } from './automode.js';
 import type { RequestEvent } from './events.js';
@@ -587,7 +588,10 @@ export async function waitForRequest(
   });
 }
 
-/** Marks overdue pending requests expired (audit request.expired), turns off elapsed auto modes and audits elapsed standing approvals. */
+/**
+ * Marks overdue pending requests expired (audit request.expired), turns off elapsed auto modes, audits elapsed standing approvals
+ * and expires overdue standing requests (agent proposals; all cancelled while proposals are disabled).
+ */
 export function expireDue(ctx: ServiceCtx): void {
   const { db } = ctx;
   const now = ctx.clock.now();
@@ -614,6 +618,7 @@ export function expireDue(ctx: ServiceCtx): void {
   for (const id of expired) emitRequest(ctx, 'request.updated', id);
   expireAutoModes(ctx);
   for (const s of expireStandingApprovals(ctx)) emitDeviceChanged(ctx, s.userId, s.deviceId);
+  expireStandingRequests(ctx);
 }
 
 /** Archive hook (runs inside the archive transaction): deny open requests (cause 'archived') and delete the secret's grants. */

@@ -1,4 +1,4 @@
-import type { AccessRequestDto } from '@asm/shared';
+import type { AccessRequestDto, StandingRequestDto } from '@asm/shared';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Bell } from 'lucide-react';
@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { ActivityFeed } from '../components/audit/ActivityFeed';
 import { RelativeTime } from '../components/RelativeTime';
 import { RequestQueue } from '../components/requests/RequestQueue';
+import { StandingRequestCard } from '../components/requests/StandingRequestCard';
 import { Button } from '../components/ui/Button';
 import { Kbd, modKeyLabel } from '../components/ui/Kbd';
 import { MonoChip } from '../components/ui/MonoChip';
@@ -13,6 +14,7 @@ import { Skeleton } from '../components/ui/Skeleton';
 import { t } from '../i18n';
 import { api, queryKeys } from '../lib/api';
 import { useEventSubscription } from '../lib/sse';
+import { useNow } from '../lib/time';
 
 const canNotify = () => typeof window !== 'undefined' && 'Notification' in window;
 
@@ -20,8 +22,14 @@ const canNotify = () => typeof window !== 'undefined' && 'Notification' in windo
 function useRequestNotifications() {
   const [permission, setPermission] = useState(() => (canNotify() ? Notification.permission : 'denied'));
   useEventSubscription((e) => {
-    if (e.type !== 'request.created' || e.data.status !== 'pending') return;
-    if (!canNotify() || Notification.permission !== 'granted' || !document.hidden) return;
+    const background = () => canNotify() && Notification.permission === 'granted' && document.hidden;
+    if (e.type === 'standing_request.created') {
+      if (e.data.status !== 'pending' || !background()) return;
+      const m = t.standingRequest.notification;
+      new Notification(m.title, { body: m.body(e.data.device.name), tag: e.data.id });
+      return;
+    }
+    if (e.type !== 'request.created' || e.data.status !== 'pending' || !background()) return;
     const r = e.data;
     const name = r.secret.envName ?? r.secret.title;
     new Notification(t.requests.notification.title, {
@@ -36,8 +44,10 @@ function useRequestNotifications() {
 /** Overview (/) and Requests (/requests): open request cards; below either the activity feed or decided requests. */
 export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) {
   const pending = useQuery({ queryKey: queryKeys.requests('pending'), queryFn: () => api.requests('pending') });
+  const proposals = useQuery({ queryKey: queryKeys.standingRequests('pending'), queryFn: () => api.standingRequests('pending') });
   const { permission, ask } = useRequestNotifications();
-  const count = pending.data?.items.length ?? 0;
+  const openProposals = (proposals.data?.items ?? []).filter((p) => p.status === 'pending');
+  const count = (pending.data?.items.length ?? 0) + openProposals.length;
 
   return (
     <>
@@ -65,7 +75,11 @@ export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) 
       ) : pending.isError ? (
         <p className="empty">{t.requests.loadFailed}</p>
       ) : (
-        <RequestQueue requests={pending.data.items} />
+        <>
+          <StandingRequestList items={openProposals} />
+          {/* With only proposals open, the queue's "no open requests" state would contradict the cards above. */}
+          {openProposals.length === 0 || pending.data.items.length > 0 ? <RequestQueue requests={pending.data.items} /> : null}
+        </>
       )}
 
       <div className="kbd-hint" aria-hidden="true">
@@ -99,9 +113,30 @@ export function RequestsPage({ variant }: { variant: 'overview' | 'requests' }) 
   );
 }
 
+/** Open proposals for standing approvals, above the ordinary request queue. */
+function StandingRequestList({ items }: { items: StandingRequestDto[] }) {
+  const now = useNow(1000, items.length > 0);
+  if (items.length === 0) return null;
+  return (
+    <div className="requests standing-requests" aria-live="polite">
+      {items.map((r) => (
+        <StandingRequestCard key={r.id} request={r} now={now} />
+      ))}
+    </div>
+  );
+}
+
+type DecidedItem = { kind: 'request'; at: number; r: AccessRequestDto } | { kind: 'standing'; at: number; r: StandingRequestDto };
+
 function DecidedRequests() {
   const all = useQuery({ queryKey: queryKeys.requests('all'), queryFn: () => api.requests('all') });
-  const decided = (all.data?.items ?? []).filter((r) => r.status !== 'pending').slice(0, 50);
+  const standing = useQuery({ queryKey: queryKeys.standingRequests('all'), queryFn: () => api.standingRequests('all') });
+  const decided: DecidedItem[] = [
+    ...(all.data?.items ?? []).filter((r) => r.status !== 'pending').map((r): DecidedItem => ({ kind: 'request', at: r.decidedAt ?? r.expiresAt, r })),
+    ...(standing.data?.items ?? []).filter((r) => r.status !== 'pending').map((r): DecidedItem => ({ kind: 'standing', at: r.decidedAt ?? r.expiresAt, r })),
+  ]
+    .sort((a, b) => b.at - a.at)
+    .slice(0, 50);
   return (
     <>
       <div className="section-head">
@@ -117,7 +152,9 @@ function DecidedRequests() {
         </div>
       ) : (
         <ul className="feed">
-          {decided.map((r) => {
+          {decided.map((item) => {
+            if (item.kind === 'standing') return <DecidedStanding key={item.r.id} r={item.r} />;
+            const r = item.r;
             const status = r.status as Exclude<AccessRequestDto['status'], 'pending'>;
             const dot = status === 'approved' ? 'dot dot-ok' : status === 'denied' ? 'dot dot-danger' : 'dot';
             return (
@@ -142,5 +179,24 @@ function DecidedRequests() {
         </ul>
       )}
     </>
+  );
+}
+
+function DecidedStanding({ r }: { r: StandingRequestDto }) {
+  const status = r.status as Exclude<StandingRequestDto['status'], 'pending'>;
+  const dot = status === 'approved' ? 'dot dot-ok' : status === 'denied' ? 'dot dot-danger' : 'dot';
+  return (
+    <li>
+      <span className={dot} aria-hidden />
+      <span className="sentence">
+        {t.standingRequest.decidedSentence(<span className="host">{r.device.name}</span>)}{' '}
+        <span className="muted">
+          {t.standingRequest.status[status]}
+          {status === 'approved' && r.adjusted ? t.standingRequest.adjustedSuffix : ''}
+        </span>
+      </span>
+      <MonoChip>{`standing_request.${status}`}</MonoChip>
+      <RelativeTime ts={r.decidedAt ?? r.expiresAt} />
+    </li>
   );
 }
