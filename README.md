@@ -1,10 +1,12 @@
 # ASM – Agent Secrets Manager
 
-Deutsch: [README.de.md](README.de.md)
+Website: <https://eltomato89.github.io/asm/> · Deutsch: [README.de.md](README.de.md)
 
 A self-hosted, multi-user secrets manager built for AI agents such as Claude Code.
 Agents find secrets via MCP, request them with a project and a reason, and you approve each request in the
 browser. By default the value never reaches the agent, only the process it starts.
+
+<p align="center"><img src="apps/site/src/assets/demo.gif" width="880" alt="Demo: Claude Code requests NPM_TOKEN through ASM; a push notification on the phone opens the approve page, the request is approved with Face ID, and asm run injects the token into npm publish without the value ever appearing in the chat"></p>
 
 - **Server** (`apps/server`): Fastify API, OAuth 2.1 for MCP clients, MCP endpoint `/mcp`, serves the web UI. SQLite.
 - **Web UI** (`apps/web`): approve requests, manage secrets, vaults, devices, audit log. Available in English and
@@ -273,6 +275,8 @@ GitHub Actions (`.github/workflows/`):
   - on tag `vX.Y.Z` (tests run first in the same workflow) → `X.Y.Z`, `X.Y`, `latest`
   - manually via "Run workflow" (`workflow_dispatch`) – only from `main` or a `v*` tag
   - prerelease tags (`v1.0.0-rc.1`) only get `1.0.0-rc.1`, no `X.Y`/`latest`
+- **Website** (`pages.yml`) – builds the landing page (`apps/site`, see its README) and deploys it to GitHub
+  Pages on pushes to `main` that touch `apps/site/**`. One-time setup: Settings → Pages → Source: GitHub Actions.
 - **Dependabot** – weekly updates for Actions and npm (minor/patch grouped).
 
 No additional secrets needed: the push uses the automatic `GITHUB_TOKEN` (`packages: write`).
@@ -320,3 +324,5 @@ speeds up subsequent builds). For arm64, add it to `platforms` in `docker.yml` a
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE). Copyright 2026 Jens Köhler.
+
+Third-party licenses: `THIRD_PARTY_NOTICES` in the Docker image (`/app/THIRD_PARTY_NOTICES`) and next to the CLI bundle (`/cli/THIRD_PARTY_NOTICES`, installed alongside `asm.mjs`); the web UI serves its own at `/THIRD_PARTY_NOTICES.txt`. They are generated during the build.

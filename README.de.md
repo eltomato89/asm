@@ -1,10 +1,12 @@
 # ASM – Agent Secrets Manager
 
-English: [README.md](README.md)
+Website: <https://eltomato89.github.io/asm/> · English: [README.md](README.md)
 
 Selbst gehosteter Secrets-Manager für mehrere Nutzer, gebaut für KI-Agenten wie Claude Code.
 Agenten finden Secrets über MCP, fordern sie mit Projekt und Grund an, und du gibst jede Anfrage im
 Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der Prozess, den er startet.
+
+<p align="center"><img src="apps/site/src/assets/demo.gif" width="880" alt="Demo: Claude Code fordert NPM_TOKEN über ASM an; eine Push-Mitteilung auf dem Handy öffnet die Freigabeseite, die Anfrage wird mit Face ID freigegeben, und asm run übergibt den Token an npm publish, ohne dass der Wert im Chat erscheint"></p>
 
 - **Server** (`apps/server`): Fastify-API, OAuth 2.1 für MCP-Clients, MCP-Endpunkt `/mcp`, liefert die Web-UI aus. SQLite.
 - **Web-UI** (`apps/web`): Anfragen freigeben, Secrets, Tresore, Geräte, Audit-Log.
@@ -272,6 +274,8 @@ GitHub Actions (`.github/workflows/`):
   - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
   - manuell über „Run workflow“ (`workflow_dispatch`) – nur von `main` oder einem `v*`-Tag aus
   - Prerelease-Tags (`v1.0.0-rc.1`) bekommen nur `1.0.0-rc.1`, kein `X.Y`/`latest`
+- **Website** (`pages.yml`) – baut die Landingpage (`apps/site`, siehe dortige README) und veröffentlicht sie auf GitHub
+  Pages bei Pushes auf `main`, die `apps/site/**` ändern. Einmalig: Settings → Pages → Source: GitHub Actions.
 - **Dependabot** – wöchentliche Updates für Actions und npm (Minor/Patch gruppiert).
 
 Keine zusätzlichen Secrets nötig: Der Push nutzt das automatische `GITHUB_TOKEN` (`packages: write`).
@@ -320,3 +324,5 @@ aufnehmen.
 ## Lizenz
 
 Lizenziert unter der [Apache License, Version 2.0](LICENSE). Copyright 2026 Jens Köhler.
+
+Drittanbieter-Lizenzen: `THIRD_PARTY_NOTICES` im Docker-Image (`/app/THIRD_PARTY_NOTICES`) und neben dem CLI-Bundle (`/cli/THIRD_PARTY_NOTICES`, wird mit `asm.mjs` installiert); die Web-Oberfläche liefert ihre eigene unter `/THIRD_PARTY_NOTICES.txt` aus. Sie werden beim Build erzeugt.

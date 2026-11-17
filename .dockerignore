@@ -13,3 +13,4 @@ docker-compose*.yml
 secrets
 asm_master_key*
 **/asm_master_key*
+apps/site

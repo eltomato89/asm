@@ -1,0 +1,25 @@
+{
+  "name": "@asm/site",
+  "version": "0.4.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "screenshots": "node scripts/screenshots.ts",
+    "poster": "node scripts/poster.ts",
+    "verify": "node scripts/verify.ts"
+  },
+  "devDependencies": {
+    "@fontsource/geist-mono": "^5.3.0",
+    "@fontsource/geist-sans": "^5.3.0",
+    "@tailwindcss/vite": "^4.3.5",
+    "playwright": "1.65.1",
+    "sharp": "^0.34.5",
+    "tailwindcss": "^4.3.5",
+    "vite": "^8.3.8"
+  }
+}

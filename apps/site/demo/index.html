@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ASM demo</title>
+<!--
+  ASM demo animation: Claude Code requests a secret, the owner approves it on the phone, the CLI injects it.
+  Deterministic: render(t) draws the state at time t (seconds). Plays and loops in real time on its own;
+  ?t=<sec> freezes one frame, ?static=1 disables playback (used by render.mjs, which calls window.asmDemo.render).
+  Embed: an <iframe> or this file's markup; the stage scales to the width of its container.
+-->
+<style>
+@font-face { font-family: "Geist Sans"; font-weight: 400; font-display: block; src: url(fonts/geist-sans-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Geist Sans"; font-weight: 500; font-display: block; src: url(fonts/geist-sans-latin-500-normal.woff2) format("woff2"); }
+@font-face { font-family: "Geist Sans"; font-weight: 600; font-display: block; src: url(fonts/geist-sans-latin-600-normal.woff2) format("woff2"); }
+@font-face { font-family: "Geist Mono"; font-weight: 400; font-display: block; src: url(fonts/geist-mono-latin-400-normal.woff2) format("woff2"); }
+@font-face { font-family: "Geist Mono"; font-weight: 500; font-display: block; src: url(fonts/geist-mono-latin-500-normal.woff2) format("woff2"); }
+
+/* ASM tokens (apps/web/src/styles/tokens.css), light theme for the app, dark terminal from the inverse colours. */
+:root {
+  --bg: #f6f5f3; --surface: #ffffff; --sunken: #efedea; --line: #e3e0db; --line-strong: #cfcac2;
+  --text: #1c1917; --text-2: #57534e; --text-3: #736c64;
+  --amber: #a85a06; --amber-fill: #e8920f; --ok: #157a3f;
+  --desk: #e4e0da;
+  --term-bg: #1c1917; --term-bar: #24211e; --term-line: #3d3934;
+  --term-text: #edebe7; --term-2: #aaa49c; --term-3: #8d867d;
+  --term-amber: #f0b44c; --term-ok: #5dc58a; --term-user: #2a2724;
+  --sans: "Geist Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--desk); }
+body { font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+
+/* The stage is designed at 880 x 500 and scaled to its container. */
+.asm-demo { position: relative; width: 100%; aspect-ratio: 880 / 500; overflow: hidden; background: var(--desk); }
+.stage { position: absolute; left: 0; top: 0; width: 880px; height: 500px; transform-origin: 0 0; }
+
+/* ---------- Terminal ---------- */
+.term {
+  position: absolute; left: 20px; top: 14px; width: 548px; height: 472px;
+  background: var(--term-bg); border-radius: 10px; overflow: hidden;
+  box-shadow: 0 1px 2px rgba(28,25,23,.18), 0 18px 40px -16px rgba(28,25,23,.45);
+  color: var(--term-text); font-family: var(--mono); font-size: 12.5px; line-height: 19px;
+  font-feature-settings: "liga" 0;
+}
+.term-bar { height: 30px; display: flex; align-items: center; padding: 0 12px; background: var(--term-bar); border-bottom: 1px solid #2d2a26; }
+.term-bar .dots { display: flex; gap: 6px; }
+.term-bar .dots i { width: 10px; height: 10px; border-radius: 50%; background: #3d3934; display: block; }
+.term-bar .title { flex: 1; text-align: center; margin-right: 46px; font-family: var(--sans); font-size: 12px; color: var(--term-3); }
+.term-body { position: absolute; left: 0; right: 0; top: 30px; bottom: 0; padding: 14px 16px; }
+.log > div { white-space: pre; }
+.gap { height: 10px; }
+.gap.s { height: 6px; }
+.user { background: var(--term-user); margin: 0 -8px; padding: 4px 8px; border-radius: 4px; color: var(--term-text); }
+.user .p, .dim { color: var(--term-3); }
+.mid { color: var(--term-2); }
+.b { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--term-text); margin: 0 9px 1px 1px; vertical-align: middle; }
+.b.tool { background: var(--term-ok); }
+.b.done { background: var(--term-ok); }
+.name { font-weight: 500; }
+.amber { color: var(--term-amber); }
+.spin { width: 12px; height: 12px; vertical-align: -1px; margin-right: 2px; }
+.ok { color: var(--term-ok); }
+.key { color: var(--term-3); }
+.prompt {
+  position: absolute; left: 16px; right: 16px; bottom: 30px; height: 38px;
+  border: 1px solid var(--term-line); border-radius: 6px; padding: 0 12px;
+  display: flex; align-items: center; gap: 10px;
+}
+.prompt .p { color: var(--term-3); }
+.cursor { display: inline-block; width: 7.5px; height: 15px; background: var(--term-text); vertical-align: -3px; margin-left: 1px; }
+.hint { position: absolute; left: 30px; bottom: 9px; font-size: 11px; color: var(--term-3); font-family: var(--sans); }
+
+/* ---------- Phone ---------- */
+.phone {
+  position: absolute; left: 588px; top: 14px; width: 272px; height: 472px;
+  background: #292524; border-radius: 40px; padding: 8px;
+  box-shadow: inset 0 0 0 1px #44403c, 0 18px 40px -16px rgba(28,25,23,.5);
+}
+.screen { position: relative; width: 100%; height: 100%; border-radius: 32px; overflow: hidden; background: #2f2b28; }
+.island { position: absolute; z-index: 9; top: 9px; left: 50%; width: 74px; height: 21px; margin-left: -37px; border-radius: 11px; background: #0c0a09; }
+.status { position: absolute; z-index: 8; top: 10px; left: 26px; right: 22px; display: flex; justify-content: space-between; font-size: 12px; font-weight: 600; color: #f5f4f2; }
+.status .batt { width: 20px; height: 10px; border: 1.2px solid currentColor; border-radius: 3px; padding: 1px; opacity: .9; margin-top: 2px; }
+.status .batt i { display: block; height: 100%; width: 70%; background: currentColor; border-radius: 1px; }
+
+.lock { position: absolute; inset: 0; text-align: center; color: #f5f4f2; background: #35302c; }
+.lock .date { margin-top: 62px; font-size: 13px; font-weight: 500; opacity: .8; }
+.lock .clock { font-size: 64px; font-weight: 600; letter-spacing: -0.02em; line-height: 1; margin-top: 2px; }
+
+.banner {
+  position: absolute; left: 8px; right: 8px; top: 168px;
+  background: rgba(246,245,243,.96); color: var(--text); border-radius: 18px; padding: 11px 12px;
+  display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; text-align: left;
+}
+.app-icon { width: 34px; height: 34px; border-radius: 8px; background: var(--text); display: grid; place-items: center; }
+.app-icon svg { width: 18px; height: 18px; }
+.banner .row { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; line-height: 1.25; }
+.banner .row span { font-weight: 400; color: var(--text-3); font-size: 12px; }
+.banner .msg { font-size: 13px; line-height: 1.3; }
+
+.touch { position: absolute; z-index: 20; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(28,25,23,.28); border: 2px solid rgba(255,255,255,.75); pointer-events: none; }
+
+/* Approve page: mirrors apps/web (routes/approve.tsx, .consent / .approve styles). */
+.page { position: absolute; inset: 0; background: var(--bg); color: var(--text); padding: 40px 10px 0; }
+.page .status-dark { color: var(--text); }
+.consent { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; font-size: 13px; line-height: 1.5; }
+.consent-head { padding: 22px 16px 16px; text-align: center; }
+.approve-kind { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--amber); display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber-fill); }
+.consent h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.35; }
+.host { font-family: var(--mono); font-size: .9em; font-weight: 500; }
+.secret { font-family: var(--mono); font-size: .9em; font-weight: 500; padding: 1px 5px; border-radius: 4px; background: var(--sunken); }
+.proj { font-weight: 500; }
+.consent-sec { padding: 14px 16px; border-top: 1px solid var(--line); }
+.req-reason { margin: 0; font-style: italic; color: var(--text-2); }
+.req-reason .q { font-style: normal; color: var(--text-3); margin-right: 4px; }
+.req-via { margin: 10px 0 0; font-size: 12.5px; color: var(--text-2); display: flex; align-items: center; gap: 6px; }
+.req-via svg { width: 14px; height: 14px; color: var(--text-3); }
+.timebar { display: flex; align-items: center; gap: 10px; padding: 14px 16px 0; border-top: 1px solid var(--line); }
+.timebar .track { position: relative; flex: 1; height: 2px; background: var(--sunken); border-radius: 2px; overflow: hidden; }
+.timebar .fill { position: absolute; inset: 0 auto 0 0; background: var(--amber-fill); }
+.timebar .left { font-size: 12px; color: var(--text-3); white-space: nowrap; }
+.timebar .num { font-family: var(--mono); color: var(--amber); font-weight: 500; }
+.consent-actions { display: flex; gap: 8px; padding: 14px 16px 16px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; height: 36px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface); font: 500 12.5px var(--sans); color: var(--text); white-space: nowrap; }
+.btn.deny { flex: none; width: 58px; }
+.btn.primary { flex: 1; background: var(--text); border-color: var(--text); color: var(--bg); }
+
+.faceid { position: absolute; z-index: 15; left: 50%; top: 180px; width: 92px; height: 92px; margin-left: -46px; border-radius: 20px; background: rgba(41,37,36,.92); display: grid; place-items: center; color: #f5f4f2; }
+.faceid svg { width: 46px; height: 46px; }
+
+.result { padding: 34px 16px 30px; text-align: center; }
+.result h1 { font-size: 17px; display: inline-flex; align-items: center; gap: 8px; }
+.result h1 svg { width: 18px; height: 18px; color: var(--ok); }
+.result p { margin: 8px auto 0; font-size: 13px; color: var(--text-2); max-width: 26ch; }
+
+.fade { position: absolute; inset: 0; background: var(--desk); pointer-events: none; z-index: 50; }
+
+@media (prefers-reduced-motion: reduce) { .cursor { animation: none; } }
+</style>
+</head>
+<body>
+<div class="asm-demo" role="img" aria-label="Claude Code asks ASM for NPM_TOKEN. A push notification arrives on the phone, the owner approves with Face ID, and asm run injects the token into npm publish. The value never appears in the chat.">
+<div class="stage" id="stage">
+
+  <section class="term" aria-hidden="true">
+    <div class="term-bar"><div class="dots"><i></i><i></i><i></i></div><div class="title">my-app — Claude Code</div></div>
+    <div class="term-body">
+      <div class="log">
+        <div data-at="1.75" class="user"><span class="p">&gt; </span>deploy the release</div>
+        <div data-at="1.75" class="gap"></div>
+        <div data-at="2.2"><span class="b"></span>I'll publish v1.4.0 to npm.</div>
+        <div data-at="2.55" data-until="3.4">  <svg class="spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="#3d3934" stroke-width="2"/><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="#f0b44c" stroke-width="2" stroke-linecap="round"/></svg> <span class="mid">Logging in to registry.npmjs.org…</span></div>
+        <div data-at="3.4"><span class="dim">  ⎿ </span><span class="mid">Logging in to registry.npmjs.org…</span></div>
+        <div data-at="3.4" class="gap s"></div>
+        <div data-at="3.4"><span class="b"></span>Needs NPM_TOKEN — requesting it from ASM.</div>
+        <div data-at="3.4" class="gap"></div>
+        <div data-at="3.65"><span class="b tool"></span><span class="name">asm · request_secret</span> <span class="dim">(MCP)</span></div>
+        <div data-at="3.65"><span class="dim">  ⎿ </span><span class="key">secret </span> NPM_TOKEN</div>
+        <div data-at="3.65">     <span class="key">project</span> my-app</div>
+        <div data-at="3.65">     <span class="key">reason </span> "Publish v1.4.0 to npm"</div>
+        <div data-at="4.15" data-until="8.85" id="waiting">  <svg class="spin" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5" fill="none" stroke="#3d3934" stroke-width="2"/><path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" fill="none" stroke="#f0b44c" stroke-width="2" stroke-linecap="round"/></svg> <span class="mid">Waiting for approval…</span></div>
+        <div data-at="8.85">  <span class="ok">✓ Approved</span> <span class="dim">grant grt_7Kq2X, value not sent to the agent</span></div>
+        <div data-at="8.85" class="gap"></div>
+        <div data-at="9.45"><span class="b tool"></span><span class="name">Bash</span>(asm run --grant grt_7Kq2X -- npm publish)</div>
+        <div data-at="9.85"><span class="dim">  ⎿ </span><span class="mid">npm notice Publishing to registry.npmjs.org</span></div>
+        <div data-at="10.35">     + my-app@1.4.0</div>
+        <div data-at="10.35" class="gap"></div>
+        <div data-at="11.05"><span class="b"></span>Published my-app@1.4.0. asm injected NPM_TOKEN</div>
+        <div data-at="11.05">   into the npm process only. Its value never</div>
+        <div data-at="11.05">   appeared in this conversation.</div>
+      </div>
+      <div class="prompt"><span class="p">&gt;</span><span><span id="typed"></span><span class="cursor" id="cursor"></span></span></div>
+      <div class="hint">Claude Code</div>
+    </div>
+  </section>
+
+  <section class="phone" aria-hidden="true">
+    <div class="screen">
+      <div class="island"></div>
+      <div class="status" id="status"><span>9:41</span><span class="batt"><i></i></span></div>
+
+      <div class="lock" id="lock">
+        <div class="date">Tuesday, 17 November</div>
+        <div class="clock">9:41</div>
+        <div class="banner" id="banner">
+          <div class="app-icon"><svg viewBox="0 0 24 24" fill="none" stroke="#f6f5f3" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="#f6f5f3"/></svg></div>
+          <div><div class="row">ASM <span>now</span></div><div class="msg">New request waiting for approval</div></div>
+        </div>
+      </div>
+
+      <div class="page" id="page">
+        <div class="consent" id="card">
+          <div id="pending">
+            <div class="consent-head">
+              <p class="approve-kind"><span class="dot"></span>Access</p>
+              <h1><span class="host">Claude Code</span> wants <span class="secret">NPM_TOKEN</span> for <span class="proj">my-app</span>.</h1>
+            </div>
+            <div class="consent-sec">
+              <p class="req-reason"><span class="q">Reason:</span>Publish v1.4.0 to npm</p>
+              <p class="req-via"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>via CLI handoff</p>
+            </div>
+            <div class="timebar"><div class="track"><div class="fill" id="fill"></div></div><span class="left">expires in <span class="num" id="left">4:58</span></span></div>
+            <div class="consent-actions"><span class="btn deny">Deny</span><span class="btn primary" id="approveBtn">Approve with Face ID</span></div>
+          </div>
+          <div class="result" id="result">
+            <h1><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Approved</h1>
+            <p><span class="host">Claude Code</span> receives NPM_TOKEN. You can close this window.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="faceid" id="faceid">
+        <svg id="faceScan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><path d="M9 9h.01"/><path d="M15 9h.01"/></svg>
+        <svg id="faceOk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 12.5l3 3 5-6"/></svg>
+      </div>
+      <div class="touch" id="touch"></div>
+    </div>
+  </section>
+
+  <div class="fade" id="fade"></div>
+</div>
+</div>
+
+<script>
+(() => {
+  const DURATION = 14.4;
+  const TYPED = 'deploy the release';
+  const $ = (id) => document.getElementById(id);
+  const clamp = (x) => Math.max(0, Math.min(1, x));
+  const ramp = (t, a, b) => clamp((t - a) / (b - a));
+  const ease = (x) => 1 - Math.pow(1 - x, 3);
+  const lines = [...document.querySelectorAll('[data-at]')];
+  const spins = [...document.querySelectorAll('.spin')];
+  const el = {
+    typed: $('typed'), cursor: $('cursor'), lock: $('lock'), banner: $('banner'), page: $('page'),
+    pending: $('pending'), result: $('result'), fill: $('fill'), left: $('left'), btn: $('approveBtn'),
+    faceid: $('faceid'), faceScan: $('faceScan'), faceOk: $('faceOk'), touch: $('touch'), status: $('status'), fade: $('fade'),
+  };
+
+  /** Draws the state at time t (seconds, 0 ≤ t < DURATION). Pure function of t. */
+  function render(t) {
+    t = ((t % DURATION) + DURATION) % DURATION;
+
+    // Terminal: typing, then the transcript appears line by line.
+    const typeStart = 0.45, perChar = 0.06;
+    const n = t < 1.75 ? Math.max(0, Math.min(TYPED.length, Math.floor((t - typeStart) / perChar))) : 0;
+    el.typed.textContent = TYPED.slice(0, n);
+    const typing = t >= typeStart && t < typeStart + TYPED.length * perChar;
+    el.cursor.style.opacity = typing || Math.floor(t / 0.55) % 2 === 0 ? 1 : 0;
+    for (const line of lines) {
+      const at = +line.dataset.at, until = line.dataset.until ? +line.dataset.until : Infinity;
+      line.style.display = t >= at && t < until ? '' : 'none';
+    }
+    for (const s of spins) s.style.transform = `rotate(${(t * 400) % 360}deg)`;
+
+    // Phone: lock screen, push banner, tap, approve page, Face ID, result.
+    const bannerIn = ease(ramp(t, 4.65, 5.05));
+    el.banner.style.opacity = bannerIn;
+    el.banner.style.transform = `translateY(${(1 - bannerIn) * -40}px) scale(${t >= 5.65 && t < 5.9 ? 0.97 : 1})`;
+
+    const pageIn = ease(ramp(t, 5.85, 6.25));
+    el.page.style.transform = `translateY(${(1 - pageIn) * 100}%)`;
+    el.page.style.visibility = pageIn > 0 ? 'visible' : 'hidden';
+    el.status.style.color = pageIn > 0.6 ? '#1c1917' : '#f5f4f2';
+
+    const total = 298, shown = 5.85;
+    const left = Math.max(0, total - Math.max(0, Math.floor(t - shown)));
+    el.left.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+    el.fill.style.width = `${(Math.max(0, total - Math.max(0, t - shown)) / 300) * 100}%`;
+
+    const pressed = t >= 7.75 && t < 8;
+    el.btn.style.opacity = pressed ? 0.85 : 1;
+
+    const face = t >= 8 && t < 8.75;
+    el.faceid.style.display = face ? 'grid' : 'none';
+    el.faceid.style.opacity = face ? Math.min(ramp(t, 8, 8.1), 1 - ramp(t, 8.65, 8.75)) : 0;
+    el.faceScan.style.display = t < 8.35 ? '' : 'none';
+    el.faceOk.style.display = t >= 8.35 ? '' : 'none';
+
+    const done = t >= 8.65;
+    el.pending.style.display = done ? 'none' : '';
+    el.result.style.display = done ? '' : 'none';
+    el.result.style.opacity = ramp(t, 8.65, 8.85);
+
+    // Touch indicator: on the banner, then on "Approve with Face ID".
+    let touch = null;
+    if (t >= 5.55 && t < 5.9) touch = { x: 196, y: 222, a: ramp(t, 5.55, 5.65) * (1 - ramp(t, 5.8, 5.9)) };
+    else if (t >= 7.65 && t < 8.05) touch = { x: 167, y: 298, a: ramp(t, 7.65, 7.75) * (1 - ramp(t, 7.95, 8.05)) };
+    el.touch.style.display = touch ? '' : 'none';
+    if (touch) { el.touch.style.left = touch.x + 'px'; el.touch.style.top = touch.y + 'px'; el.touch.style.opacity = touch.a; }
+
+    // Loop seam: fade out at the end, fade in at the start.
+    el.fade.style.opacity = Math.max(ramp(t, DURATION - 0.45, DURATION - 0.1), 1 - ramp(t, 0, 0.3));
+  }
+
+  // Scale the 880 x 500 stage to the container width.
+  const root = document.querySelector('.asm-demo'), stage = $('stage');
+  const fit = () => { stage.style.transform = `scale(${root.clientWidth / 880})`; };
+  new ResizeObserver(fit).observe(root);
+  fit();
+
+  const params = new URLSearchParams(location.search);
+  window.asmDemo = { render, duration: DURATION };
+  if (params.has('t')) { render(+params.get('t')); return; }
+  if (params.has('static')) { render(0.5); return; }
+
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced) { render(7.0); return; } // a single frame: request waiting, approve page open
+  let start = null;
+  const tick = (now) => {
+    start ??= now;
+    if (!document.hidden) render((now - start) / 1000);
+    requestAnimationFrame(tick);
+  };
+  document.fonts.ready.then(() => requestAnimationFrame(tick));
+})();
+</script>
+</body>
+</html>

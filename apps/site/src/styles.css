@@ -1,0 +1,138 @@
+/*
+ * ASM website. Colours, fonts and radii mirror the web UI (apps/web/src/styles/tokens.css): warm stone
+ * neutrals, amber as the only signal colour, green/red only for outcomes, Geist Sans/Mono, 6 px radius,
+ * 1 px hairlines. The theme follows prefers-color-scheme.
+ */
+@import "@fontsource/geist-sans/latin-400.css";
+@import "@fontsource/geist-sans/latin-500.css";
+@import "@fontsource/geist-sans/latin-600.css";
+@import "@fontsource/geist-mono/latin-400.css";
+@import "@fontsource/geist-mono/latin-500.css";
+@import "tailwindcss";
+
+@theme inline {
+  --color-*: initial;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--sunken);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-amber: var(--amber);
+  --color-amber-fill: var(--amber-fill);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-line: var(--amber-line);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-danger: var(--danger);
+  --color-inverse-bg: var(--inverse-bg);
+  --color-inverse-text: var(--inverse-text);
+  --color-term: var(--term);
+  --color-term-text: var(--term-text);
+  --color-term-dim: var(--term-dim);
+  --color-white: #fff;
+  --color-transparent: transparent;
+  --font-sans: "Geist Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+:root {
+  color-scheme: light;
+  --bg: #f6f5f3;
+  --surface: #ffffff;
+  --sunken: #efedea;
+  --line: #e3e0db;
+  --line-strong: #cfcac2;
+  --text: #1c1917;
+  --text-2: #57534e;
+  --text-3: #736c64;
+  --amber: #a85a06;
+  --amber-fill: #e8920f;
+  --amber-soft: #fbefd9;
+  --amber-line: #efd4a4;
+  --ok: #157a3f;
+  --ok-soft: #e3f2e8;
+  --danger: #b4231b;
+  --inverse-bg: #1c1917;
+  --inverse-text: #f5f4f2;
+  /* Terminal and code blocks stay dark in both themes, like the demo. */
+  --term: #1c1a18;
+  --term-text: #ebe8e3;
+  --term-dim: #9a938a;
+  --shadow-frame: 0 1px 2px rgba(28, 25, 23, .06), 0 24px 56px -20px rgba(28, 25, 23, .28);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #141311; --surface: #1b1a18; --sunken: #23211e;
+    --line: #2d2a26; --line-strong: #3d3934;
+    --text: #edebe7; --text-2: #aaa49c; --text-3: #8d867d;
+    --amber: #f0b44c; --amber-fill: #e39a1b; --amber-soft: #2e2416; --amber-line: #5a4320;
+    --ok: #5dc58a; --ok-soft: #17291e; --danger: #f07a6e;
+    --inverse-bg: #edebe7; --inverse-text: #1c1917;
+    --term: #0f0e0d;
+    --shadow-frame: 0 1px 2px rgba(0, 0, 0, .4), 0 24px 56px -20px rgba(0, 0, 0, .7);
+  }
+}
+
+@layer base {
+  * { @apply border-line; }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+    scroll-padding-top: 4.5rem;
+  }
+  body { @apply bg-bg text-text text-[15px] leading-relaxed; }
+  h1, h2, h3 { text-wrap: balance; }
+  h1, h2 { letter-spacing: -0.025em; }
+  p, li, dd { text-wrap: pretty; }
+  ::selection { background: color-mix(in srgb, var(--amber-fill) 30%, transparent); }
+  :focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-radius: 4px; }
+  code, kbd { font-family: var(--font-mono); font-size: 0.9em; }
+}
+
+@layer components {
+  .container-site { @apply mx-auto w-full max-w-6xl px-4 sm:px-6; }
+  .section { @apply py-16 sm:py-24; }
+  .h2 { @apply text-3xl font-semibold sm:text-[2.5rem] sm:leading-[1.15]; }
+  .lead { @apply mt-4 max-w-[38rem] text-base text-text-2 sm:text-lg; }
+  .link { @apply text-text underline decoration-line-strong decoration-1 underline-offset-3 hover:decoration-text; }
+
+  .btn {
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-4 text-[15px] font-medium transition-colors duration-150;
+  }
+  .btn-primary { @apply bg-inverse-bg text-inverse-text hover:opacity-90; }
+  .btn-secondary { @apply border border-line-strong bg-surface text-text hover:bg-sunken; }
+
+  /* Env names and IDs, like the chips in the web UI. */
+  .tok { @apply rounded-sm bg-sunken px-1.5 py-px font-mono text-[0.86em] text-text; }
+
+  kbd.key {
+    @apply inline-flex h-5 min-w-5 items-center justify-center rounded-sm border border-line-strong px-1 text-[11px] leading-none text-text-2;
+  }
+
+  /* Screenshot frame: the web UI at 1440×900, cropped by the frame. */
+  .shot { @apply overflow-hidden rounded-lg border bg-surface; box-shadow: var(--shadow-frame); }
+  .shot img { @apply block h-auto w-full; }
+
+  .code-block { @apply relative min-w-0 overflow-hidden rounded-lg bg-term text-term-text; }
+  .code-block pre { @apply overflow-x-auto p-4 font-mono text-[13px] leading-6; }
+  .code-block:has(.copy-btn) pre { @apply pt-11 sm:pt-4 sm:pr-20; }
+  .code-block .c { color: var(--term-dim); }
+  .copy-btn {
+    @apply absolute top-2.5 right-2.5 rounded-sm border border-white/15 px-2 py-0.5 font-sans text-xs text-term-text hover:bg-white/10;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

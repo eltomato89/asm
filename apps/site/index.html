@@ -1,0 +1,361 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ASM: secrets for AI agents, approved by you</title>
+    <meta name="description" content="ASM (Agent Secrets Manager) is a self-hosted secrets manager for Claude Code and other MCP clients. Agents request secrets with a project and a reason, you approve each request, and the value goes to the process, not to the model." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f6f5f3" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#141311" media="(prefers-color-scheme: dark)" />
+    <meta property="og:title" content="ASM: secrets for AI agents, approved by you" />
+    <meta property="og:description" content="A self-hosted secrets manager for Claude Code and other MCP clients. You approve every request; the value goes to the process, not to the model." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
+    <script type="module" src="./src/main.ts"></script>
+  </head>
+  <body>
+    <a href="#main" class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2">Skip to content</a>
+
+    <header class="sticky top-0 z-40 border-b bg-bg/85 backdrop-blur supports-[backdrop-filter]:bg-bg/75">
+      <nav class="container-site flex h-14 items-center justify-between gap-4" aria-label="Main">
+        <a href="#top" class="flex items-center gap-2.5 font-semibold">
+          <img src="%BASE_URL%favicon.svg" alt="" width="26" height="26" class="size-[26px] dark:ring-1 dark:ring-line-strong dark:rounded-[5px]" />
+          <span class="text-[16px] tracking-tight">ASM</span>
+          <span class="hidden text-[14px] font-normal text-text-3 sm:inline">Agent Secrets Manager</span>
+        </a>
+        <ul class="hidden items-center gap-6 text-sm text-text-2 md:flex">
+          <li><a class="hover:text-text" href="#how">How it works</a></li>
+          <li><a class="hover:text-text" href="#features">Features</a></li>
+          <li><a class="hover:text-text" href="#security">Security</a></li>
+          <li><a class="hover:text-text" href="#quick-start">Quick start</a></li>
+        </ul>
+        <a class="btn btn-secondary min-h-9 px-3 text-sm" href="https://github.com/eltomato89/asm">
+          <svg viewBox="0 0 24 24" class="size-4" aria-hidden="true" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a10.9 10.9 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </header>
+
+    <main id="main">
+      <!-- Hero -->
+      <section id="top" class="pt-14 pb-16 sm:pt-20 sm:pb-24" aria-labelledby="hero-title">
+        <div class="container-site">
+          <div>
+            <h1 id="hero-title" class="max-w-[60rem] text-[2.5rem] leading-[1.08] font-semibold sm:text-[3.75rem]">Let your agents use secrets without ever seeing them.</h1>
+            <p class="mt-6 max-w-[38rem] text-base text-text-2 sm:text-lg">
+              ASM is a self-hosted secrets manager for Claude Code and other MCP clients. An agent asks for a secret
+              with a project and a reason, you approve it, and the value goes straight into the process the agent
+              starts. It never shows up in the conversation.
+            </p>
+            <div class="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
+              <a class="btn btn-primary" href="#quick-start">Get started</a>
+              <a class="btn btn-secondary" href="https://github.com/eltomato89/asm">
+                <svg viewBox="0 0 24 24" class="size-4" aria-hidden="true" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a10.9 10.9 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+                GitHub
+              </a>
+            </div>
+            <p class="mt-4 text-[13px] text-text-3">Runs in one Docker container on your own server. Open source under the Apache License 2.0.</p>
+          </div>
+
+          <figure class="mt-12 overflow-hidden rounded-xl border bg-[#e9e6e1] sm:mt-16" style="box-shadow: var(--shadow-frame)">
+            <video data-demo muted loop playsinline autoplay preload="auto" width="1760" height="1000"
+              poster="./src/assets/demo-poster.webp"
+              aria-label="Claude Code asks ASM for NPM_TOKEN with the project my-app and the reason 'Publish v1.4.0 to npm'. The request is approved on a phone, then asm run injects the token into npm publish. The value never appears in the conversation."
+              class="block aspect-[1760/1000] h-auto w-full">
+              <source src="./src/assets/demo.mp4" type="video/mp4" />
+              <source src="./src/assets/demo.webm" type="video/webm" />
+            </video>
+            <figcaption class="sr-only">Demo: an agent requests a secret, you approve it on your phone, and the CLI hands it to the process.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- How it works -->
+      <section id="how" class="section border-t bg-surface" aria-labelledby="how-title">
+        <div class="container-site">
+          <h2 id="how-title" class="h2">How it works</h2>
+          <p class="lead">Three steps between an agent needing a token and a command that has it. You decide at step two.</p>
+
+          <ol class="mt-12 grid gap-10 lg:grid-cols-3 lg:gap-x-8 lg:gap-y-0 [&>li]:min-w-0">
+            <li class="lg:row-span-3 lg:grid lg:grid-rows-subgrid">
+              <div class="flex items-baseline gap-3 border-t-2 border-text pt-4">
+                <span class="font-mono text-sm text-text-3">1</span>
+                <h3 class="text-lg font-semibold">The agent asks</h3>
+              </div>
+              <p class="mt-2 text-text-2">Claude Code finds the secret through MCP and requests it with the project it is working on and a concrete reason.</p>
+              <div class="code-block mt-5 self-start" aria-label="Example MCP call">
+                <pre><code><span class="text-ok">●</span> asm · request_secret <span class="c">(MCP)</span>
+  <span class="c">secret </span> NPM_TOKEN
+  <span class="c">project</span> my-app
+  <span class="c">reason </span> "Publish v1.4.0 to npm"
+  <span class="c">Waiting for approval…</span></code></pre>
+              </div>
+            </li>
+
+            <li class="lg:row-span-3 lg:grid lg:grid-rows-subgrid">
+              <div class="flex items-baseline gap-3 border-t-2 border-amber-fill pt-4">
+                <span class="font-mono text-sm text-text-3">2</span>
+                <h3 class="text-lg font-semibold">You approve</h3>
+              </div>
+              <p class="mt-2 text-text-2">The request shows up live in the browser. Press <kbd class="key">A</kbd> or <kbd class="key">D</kbd>, or answer the push notification on your phone.</p>
+              <div class="mt-5 rounded-lg border border-l-[3px] border-l-amber-fill bg-bg p-4 lg:mt-auto" aria-label="Example request card">
+                <p class="flex items-center gap-2 text-[13px]"><span class="size-1.5 rounded-full bg-amber-fill" aria-hidden="true"></span><span class="font-medium text-amber">Access</span><span class="text-text-3">received 11:00 AM</span></p>
+                <p class="mt-2 text-[15px]"><span class="font-mono text-[14px]">claude@macbook</span> wants <span class="tok">NPM_TOKEN</span> for my-app.</p>
+                <p class="mt-1 text-sm text-text-2">Reason: <em>Publish v1.4.0 to npm</em></p>
+                <div class="mt-4 flex justify-end gap-2" aria-hidden="true">
+                  <span class="inline-flex h-8 items-center gap-2 rounded-md border border-line-strong bg-surface px-3 text-sm">Deny <kbd class="key">D</kbd></span>
+                  <span class="inline-flex h-8 items-center gap-2 rounded-md bg-inverse-bg px-3 text-sm text-inverse-text">Approve <kbd class="key border-inverse-text/40 text-inverse-text">A</kbd></span>
+                </div>
+              </div>
+            </li>
+
+            <li class="lg:row-span-3 lg:grid lg:grid-rows-subgrid">
+              <div class="flex items-baseline gap-3 border-t-2 border-ok pt-4">
+                <span class="font-mono text-sm text-text-3">3</span>
+                <h3 class="text-lg font-semibold">The CLI hands it over</h3>
+              </div>
+              <p class="mt-2 text-text-2">The agent only gets a one-time grant. <code class="tok">asm run</code> redeems it and sets the value as an environment variable for that one process.</p>
+              <div class="code-block mt-5 self-start" aria-label="Example asm run command">
+                <pre><code><span class="c">$</span> asm run --grant grt_7Kq2X -- npm publish
+<span class="c">npm notice Publishing to registry.npmjs.org</span>
++ my-app@1.4.0
+<span class="text-ok">✓</span> <span class="c">NPM_TOKEN was set for npm only</span></code></pre>
+              </div>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Features -->
+      <section id="features" class="section border-t" aria-labelledby="features-title">
+        <div class="container-site">
+          <h2 id="features-title" class="h2">Built around the approval</h2>
+          <p class="lead">A web UI for requests, secrets and the audit log, an MCP endpoint for agents, and a CLI that runs your commands.</p>
+
+          <div class="mt-14 grid items-center gap-8 lg:grid-cols-[4fr_8fr] lg:gap-12">
+            <div>
+              <h3 class="text-2xl font-semibold tracking-tight">Every request waits for you.</h3>
+              <p class="mt-3 text-text-2">Requests arrive live with the device, the project and the reason. Changes an agent proposes to a secret wait the same way. Anything you leave unanswered expires after five minutes.</p>
+              <p class="mt-3 text-text-2">Working through a long task? Auto mode approves for a limited time and only for the vaults you pick, and every automatic approval lands in the audit log.</p>
+            </div>
+            <figure class="shot">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="./src/assets/screenshots/requests-dark.webp" />
+                <img src="./src/assets/screenshots/requests-light.webp" width="2400" height="1500" loading="lazy" decoding="async"
+                  alt="The ASM requests page with two open requests: claude@build-01 wants to change CLOUDFLARE_API_TOKEN, claude@macbook wants STRIPE_SECRET_KEY for shop-api. Each has Deny and Approve buttons and an expiry timer." />
+              </picture>
+            </figure>
+          </div>
+
+          <div class="mt-20 grid items-center gap-8 lg:grid-cols-[8fr_4fr] lg:gap-12">
+            <div class="lg:order-2">
+              <h3 class="text-2xl font-semibold tracking-tight">Vaults for you and your team.</h3>
+              <p class="mt-3 text-text-2">Everyone has a personal vault, and you can share vaults with other people on the same server. Every change creates a new version with who made it, for which project and why; older values stay viewable and can be restored.</p>
+              <p class="mt-3 text-text-2">Agents can create secrets and archive them with a reason. They can't delete anything, and changing a value needs your approval.</p>
+            </div>
+            <figure class="shot lg:order-1">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="./src/assets/screenshots/secrets-dark.webp" />
+                <img src="./src/assets/screenshots/secrets-light.webp" width="2400" height="1500" loading="lazy" decoding="async"
+                  alt="The secrets list of the shared vault Shop with DATABASE_URL, STRIPE_SECRET_KEY, REDIS_URL and others; the details panel of DATABASE_URL is open with the masked value." />
+              </picture>
+            </figure>
+          </div>
+
+          <div class="mt-20 grid items-center gap-8 lg:grid-cols-[4fr_8fr] lg:gap-12">
+            <div>
+              <h3 class="text-2xl font-semibold tracking-tight">An audit log you can check.</h3>
+              <p class="mt-3 text-text-2">Every request, decision and change is recorded with device, project and reason. Each entry contains the hash of the previous one, so edited or deleted entries show up as a broken chain.</p>
+              <p class="mt-3 text-text-2">Filter by device, secret, project or event, and export the log as CSV.</p>
+            </div>
+            <figure class="shot">
+              <picture>
+                <source media="(prefers-color-scheme: dark)" srcset="./src/assets/screenshots/audit-dark.webp" />
+                <img src="./src/assets/screenshots/audit-light.webp" width="2400" height="1500" loading="lazy" decoding="async"
+                  alt="The ASM audit log showing 'Chain intact' and an expanded request.approved entry with project, reason, device, entry hash and previous hash." />
+              </picture>
+            </figure>
+          </div>
+
+          <ul class="mt-20 grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-4">
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">One-time grants</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">An approval gives the agent a grant ID, not the value. Grants are valid for 15 minutes and, by default, for a single use.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Auto mode</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">Approves automatically for a limited time (30 minutes by default) and only for the vaults you select.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Approve from your phone</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">A push notification opens a small approval page; approve with Face ID. Only that page needs to be reachable from outside.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Passkeys</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">Sign in with a passkey or a password. Revealing a value or pairing a device needs a sign-in from the last 10 minutes.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Devices you control</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">Every Claude Code or CLI pairing is a device you approve in the browser and can revoke at any time.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Several users</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">Admins add accounts and can deactivate them, which signs the person out and revokes all of their devices.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Self-hosted with Docker</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">One container, one SQLite database, your master key. No external service involved.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">English and German</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">The web UI follows your browser language. Switch it any time under Settings.</p>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Security model -->
+      <section id="security" class="section border-t bg-surface" aria-labelledby="security-title">
+        <div class="container-site">
+          <h2 id="security-title" class="h2">The value stays out of the conversation</h2>
+          <p class="lead">With the default CLI delivery, the model never sees the secret. That keeps it out of the transcript, out of logs and away from the model provider.</p>
+
+          <div class="mt-10 grid overflow-hidden rounded-lg border md:grid-cols-2">
+            <figure class="min-w-0 border-b p-5 md:border-r md:border-b-0 sm:p-6">
+              <figcaption class="text-sm font-medium">What the agent receives</figcaption>
+              <pre class="mt-3 overflow-x-auto font-mono text-[13px] leading-6 text-text-2"><code>status     <span class="text-text">approved</span>
+grant_id   <span class="text-text">grt_01M7MFA73EMVYEDYZ7XRJ2RN0G</span>
+run        <span class="text-text">asm run --grant &lt;id&gt; -- &lt;command&gt;</span></code></pre>
+            </figure>
+            <figure class="min-w-0 p-5 sm:p-6">
+              <figcaption class="text-sm font-medium">What the process receives</figcaption>
+              <pre class="mt-3 overflow-x-auto font-mono text-[13px] leading-6 text-text-2"><code><span class="text-text">NPM_TOKEN</span>=npm_••••••••••••••••••••••••
+<span class="text-text-3"># set for this one process only,</span>
+<span class="text-text-3"># never written to the transcript</span></code></pre>
+            </figure>
+          </div>
+
+          <dl class="mt-12 grid gap-x-12 gap-y-7 md:grid-cols-2">
+            <div>
+              <dt class="font-semibold">Plaintext is opt-in, per secret</dt>
+              <dd class="mt-1 text-text-2">An agent can only get a value in plain text if you allow it on that secret. It is off by default, and agents can never change the setting.</dd>
+            </div>
+            <div>
+              <dt class="font-semibold">Every request needs a decision</dt>
+              <dd class="mt-1 text-text-2">Reads and changes wait for you and expire after five minutes. Auto mode is the only exception, limited in time and to the vaults you choose.</dd>
+            </div>
+            <div>
+              <dt class="font-semibold">Archive instead of delete</dt>
+              <dd class="mt-1 text-text-2">Agents can archive a secret with a reason, never delete or restore it. Archived secrets can't be read or changed until a person restores them.</dd>
+            </div>
+            <div>
+              <dt class="font-semibold">Encrypted per secret</dt>
+              <dd class="mt-1 text-text-2">AES-256-GCM with a separate key for each secret, encrypted with your master key. Keep the master key apart from the data.</dd>
+            </div>
+            <div>
+              <dt class="font-semibold">Revocable devices</dt>
+              <dd class="mt-1 text-text-2">Refresh tokens rotate, and reusing an old one locks the device.</dd>
+            </div>
+            <div>
+              <dt class="font-semibold">Tamper-evident audit log</dt>
+              <dd class="mt-1 text-text-2">A hash chain detects modified or deleted entries. Export it regularly to also catch entries cut off at the end.</dd>
+            </div>
+          </dl>
+          <p class="mt-10 text-sm text-text-2">The details are in the <a class="link" href="https://github.com/eltomato89/asm#security-model">security model</a> in the README.</p>
+        </div>
+      </section>
+
+      <!-- Quick start -->
+      <section id="quick-start" class="section border-t" aria-labelledby="quick-start-title">
+        <div class="container-site">
+          <h2 id="quick-start-title" class="h2">Quick start</h2>
+          <p class="lead">You need a server with Docker and, for passkeys and push, an HTTPS domain behind a reverse proxy.</p>
+
+          <ol class="mt-12 border-b">
+            <li class="grid gap-x-10 gap-y-4 border-t py-8 md:grid-cols-[2fr_3fr] [&>*]:min-w-0">
+              <div>
+                <h3 class="text-lg font-semibold"><span class="mr-2 font-mono text-sm font-normal text-text-3">1</span>Build the image and create the master key</h3>
+                <p class="mt-2 text-text-2">Back the key up separately from the data. Without it, all secrets are lost.</p>
+              </div>
+              <figure class="code-block">
+                <button type="button" class="copy-btn" data-copy hidden>Copy</button>
+                <pre><code>git clone https://github.com/eltomato89/asm.git &amp;&amp; cd asm
+docker build -t asm .
+
+mkdir -p secrets &amp;&amp; chmod 700 secrets
+docker run --rm asm node apps/server/dist/scripts/generate-key.js \
+  &gt; secrets/asm_master_key
+chmod 600 secrets/asm_master_key
+sudo chown 1000:1000 secrets/asm_master_key</code></pre>
+              </figure>
+            </li>
+            <li class="grid gap-x-10 gap-y-4 border-t py-8 md:grid-cols-[2fr_3fr] [&>*]:min-w-0">
+              <div>
+                <h3 class="text-lg font-semibold"><span class="mr-2 font-mono text-sm font-normal text-text-3">2</span>Start it and create the admin account</h3>
+                <p class="mt-2 text-text-2">Set <code class="tok">ASM_PUBLIC_URL</code> in <code class="tok">docker-compose.example.yml</code> to the address you'll reach ASM under, then start it.</p>
+                <p class="mt-2 text-text-2">Open the address, enter the setup token from the log and create the first account. Add a passkey and more users under Settings.</p>
+              </div>
+              <figure class="code-block self-start">
+                <button type="button" class="copy-btn" data-copy hidden>Copy</button>
+                <pre><code>docker compose -f docker-compose.example.yml up -d
+docker compose -f docker-compose.example.yml logs asm \
+  | grep "ASM setup token"</code></pre>
+              </figure>
+            </li>
+            <li class="grid gap-x-10 gap-y-4 border-t py-8 md:grid-cols-[2fr_3fr] [&>*]:min-w-0">
+              <div>
+                <h3 class="text-lg font-semibold"><span class="mr-2 font-mono text-sm font-normal text-text-3">3</span>Connect Claude Code</h3>
+                <p class="mt-2 text-text-2">On first use, Claude Code opens the browser: sign in, check the pairing and approve it. Claude can then search, request, create, change and archive secrets.</p>
+              </div>
+              <figure class="code-block self-start">
+                <button type="button" class="copy-btn" data-copy hidden>Copy</button>
+                <pre><code>claude mcp add --transport http asm https://asm.example.com/mcp</code></pre>
+              </figure>
+            </li>
+            <li class="grid gap-x-10 gap-y-4 border-t py-8 md:grid-cols-[2fr_3fr] [&>*]:min-w-0">
+              <div>
+                <h3 class="text-lg font-semibold"><span class="mr-2 font-mono text-sm font-normal text-text-3">4</span>Install the CLI</h3>
+                <p class="mt-2 text-text-2">Straight from your own server, hash-verified, no sudo. Needs Node.js 22.12 or later.</p>
+              </div>
+              <figure class="code-block self-start">
+                <button type="button" class="copy-btn" data-copy hidden>Copy</button>
+                <pre><code>curl -fsSL https://asm.example.com/cli/install.sh | sh
+asm login https://asm.example.com</code></pre>
+              </figure>
+            </li>
+          </ol>
+
+          <div class="mt-12 grid gap-x-10 gap-y-3 md:grid-cols-[2fr_3fr]">
+            <h3 class="text-lg font-semibold">Before you rely on it</h3>
+            <div class="text-text-2">
+              <p>ASM v1 runs as a single instance, project names are shared by all users of a server, and the audit hash chain can't tell when the newest entries were cut off. Read the
+                <a class="link" href="https://github.com/eltomato89/asm#limitations-v1">limitations</a>, and see the README for
+                <a class="link" href="https://github.com/eltomato89/asm#reverse-proxy">reverse proxy setup</a>,
+                <a class="link" href="https://github.com/eltomato89/asm#push-approval-from-your-iphone">push approval</a> and
+                <a class="link" href="https://github.com/eltomato89/asm#backup">backups</a>.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t bg-surface">
+      <div class="container-site flex flex-col gap-6 py-10 text-sm text-text-2 sm:flex-row sm:items-center sm:justify-between">
+        <div class="flex items-center gap-2.5">
+          <img src="%BASE_URL%favicon.svg" alt="" width="22" height="22" class="size-[22px]" />
+          <span>© <span data-year>2026</span> Jens Köhler. Licensed under the <a class="link" href="https://github.com/eltomato89/asm/blob/main/LICENSE">Apache License 2.0</a>.</span>
+        </div>
+        <nav aria-label="Footer">
+          <ul class="flex flex-wrap gap-x-5 gap-y-2">
+            <li><a class="hover:text-text" href="https://github.com/eltomato89/asm">GitHub</a></li>
+            <li><a class="hover:text-text" href="https://github.com/eltomato89/asm#readme">README</a></li>
+            <li><a class="hover:text-text" href="https://github.com/eltomato89/asm/blob/main/README.de.md" hreflang="de">Deutsch</a></li>
+            <li><a class="hover:text-text" href="https://github.com/eltomato89/asm/releases">Releases</a></li>
+          </ul>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>
