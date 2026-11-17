@@ -41,7 +41,7 @@ const result = await build({
   define: { __ASM_VERSION__: JSON.stringify(version) },
   // src/index.ts already starts with the shebang (esbuild keeps it on the first line).
   // CommonJS dependencies (commander) call require() for Node built-ins; ESM output needs a real require.
-  banner: { js: "import { createRequire as __asmCreateRequire } from 'node:module';\nconst require = __asmCreateRequire(import.meta.url);" },
+  banner: { js: "// ASM CLI. Copyright 2026 Jens Köhler. SPDX-License-Identifier: Apache-2.0\nimport { createRequire as __asmCreateRequire } from 'node:module';\nconst require = __asmCreateRequire(import.meta.url);" },
   legalComments: 'none',
   minify: false,
   logLevel: 'warning',

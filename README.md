@@ -316,3 +316,7 @@ speeds up subsequent builds). For arm64, add it to `platforms` in `docker.yml` a
   log, but not the deletion of the *last* entries: anyone with write access to the database can cut off the end
   without the chain check in the audit log noticing. For tamper-evident records, export the log regularly
   (CSV) or record the latest hash externally.
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE). Copyright 2026 Jens Köhler.

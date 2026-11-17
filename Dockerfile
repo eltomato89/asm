@@ -25,6 +25,8 @@ ENV NODE_ENV=production \
     PORT=8080 \
     ASM_CLI_DIR=/app/cli
 WORKDIR /app
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+COPY LICENSE NOTICE /app/
 # The server serves the web UI from apps/web/dist (resolved relative to apps/server/dist/web/static.js).
 COPY --from=build /out apps/server
 COPY --from=build /src/apps/web/dist apps/web/dist

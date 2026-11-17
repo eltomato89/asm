@@ -316,3 +316,7 @@ aufnehmen.
   Logs, aber nicht das Löschen der *letzten* Einträge: Wer Schreibzugriff auf die Datenbank hat, kann das Ende
   abschneiden, ohne dass die Kettenprüfung im Audit-Log anschlägt. Für Revisionssicherheit das Log regelmäßig exportieren
   (CSV) oder den letzten Hash extern festhalten.
+
+## Lizenz
+
+Lizenziert unter der [Apache License, Version 2.0](LICENSE). Copyright 2026 Jens Köhler.
