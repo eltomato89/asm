@@ -18,3 +18,18 @@ jobs:
       - run: pnpm -r test
       - run: pnpm --filter @asm/web build
       - run: pnpm --filter @asm/cli bundle
+
+  # The CLI (and its single-file bundle) must keep running on Node 22 while the server targets Node 24.
+  cli-node22:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+        with:
+          node-version: 22
+      - run: node --version
+      - run: pnpm --filter @asm/shared build
+      - run: pnpm --filter @asm/cli test
+      - run: pnpm --filter @asm/cli bundle
+      - run: node apps/cli/dist-bundle/asm.mjs --version
