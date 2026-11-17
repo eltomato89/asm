@@ -264,7 +264,7 @@ GitHub Actions (`.github/workflows/`):
 - **CI** (`ci.yml`) – bei jedem Push auf `main` und jedem Pull Request: Typecheck, Unit-Tests, Web-Build,
   CLI-Bundle, danach Playwright-e2e (Report/Traces als Artefakt bei Fehlern). Neuere PR-Pushes brechen
   laufende Runs ab.
-- **Docker** (`docker.yml`) – baut `ghcr.io/eltomato89/asm` für `linux/amd64` und `linux/arm64` und pusht in die
+- **Docker** (`docker.yml`) – baut `ghcr.io/eltomato89/asm` für `linux/amd64` und pusht in die
   GitHub Container Registry:
   - nach erfolgreicher CI auf `main` → `edge` und `sha-<kurz>`
   - bei Tag `vX.Y.Z` (Tests laufen vorher im selben Workflow) → `X.Y.Z`, `X.Y`, `latest`
@@ -292,8 +292,9 @@ Release:
 git tag v0.3.0 && git push origin v0.3.0
 ```
 
-Hinweis: Actions-Minuten sind bei privaten Repos begrenzt; der arm64-Build läuft unter QEMU-Emulation und ist
-deutlich langsamer als amd64 (Build-Cache über `type=gha` hilft bei Folge-Builds).
+Hinweis: Actions-Minuten sind bei privaten Repos begrenzt; gebaut wird nur `linux/amd64` (Build-Cache über `type=gha`
+beschleunigt Folge-Builds). Für arm64 `platforms` in `docker.yml` ergänzen und `docker/setup-qemu-action` wieder
+aufnehmen.
 
 ## Backup
 
