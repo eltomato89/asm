@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { ADMIN, E2E_LOG_FILE, E2E_ORIGIN } from './env';
@@ -90,4 +90,68 @@ export async function callTool(request: APIRequestContext, token: string, name: 
   const payload = JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
   expect(body.result.isError, JSON.stringify(payload)).toBeFalsy();
   return payload;
+}
+
+/**
+ * Recent-sign-in actions normally pass right after the login; if the re-auth dialog does show up, confirm with the
+ * password (switching away from the passkey prompt first). `done` is what appears once the action went through.
+ */
+export async function confirmReauthIfAsked(page: Page, done: Locator): Promise<void> {
+  const reauth = page.getByRole('dialog', { name: 'Confirm it’s you' });
+  await expect(done.or(reauth).first()).toBeVisible();
+  if (!(await reauth.isVisible())) return;
+  const usePassword = reauth.getByRole('button', { name: 'Enter password instead' });
+  if (await usePassword.isVisible()) await usePassword.click();
+  await reauth.getByLabel('Password').fill(ADMIN.password);
+  await reauth.getByRole('button', { name: 'Confirm' }).click();
+  await expect(done).toBeVisible();
+}
+
+/** Id of the signed-in user's device with this name (via the session API of the browser page). */
+export async function deviceIdByName(page: Page, name: string): Promise<string> {
+  const res = await page.request.get('/api/devices');
+  expect(res.status()).toBe(200);
+  const { items } = (await res.json()) as { items: { id: string; name: string; status: string }[] };
+  const dev = items.find((d) => d.name === name && d.status === 'approved');
+  if (!dev) throw new Error(`no approved device named ${name}`);
+  return dev.id;
+}
+
+/**
+ * Pairs a simulated `asm` CLI the real way: device authorization request (like `asm login`), approval on the signed-in
+ * browser page `/activate` (optionally linked to an existing Claude Code device, else explicitly "Don't link"),
+ * then the device_code token exchange. Returns the CLI's bearer access token.
+ */
+export async function pairCliDevice(
+  page: Page,
+  request: APIRequestContext,
+  opts: { clientName: string; hostname: string; linkTo?: string },
+): Promise<string> {
+  const start = await request.post('/oauth/device_authorization', { data: { client_name: opts.clientName, hostname: opts.hostname } });
+  expect(start.status()).toBe(200);
+  const { device_code: deviceCode, user_code: userCode } = (await start.json()) as { device_code: string; user_code: string };
+
+  await page.goto(`/activate?code=${encodeURIComponent(userCode)}`);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByRole('heading', { name: `${opts.clientName} wants to connect to ASM` })).toBeVisible();
+  const link = page.getByLabel('Link to an existing device');
+  if (opts.linkTo) await link.selectOption(await deviceIdByName(page, opts.linkTo));
+  else await link.selectOption({ label: "Don't link" }); // a single MCP device would be preselected
+  await page.getByRole('button', { name: 'Approve' }).click();
+  await confirmReauthIfAsked(page, page.getByRole('heading', { name: 'Connected' }));
+
+  // Approved before the first poll: one exchange is enough (pending would only happen on a race; retry then).
+  let accessToken: string | undefined;
+  await expect
+    .poll(
+      async () => {
+        const tok = await request.post('/oauth/token', { form: { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: deviceCode } });
+        const body = (await tok.json()) as { access_token?: string; error?: string };
+        accessToken = body.access_token;
+        return accessToken ? 'ok' : body.error;
+      },
+      { intervals: [0, 5_500], timeout: 20_000 },
+    )
+    .toBe('ok');
+  return accessToken!;
 }

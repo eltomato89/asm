@@ -39,4 +39,30 @@ export const devices = {
   defaultVaultHelp: 'Where this device creates new secrets when it doesn\'t name a vault.',
   defaultVaultChanged: (name: string, vault: string) => `${name} now creates new secrets in ${vault}.`,
   defaultVaultFailed: "Couldn't change the default vault.",
+
+  // Linking a CLI to a main (MCP) device
+  attachedTo: (main: string) => `attached to ${main}`,
+  settingsFrom: (main: string) => `Settings come from ${main}`,
+  link: 'Link…',
+  linkAria: (name: string) => `Link ${name} to a main device`,
+  linkTitle: (name: string) => `Link ${name}`,
+  linkText:
+    'The CLI then uses the standing approval and default vault of the main device. Handoffs for the group can only be redeemed within it.',
+  linkMain: 'Main device',
+  linkChoose: 'Choose a device',
+  linkDrops: 'Its own settings will be removed:',
+  linkDropsStanding: 'the standing approval',
+  linkDropsVault: (vault: string) => `the default vault ${vault}`,
+  linkSave: 'Link',
+  linked: (name: string, main: string) => `${name} is now linked to ${main}.`,
+  linkFailed: 'Linking failed.',
+  unlink: 'Unlink',
+  unlinkAria: (name: string) => `Unlink ${name}`,
+  unlinkTitle: (name: string, main: string) => `Unlink ${name} from ${main}?`,
+  unlinkText:
+    'The CLI starts without settings of its own: no standing approval, and new secrets go to your personal vault. Handoffs for the main device can no longer be redeemed by it.',
+  unlinked: (name: string) => `${name} is no longer linked.`,
+  unlinkFailed: 'Unlinking failed.',
+  revokeAttached: (names: string[]) => `Also revoke the attached ${names.length === 1 ? 'CLI' : 'CLIs'} (${names.join(', ')})`,
+  revokeAttachedHelp: 'If unchecked, they stay active and get their own settings again.',
 };

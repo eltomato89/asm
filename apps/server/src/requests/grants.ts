@@ -2,6 +2,7 @@ import { newId } from '@asm/shared';
 import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import type { Db } from '../db/client.js';
+import { isGroupRestricted, sameGroup } from '../devices/links.js';
 import { HttpError } from '../errors.js';
 import type { DeviceIdentity } from '../oauth/bearer.js';
 import { openVersion } from '../secrets/service.js';
@@ -68,6 +69,8 @@ const MAX_HOSTNAME = 255;
  * - malformed id → 404 grant_not_found (not audited); unknown / expired / consumed → 410 grant_gone
  * - plaintext delivery while the secret's plaintext flag is off → 403 plaintext_not_allowed
  * - other user, wrong device kind (cli), not the requesting device (plaintext), inactive device, lost vault access → 403 forbidden
+ * - cli delivery for a request of a device group (attached CLI, or main device with attached CLIs) redeemed by a device outside
+ *   that group → 403 wrong_device_group (audit cause wrong_group); evaluated live at redemption, not at issue time
  * - archived secret → 409 secret_archived
  * Every outcome is audited (grant.redeemed | secret.plaintext_delivered | grant.redeem_denied).
  */
@@ -113,6 +116,9 @@ export function redeemGrant(
     if (g.expires_at <= now) return deny(410, 'grant_gone', 'expired');
     if (g.uses_left <= 0) return deny(410, 'grant_gone', 'consumed');
     if (g.delivery === 'cli' && device.kind !== 'cli') return deny(403, 'forbidden', 'wrong_device_kind');
+    if (g.delivery === 'cli' && isGroupRestricted(db, g.request_device_id) && !sameGroup(db, g.request_device_id, device.id)) {
+      return deny(403, 'wrong_device_group', 'wrong_group');
+    }
     if (g.delivery === 'plaintext' && device.id !== g.request_device_id) return deny(403, 'forbidden', 'wrong_device');
     if (g.delivery !== 'cli' && g.delivery !== 'plaintext') return deny(403, 'forbidden', 'no_delivery');
     if (g.delivery === 'plaintext' && g.allow_plaintext_to_agent !== 1) return deny(403, 'plaintext_not_allowed', 'plaintext_disabled');

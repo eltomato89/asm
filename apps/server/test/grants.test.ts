@@ -153,6 +153,56 @@ describe('POST /api/grants/:id/redeem', () => {
   });
 });
 
+describe('grant redemption within a device group (linked CLI)', () => {
+  const link = (w: W, cliId: string, mainId: string | null) =>
+    w.db.$client.prepare('UPDATE devices SET linked_to_device_id = ? WHERE id = ?').run(mainId, cliId);
+
+  it('group-restricted main device: an outside CLI is denied (403 wrong_device_group, audited wrong_group), the attached CLI redeems', async () => {
+    const { w, mcp, cli, grant, redeem } = await setup();
+    const other = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli-2' });
+    link(w, cli.deviceId, mcp.deviceId);
+    const g = grant();
+    const denied = await redeem(other.accessToken, g);
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toEqual({ error: 'wrong_device_group' });
+    expect(denied.body).not.toContain(VALUE);
+    const row = auditRows(w.db, 'grant.redeem_denied')[0]!;
+    expect(row).toMatchObject({ device_id: other.deviceId });
+    expect(JSON.parse(String(row.meta))).toMatchObject({ cause: 'wrong_group' });
+    // The denial did not consume the grant.
+    expect((await redeem(cli.accessToken, g)).statusCode).toBe(200);
+  });
+
+  it('unrestricted main device (no attached CLI): any CLI of the user redeems', async () => {
+    const { w, grant, redeem } = await setup();
+    const other = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli-2' });
+    expect((await redeem(other.accessToken, grant())).statusCode).toBe(200);
+  });
+
+  it('request by an attached CLI: redeemable by itself, not by an outside CLI', async () => {
+    const { w, mcp, cli, grant, redeem } = await setup();
+    const other = device(w, w.alice, 'cli');
+    link(w, cli.deviceId, mcp.deviceId);
+    const g1 = grant(undefined, cli.identity);
+    expect((await redeem(other.accessToken, g1)).json()).toEqual({ error: 'wrong_device_group' });
+    expect((await redeem(cli.accessToken, g1)).statusCode).toBe(200);
+  });
+
+  it('group membership is evaluated at redemption: linking/unlinking after issue changes the outcome', async () => {
+    const { w, mcp, cli, grant, redeem } = await setup();
+    const other = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'alice-cli-2' });
+    link(w, cli.deviceId, mcp.deviceId);
+    const g = grant();
+    expect((await redeem(other.accessToken, g)).statusCode).toBe(403);
+    link(w, cli.deviceId, null);
+    expect((await redeem(other.accessToken, g)).statusCode).toBe(200);
+    // And the other way round: issued while unrestricted, linked before redemption.
+    const g2 = grant();
+    link(w, cli.deviceId, mcp.deviceId);
+    expect((await redeem(other.accessToken, g2)).json()).toEqual({ error: 'wrong_device_group' });
+  });
+});
+
 describe('CLI device API', () => {
   it('rejects mcp devices (403 forbidden_device_kind) and missing tokens (401)', async () => {
     const { w, secret, mcp } = await setup();

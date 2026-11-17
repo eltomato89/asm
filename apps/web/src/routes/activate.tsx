@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { useState, type FormEvent } from 'react';
 import { Button } from '../components/ui/Button';
+import { Select } from '../components/ui/Field';
 import { t } from '../i18n';
 import { api, isApiError, type ActivationInfo } from '../lib/api';
 import { errorText } from '../lib/errors';
@@ -24,6 +25,8 @@ function codeError(e: unknown): string {
 export function ActivatePage({ initialCode }: { initialCode?: string }) {
   const [code, setCode] = useState(() => formatUserCode(initialCode ?? ''));
   const [preview, setPreview] = useState<ActivationInfo | null>(null);
+  /** Main device to attach the new CLI to; '' = don't link. */
+  const [linkTo, setLinkTo] = useState('');
   const [result, setResult] = useState<'approved' | 'denied' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,12 +34,14 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
     mutationFn: () => api.activationInfo(code),
     onSuccess: (info) => {
       setPreview(info);
+      setLinkTo(info.suggestedLinkId ?? '');
       setError(null);
     },
     onError: (e) => setError(codeError(e)),
   });
   const decide = useMutation({
-    mutationFn: (decision: 'approve' | 'deny') => api.activate({ user_code: code, decision }),
+    mutationFn: (decision: 'approve' | 'deny') =>
+      api.activate({ user_code: code, decision, ...(decision === 'approve' && linkTo ? { link_to_device_id: linkTo } : {}) }),
     onSuccess: (r) => setResult(r.status),
     onError: (e) => setError(codeError(e)),
   });
@@ -47,6 +52,9 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
     if (complete) lookup.mutate();
   };
 
+  const candidates = preview?.linkCandidates ?? [];
+  const linkedName = candidates.find((c) => c.id === linkTo)?.name;
+
   if (result) {
     return (
       <PairingFrame note={result === 'approved'}>
@@ -54,7 +62,7 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
           <PairingResult ok title={t.connect.connected}>
             <p>
               <span className="host">{preview?.name}</span>
-              {t.connect.cli.paired}
+              {linkedName ? t.connect.cli.pairedLinked(linkedName) : t.connect.cli.paired}
             </p>
             <p style={{ marginTop: 16 }}>
               <Link className="btn" to="/devices">
@@ -130,6 +138,18 @@ export function ActivatePage({ initialCode }: { initialCode?: string }) {
               </dd>
             </dl>
           </div>
+          {candidates.length > 0 ? (
+            <div className="consent-sec">
+              <Select label={t.connect.cli.linkLabel} help={t.connect.cli.linkHelp} value={linkTo} disabled={decide.isPending} onChange={(e) => setLinkTo(e.target.value)}>
+                <option value="">{t.connect.cli.linkNone}</option>
+                {candidates.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          ) : null}
           <Rights />
         </>
       ) : null}

@@ -165,7 +165,7 @@ describe('connect page', () => {
 describe('activate page', () => {
   it('uppercases and formats the code, previews the device and approves', async () => {
     const { calls } = appServer((c) => {
-      if (c.path === '/api/devices/activate' && c.method === 'GET') return { body: { name: 'asm-cli', hostname: 'mbp-home', requestedAt: T0 } };
+      if (c.path === '/api/devices/activate' && c.method === 'GET') return { body: { name: 'asm-cli', hostname: 'mbp-home', requestedAt: T0, linkCandidates: [], suggestedLinkId: null } };
       if (c.path === '/api/devices/activate' && c.method === 'POST') return { body: { deviceId: 'dev_9', status: 'approved' } };
       return undefined;
     });
@@ -189,6 +189,51 @@ describe('activate page', () => {
     await u.type(await screen.findByLabelText('Code'), 'BCDFGHJK');
     await u.click(screen.getByRole('button', { name: 'Continue' }));
     expect(await screen.findByText(/invalid or has expired/)).toBeInTheDocument();
+  });
+  it('offers linking to an existing device, preselected, and sends link_to_device_id', async () => {
+    const info = {
+      name: 'asm@mbp',
+      hostname: 'mbp',
+      requestedAt: T0,
+      linkCandidates: [
+        { id: 'dev_1', name: 'claude@mbp-office', lastUsedAt: T0, createdAt: T0, attachedCount: 0 },
+        { id: 'dev_2', name: 'claude@studio', lastUsedAt: null, createdAt: T0, attachedCount: 1 },
+      ],
+      suggestedLinkId: 'dev_1',
+    };
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/devices/activate' && c.method === 'GET') return { body: info };
+      if (c.path === '/api/devices/activate' && c.method === 'POST') return { body: { deviceId: 'dev_9', status: 'approved' } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/activate');
+    await u.type(await screen.findByLabelText('Code'), 'BCDFGHJK');
+    await u.click(screen.getByRole('button', { name: 'Continue' }));
+    const select = await screen.findByLabelText('Link to an existing device');
+    expect(select).toHaveValue('dev_1');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(["Don't link", 'claude@mbp-office', 'claude@studio']);
+    await u.selectOptions(select, 'dev_2');
+    await u.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ user_code: 'BCDF-GHJK', decision: 'approve', link_to_device_id: 'dev_2' }));
+    expect(await screen.findByText(/is now paired and linked to claude@studio/)).toBeInTheDocument();
+  });
+
+  it('sends no link when "Don\'t link" is chosen and hides the select without candidates', async () => {
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/devices/activate' && c.method === 'GET')
+        return { body: { name: 'asm@mbp', hostname: null, requestedAt: T0, linkCandidates: [{ id: 'dev_1', name: 'claude@mbp-office', lastUsedAt: null, createdAt: T0, attachedCount: 0 }], suggestedLinkId: null } };
+      if (c.path === '/api/devices/activate' && c.method === 'POST') return { body: { deviceId: 'dev_9', status: 'approved' } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/activate');
+    await u.type(await screen.findByLabelText('Code'), 'BCDFGHJK');
+    await u.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByLabelText('Link to an existing device')).toHaveValue('');
+    await u.click(screen.getByRole('button', { name: 'Approve' }));
+    await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ user_code: 'BCDF-GHJK', decision: 'approve' }));
+    expect(await screen.findByText(/is now paired\. The terminal/)).toBeInTheDocument();
   });
 });
 
@@ -401,6 +446,103 @@ describe('devices page: standing approval', () => {
     await u.click(await screen.findByRole('button', { name: 'Standing approval for trusted' }));
     const dialog = await screen.findByRole('dialog', { name: 'Standing approval for trusted' });
     expect(await within(dialog).findByRole('button', { name: 'Save' })).toBeInTheDocument();
+  });
+});
+
+describe('devices page: linked devices', () => {
+  const dev = (id: string, name: string, kind: 'mcp' | 'cli', over: Record<string, unknown> = {}) => ({
+    id,
+    name,
+    kind,
+    hostname: null,
+    status: 'approved',
+    lastUsedAt: null,
+    createdAt: T0,
+    standingApproval: null,
+    defaultVault: { id: 'vlt_p', name: 'Personal', personal: true },
+    linkedTo: null,
+    ...over,
+  });
+  const work = { id: 'vlt_w', name: 'Work', personal: false };
+  const list = {
+    items: [
+      dev('dev_cli', 'asm@mbp', 'cli', { linkedTo: { id: 'dev_main', name: 'claude@mbp' }, defaultVault: work }),
+      dev('dev_other', 'claude@studio', 'mcp'),
+      dev('dev_free', 'asm@studio', 'cli'),
+      dev('dev_main', 'claude@mbp', 'mcp', { defaultVault: work }),
+    ],
+  };
+
+  it('nests attached CLIs under their main device with inherited settings', async () => {
+    appServer((c) => (c.path === '/api/devices' && c.method === 'GET' ? { body: list } : undefined));
+    renderApp('/devices');
+    const table = await screen.findByRole('table', { name: 'Devices' });
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(rows.map((r) => r.querySelector('.host')?.textContent)).toEqual(['claude@studio', 'asm@studio', 'claude@mbp', 'asm@mbp']);
+    const attached = rows[3]!;
+    expect(attached).toHaveClass('is-attached');
+    expect(attached).toHaveAccessibleDescription('attached to claude@mbp');
+    expect(within(attached).queryByRole('combobox')).toBeNull();
+    expect(within(attached).getByText('Work')).toHaveAttribute('title', 'Settings come from claude@mbp');
+    expect(within(attached).queryByRole('button', { name: /Standing approval/ })).toBeNull();
+    expect(within(attached).getByRole('button', { name: 'Unlink asm@mbp' })).toBeInTheDocument();
+    expect(within(attached).getByRole('button', { name: 'Revoke' })).toBeInTheDocument();
+    // Unlinked CLI can be linked; MCP devices can't.
+    expect(within(rows[1]!).getByRole('button', { name: 'Link asm@studio to a main device' })).toHaveTextContent('Link…');
+    expect(within(rows[2]!).queryByRole('button', { name: /to a main device/ })).toBeNull();
+    expect(rows[2]).not.toHaveClass('is-attached');
+  });
+
+  it('unlinks after confirmation', async () => {
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/devices' && c.method === 'GET') return { body: list };
+      if (c.path === '/api/devices/dev_cli/link' && c.method === 'DELETE') return { body: { ...list.items[0], linkedTo: null } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/devices');
+    await u.click(await screen.findByRole('button', { name: 'Unlink asm@mbp' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Unlink asm@mbp from claude@mbp?' });
+    await u.click(within(dialog).getByRole('button', { name: 'Unlink' }));
+    await waitFor(() => expect(calls.some((c) => c.path === '/api/devices/dev_cli/link' && c.method === 'DELETE')).toBe(true));
+    expect(await screen.findByText('asm@mbp is no longer linked.')).toBeInTheDocument();
+  });
+
+  it('revoking a main device also revokes attached CLIs unless unchecked', async () => {
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/devices' && c.method === 'GET') return { body: list };
+      if (c.path.endsWith('/revoke') && c.method === 'POST') return { body: { ...list.items[3], status: 'revoked' } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/devices');
+    const table = await screen.findByRole('table', { name: 'Devices' });
+    const mainRow = within(table).getAllByRole('row').find((r) => r.querySelector('.host')?.textContent === 'claude@mbp')!;
+    await u.click(within(mainRow).getByRole('button', { name: 'Revoke' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Revoke access for claude@mbp?' });
+    const box = within(dialog).getByRole('checkbox', { name: 'Also revoke the attached CLI (asm@mbp)' });
+    expect(box).toBeChecked();
+    await u.click(box);
+    await u.click(within(dialog).getByRole('button', { name: 'Revoke' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/devices/dev_main/revoke')?.body).toEqual({ attached: 'detach' }));
+
+    // Reopened: checked again; a plain CLI or a main without CLIs has no checkbox.
+    await u.click(within(mainRow).getByRole('button', { name: 'Revoke' }));
+    dialog = await screen.findByRole('dialog', { name: 'Revoke access for claude@mbp?' });
+    expect(within(dialog).getByRole('checkbox')).toBeChecked();
+    await u.click(within(dialog).getByRole('button', { name: 'Revoke' }));
+    await waitFor(() => expect(calls.filter((c) => c.path === '/api/devices/dev_main/revoke').at(-1)?.body).toEqual({ attached: 'revoke' }));
+  });
+
+  it('a main device without attached CLIs has no checkbox', async () => {
+    appServer((c) => (c.path === '/api/devices' && c.method === 'GET' ? { body: list } : undefined));
+    const u = userEvent.setup();
+    renderApp('/devices');
+    const table = await screen.findByRole('table', { name: 'Devices' });
+    const row = within(table).getAllByRole('row').find((r) => r.querySelector('.host')?.textContent === 'claude@studio')!;
+    await u.click(within(row).getByRole('button', { name: 'Revoke' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Revoke access for claude@studio?' });
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
   });
 });
 

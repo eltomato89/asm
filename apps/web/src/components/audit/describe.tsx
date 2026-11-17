@@ -62,6 +62,11 @@ export function describeAudit(r: AuditRow, names: Names): Described {
   const secretName = names.secret(r.secretId) ?? str(meta.envName) ?? str(meta.title) ?? (r.secretId ? shortId(r.secretId) : w.aSecret);
   const secret = <Sec>{secretName}</Sec>;
   const project = r.project ? <Proj>{r.project}</Proj> : null;
+  /** Another device named in meta (e.g. the main device of a link). */
+  const deviceRef = (v: unknown) => {
+    const other = str(v);
+    return <Host>{(other && names.device(other)) ?? (other ? shortId(other) : w.aDevice)}</Host>;
+  };
 
   // Subject: "You" (signed-in user), another user, a device or the system.
   const isMe = r.actorType === 'user' && r.actorId !== null && r.actorId === names.meId;
@@ -87,6 +92,7 @@ export function describeAudit(r: AuditRow, names: Names): Described {
       return s(ev.standingSet(c, <Day ts={num(meta.until)} />, scope, changed), note);
     }
     case 'standing_approval.removed':
+      if (meta.cause === 'device_linked') return s(ev.standingRemovedRevoked(c), w.deviceLinked);
       if (meta.cause === 'disabled_by_admin') return s(ev.standingRemovedRevoked(c), w.disabledByAdmin);
       return meta.cause === 'device_revoked' || r.actorType === 'system' ? s(ev.standingRemovedRevoked(c), w.deviceRevoked) : s(ev.standingRemoved(c));
     case 'standing_approval.renewed':
@@ -143,11 +149,27 @@ export function describeAudit(r: AuditRow, names: Names): Described {
       return s(ev.deviceDenied(c, client ? <Host>{client}</Host> : null));
     }
     case 'device.revoked':
+      if (meta.cause === 'main_revoked') return s(r.actorType === 'system' ? ev.revokedBySystem(c) : ev.revoked(c), w.mainRevoked);
       return r.actorType === 'system' ? s(ev.revokedBySystem(c), str(meta.cause)) : s(ev.revoked(c));
     case 'device.default_vault_changed': {
       // The vault column holds the new effective default (personal when meta.vaultId is null).
       const vault = <strong>{names.vault(r.vaultId) ?? (meta.vaultId === null ? t.vaults.personal : w.someVault)}</strong>;
+      if (meta.cause === 'device_linked') return s(ev.defaultVaultCleared(c), w.deviceLinked);
       return meta.cause === 'member_removed' ? s(ev.defaultVaultReset(c, vault), w.memberRemoved) : s(ev.defaultVaultChanged(c, vault));
+    }
+    case 'device.linked': {
+      const main = deviceRef(meta.mainDeviceId);
+      const notes: string[] = [];
+      if (meta.cause === 'activation') notes.push(w.duringPairing);
+      const previous = str(meta.previousMainDeviceId);
+      if (previous) notes.push(w.previouslyLinkedTo(names.device(previous) ?? shortId(previous)));
+      if (meta.droppedStanding === true || meta.droppedStanding === 'true') notes.push(w.droppedStanding);
+      if (str(meta.previousDefaultVaultId)) notes.push(w.droppedVault);
+      return s(ev.deviceLinked(c, main), notes.length ? notes.join('; ') : undefined);
+    }
+    case 'device.unlinked': {
+      const main = deviceRef(meta.mainDeviceId);
+      return meta.cause === 'main_revoked' ? s(ev.deviceUnlinkedBySystem(c, main), w.mainRevoked) : s(ev.deviceUnlinked(c, main));
     }
     case 'vault.member_added':
     case 'vault.member_removed': {
@@ -172,6 +194,6 @@ export const AUDIT_EVENTS = [
   'automode.enabled', 'automode.disabled',
   'standing_approval.set', 'standing_approval.removed', 'standing_approval.renewed', 'standing_approval.expired', 'standing_approval.secret_added',
   'auth.login', 'auth.login_failed',
-  'device.pair_requested', 'device.approved', 'device.denied', 'device.revoked', 'device.default_vault_changed',
+  'device.pair_requested', 'device.approved', 'device.denied', 'device.revoked', 'device.default_vault_changed', 'device.linked', 'device.unlinked',
   'vault.member_added', 'vault.member_removed',
 ] as const;

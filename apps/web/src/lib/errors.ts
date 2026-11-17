@@ -33,6 +33,9 @@ export function errorText(e: unknown, fallback: string): string {
   if (isApiError(e, 'vault_not_found')) return m.vaultNotFound;
   if (isApiError(e, 'device_inactive')) return m.deviceNotActive;
   if (isApiError(e, 'standing_disabled')) return m.standingDisabled;
+  if (isApiError(e, 'device_linked')) return m.deviceLinked;
+  if (isApiError(e, 'main_not_found')) return m.mainNotFound;
+  if (isApiError(e, 'invalid_link')) return m.invalidLink;
   if (isApiError(e, 'forbidden') || isApiError(e, 'not_owner')) return m.forbidden;
   if (isApiError(e, 'not_found')) return m.notFound;
   return fallback;

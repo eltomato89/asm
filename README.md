@@ -19,6 +19,9 @@ browser. By default the value never reaches the agent, only the process it start
   Once approved, it only receives a grant ID and calls `asm run --grant <id> -- <command>`: the CLI fetches
   the value and sets it as an environment variable for that process only. The value therefore never ends up in
   the conversation history or at the model provider. Grants are valid for 15 minutes and, by default, for a single use.
+  If the requesting device belongs to a linked group (a Claude Code device with its attached CLIs, see Devices), only
+  that group's CLI can redeem the grant; any other CLI gets `wrong_device_group`. Grants of unlinked devices can be
+  redeemed by any of your CLIs, as before.
 - **Plaintext is opt-in per secret.** `delivery: "plaintext"` only works if "Allow plaintext to agents" is enabled
   on the secret (default: off). A plaintext value then appears in the transcript, in logs and at the model
   provider – use it only for non-critical values. Agents can never change this setting.
@@ -31,7 +34,8 @@ browser. By default the value never reaches the agent, only the process it start
   secrets the device creates itself in its default vault (secrets it creates in other vaults still need approval). Reads are covered; changes only if you
   also allow them. After the expiry, ASM either asks every time again, or asks once and extends the standing approval
   by a preset number of days when you approve. Every automatic approval is recorded as "via standing approval"; revoking
-  the device removes it.
+  the device removes it. A CLI attached to a Claude Code device has no standing approval of its own: its requests are
+  covered by the main device's standing approval (and extend it on renewal).
 - **What agents may do.** Create secrets (immediately), change them (only with approval), archive them (immediately,
   with a reason). Never delete, never restore.
 - **Archive instead of delete.** Archived secrets no longer show up in searches and can be neither read nor
@@ -44,10 +48,16 @@ browser. By default the value never reaches the agent, only the process it start
   revoke at any time. Refresh tokens rotate; reuse locks the device. Each device has a **default vault** where it
   creates secrets when it doesn't name one (initially your personal vault; changeable in the device list, which needs a
   recent sign-in). If you lose access to that vault, it falls back to your personal vault.
+- **Linked devices.** A CLI can be attached to a Claude Code device (the main device) – during `asm login` on the
+  browser confirmation page ("Link to an existing device"), or later in the device list ("Link…"). The attached CLI
+  then uses the main device's standing approval and default vault; its own are dropped when you link it. "Unlink"
+  makes it a standalone device again with empty settings. Revoking the main device also revokes its attached CLIs by
+  default; uncheck the option to detach them instead.
 - **Deactivating accounts.** Admins can deactivate accounts in Settings (offboarding): the person is
   signed out, can no longer sign in, and all their devices are revoked.
 - **Encryption.** AES-256-GCM, with a separate key per secret that is encrypted with the master key.
-  Sensitive actions (reveal a value, pair a device, auto mode, setting a standing approval or a device's default vault) require a sign-in no older than
+  Sensitive actions (reveal a value, pair a device, auto mode, setting a standing approval or a device's default vault,
+  linking or unlinking a device) require a sign-in no older than
   10 minutes. Sign in with password or passkey.
 
 ## Setup (Docker)
@@ -225,7 +235,7 @@ which a locally started server serves automatically under `/cli/` (otherwise set
 Usage:
 
 ```sh
-asm login https://asm.example.com          # pair device (approve in browser), tokens in the OS keychain
+asm login https://asm.example.com          # pair device (approve in browser, optionally link it to Claude Code), tokens in the OS keychain
 asm search github                           # metadata only
 asm run --grant grt_… -- npm run deploy     # value only for this process, as an env variable
 asm run --secret sec_… --reason "Deploy" -- ./deploy.sh   # request, wait for approval, run

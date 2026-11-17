@@ -94,7 +94,7 @@ type RequestRow = {
   title: string; env_name: string | null; vault_id: string; vault_name: string;
   device_name: string; device_kind: 'mcp' | 'cli'; device_status: string; decided_by_name: string | null;
   allow_plaintext_to_agent: number; current_version: number;
-  /** The device's current standing approval (LEFT JOIN; null if none). */
+  /** The standing approval that applies to the device (its main device's for an attached CLI; LEFT JOIN; null if none). */
   sa_until: number | null; sa_granted_at: number | null; sa_after_expiry: 'ask' | 'renew' | null; sa_renew_days: number | null;
 };
 
@@ -107,7 +107,7 @@ const REQUEST_SELECT = `
     JOIN vaults v ON v.id = s.vault_id
     JOIN devices d ON d.id = r.device_id
     LEFT JOIN users u ON u.id = r.decided_by
-    LEFT JOIN standing_approvals sa ON sa.device_id = r.device_id`;
+    LEFT JOIN standing_approvals sa ON sa.device_id = COALESCE(d.linked_to_device_id, d.id)`;
 
 function loadRow(db: Db, requestId: string): RequestRow | undefined {
   return db.$client.prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(requestId) as RequestRow | undefined;
@@ -468,7 +468,7 @@ export function decideRequest(
     }
   }
 
-  let renewed = false;
+  let renewed: string | null = null;
   try {
     renewed = decideTxn(ctx, row, decision, userId, info, auditMeta);
   } catch (err) {
@@ -479,17 +479,17 @@ export function decideRequest(
     throw new HttpError(409, 'apply_failed', undefined, { cause: err.errorCode });
   }
   emitRequest(ctx, 'request.updated', requestId);
-  if (renewed) emitDeviceChanged(ctx, row.user_id, row.device_id);
+  if (renewed) emitDeviceChanged(ctx, row.user_id, renewed);
   return getRequestDto(ctx, requestId);
 }
 
-/** Returns whether the approval renewed the device's standing approval. */
+/** Returns the id of the device whose standing approval the approval renewed (the main device for an attached CLI), or null. */
 function decideTxn(
   ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny', userId: string, info: RequestInfo, auditMeta: Record<string, string>,
-): boolean {
+): string | null {
   const { db } = ctx;
   const requestId = row.id;
-  return db.$client.transaction((): boolean => {
+  return db.$client.transaction((): string | null => {
     const now = ctx.clock.now();
     const status = decision === 'approve' ? 'approved' : 'denied';
     const res = db.$client
@@ -511,8 +511,9 @@ function decideTxn(
     // Denying a renewal request leaves the standing approval expired. Coverage is re-checked at decision time (scope, vault
     // access, kind or after_expiry may have changed since the request was created); if it no longer holds, approve without renewing.
     const renewed =
-      decision === 'approve' && renewsNow(ctx, row) &&
-      renewOnApproval(ctx, { requestId, deviceId: row.device_id, userId }, info, auditMeta);
+      decision === 'approve' && renewsNow(ctx, row)
+        ? renewOnApproval(ctx, { requestId, deviceId: row.device_id, userId }, info, auditMeta)
+        : null;
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: userId, event: decision === 'approve' ? 'request.approved' : 'request.denied',
       secretId: row.secret_id, vaultId: row.vault_id, deviceId: row.device_id, project: row.project, reason: row.reason, ip: info.ip,

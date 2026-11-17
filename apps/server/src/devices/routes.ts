@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { DeviceDefaultVaultInputSchema, StandingApprovalInputSchema } from '@asm/shared';
+import { DeviceDefaultVaultInputSchema, DeviceLinkInputSchema, DeviceRevokeInputSchema, StandingApprovalInputSchema } from '@asm/shared';
 import type { ModuleDeps } from '../app.js';
 import { requireRecentAuth, requireUser } from '../auth/guards.js';
 import { reqInfo } from '../secrets/routes.js';
 import { getStandingApproval, removeStandingApproval, setStandingApproval } from '../standing/service.js';
-import { listDevices, renameDevice, revokeOwnDevice, setDeviceDefaultVault } from './service.js';
+import { linkDevice, listDevices, renameDevice, revokeOwnDevice, setDeviceDefaultVault, unlinkDevice } from './service.js';
 
 const idParams = z.object({ id: z.string().min(1).max(100) });
 const renameBody = z.strictObject({ name: z.string().trim().min(1).max(100) });
@@ -22,7 +22,20 @@ export async function registerDeviceRoutes(app: FastifyInstance, deps: ModuleDep
 
   app.post('/api/devices/:id/revoke', { preHandler: [requireUser, requireRecentAuth(clock)] }, async (req) => {
     const { id } = idParams.parse(req.params);
-    return revokeOwnDevice(ctx, req.user!.id, id, reqInfo(req));
+    const { attached } = DeviceRevokeInputSchema.parse(req.body ?? {});
+    return revokeOwnDevice(ctx, req.user!.id, id, reqInfo(req), attached ? { attached } : {});
+  });
+
+  // Attach a CLI to a main device (drops the CLI's own settings) / detach it. Both need a recent login.
+  app.put('/api/devices/:id/link', { preHandler: [requireUser, requireRecentAuth(clock)] }, async (req) => {
+    const { id } = idParams.parse(req.params);
+    const { mainDeviceId } = DeviceLinkInputSchema.parse(req.body ?? {});
+    return linkDevice(ctx, req.user!.id, id, mainDeviceId, reqInfo(req));
+  });
+
+  app.delete('/api/devices/:id/link', { preHandler: [requireUser, requireRecentAuth(clock)] }, async (req) => {
+    const { id } = idParams.parse(req.params);
+    return unlinkDevice(ctx, req.user!.id, id, reqInfo(req));
   });
 
   // Can widen what a standing approval with includeCreated auto-approves: needs a recent login. Owner only (others 404).

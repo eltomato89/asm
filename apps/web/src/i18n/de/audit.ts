@@ -103,6 +103,12 @@ export const audit: Messages['audit'] = {
     renewedStanding: 'Dauerfreigabe verlängert',
     memberRemoved: 'kein Mitglied des bisherigen Tresors mehr',
     viaPush: 'per Push',
+    duringPairing: 'beim Koppeln',
+    previouslyLinkedTo: (main) => `vorher mit ${main} verknüpft`,
+    droppedStanding: 'die eigene Dauerfreigabe wurde entfernt',
+    droppedVault: 'der eigene Standardtresor wurde zurückgesetzt',
+    deviceLinked: 'mit einem Hauptgerät verknüpft',
+    mainRevoked: 'Hauptgerät widerrufen',
   },
   events: {
     requestCreated: (c, update) => f(c.device, ' fragt ', c.secret, forProject(c), ' an', update ? ' (Änderung)' : ''),
@@ -135,6 +141,10 @@ export const audit: Messages['audit'] = {
     revoked: (c) => f(c.subject, ' ', hat(c), ' den Zugriff von ', c.device, ' widerrufen'),
     defaultVaultChanged: (c, vault) => f(c.subject, ' ', hat(c), ' den Standardtresor von ', c.device, ' auf ', vault, ' gesetzt'),
     defaultVaultReset: (c, vault) => f('Der Standardtresor von ', c.device, ' wurde auf ', vault, ' zurückgesetzt'),
+    defaultVaultCleared: (c) => f(c.device, ' hat keinen eigenen Standardtresor mehr'),
+    deviceLinked: (c, main) => f(c.subject, ' ', hat(c), ' ', c.device, ' mit ', main, ' verknüpft'),
+    deviceUnlinked: (c, main) => f(c.subject, ' ', hat(c), ' die Verknüpfung von ', c.device, ' mit ', main, ' gelöst'),
+    deviceUnlinkedBySystem: (c, main) => f(c.device, ' ist nicht mehr mit ', main, ' verknüpft'),
     standingSet: (c, until, scope, changed) =>
       changed
         ? f(c.subject, ' ', hat(c), ' die Dauerfreigabe für ', c.device, ' geändert, jetzt bis ', until, ' ', scope)

@@ -140,6 +140,20 @@ describe('openDb', () => {
     }
   });
 
+  it('migration 0005: devices.linked_to_device_id is nullable, indexed and set to NULL when the main device row is deleted', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    const cols = db.$client.prepare("SELECT name, \"notnull\" AS nn FROM pragma_table_info('devices') WHERE name = 'linked_to_device_id'").all();
+    expect(cols).toEqual([{ name: 'linked_to_device_id', nn: 0 }]);
+    expect(db.$client.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'devices_linked_to_idx'").get()).toBeTruthy();
+    const ins = db.$client.prepare("INSERT INTO devices (id, user_id, name, kind, status, created_at, linked_to_device_id) VALUES (?, 'usr_1', 'd', ?, 'approved', 1, ?)");
+    ins.run('dev_main', 'mcp', null);
+    ins.run('dev_cli', 'cli', 'dev_main');
+    expect(() => ins.run('dev_bad', 'cli', 'dev_missing')).toThrow(/FOREIGN KEY/);
+    db.$client.prepare("DELETE FROM devices WHERE id = 'dev_main'").run();
+    expect(db.$client.prepare("SELECT linked_to_device_id AS l FROM devices WHERE id = 'dev_cli'").get()).toEqual({ l: null });
+  });
+
   it('standing approval rows cascade with the device and the secret', () => {
     const db = openDb(':memory:');
     seed(db);

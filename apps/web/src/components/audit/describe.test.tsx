@@ -122,3 +122,47 @@ describe('describeAudit: device default vault', () => {
     expect(AUDIT_EVENTS).toContain('device.default_vault_changed');
   });
 });
+
+describe('describeAudit: linked devices', () => {
+  const linkNames: Names = { ...names, device: (id) => ({ dev_1: 'claude@mbp-office', dev_cli: 'asm@mbp', dev_2: 'claude@studio' })[id ?? ''] };
+  const linkText = (r: AuditRow) => {
+    const d = describeAudit(r, linkNames);
+    const { container } = render(<>{d.sentence}</>);
+    return { sentence: container.textContent, note: d.note };
+  };
+
+  it('linked manually, during pairing and with dropped settings', () => {
+    const plain = linkText(row({ event: 'device.linked', deviceId: 'dev_cli', meta: { mainDeviceId: 'dev_1', cause: 'manual', droppedStanding: false, previousDefaultVaultId: null } }));
+    expect(plain.sentence).toBe('You linked asm@mbp to claude@mbp-office');
+    expect(plain.note).toBeUndefined();
+    const full = linkText(
+      row({
+        event: 'device.linked',
+        deviceId: 'dev_cli',
+        meta: { mainDeviceId: 'dev_1', previousMainDeviceId: 'dev_2', cause: 'activation', droppedStanding: true, previousDefaultVaultId: 'vlt_w' },
+      }),
+    );
+    expect(full.note).toBe('during pairing; previously linked to claude@studio; its own standing approval was removed; its own default vault was reset');
+  });
+
+  it('unlinked manually and because the main device was revoked', () => {
+    expect(linkText(row({ event: 'device.unlinked', deviceId: 'dev_cli', meta: { mainDeviceId: 'dev_1', cause: 'manual' } })).sentence).toBe('You unlinked asm@mbp from claude@mbp-office');
+    const sys = linkText(row({ event: 'device.unlinked', actorType: 'system', actorId: null, deviceId: 'dev_cli', meta: { mainDeviceId: 'dev_1', cause: 'main_revoked' } }));
+    expect(sys.sentence).toBe('asm@mbp is no longer linked to claude@mbp-office');
+    expect(sys.note).toBe('main device revoked');
+  });
+
+  it('revocation, standing approval and default vault caused by linking', () => {
+    const rev = linkText(row({ event: 'device.revoked', deviceId: 'dev_cli', meta: { cause: 'main_revoked' } }));
+    expect(rev.sentence).toBe('You revoked access for asm@mbp');
+    expect(rev.note).toBe('main device revoked');
+    const sa = linkText(row({ event: 'standing_approval.removed', deviceId: 'dev_cli', meta: { cause: 'device_linked' } }));
+    expect(sa.sentence).toBe('The standing approval for asm@mbp was removed');
+    expect(sa.note).toBe('linked to a main device');
+    const dv = linkText(row({ event: 'device.default_vault_changed', deviceId: 'dev_cli', vaultId: null, meta: { cause: 'device_linked', previousVaultId: 'vlt_w', vaultId: null } }));
+    expect(dv.sentence).toBe('asm@mbp no longer has its own default vault');
+    expect(dv.note).toBe('linked to a main device');
+    expect(AUDIT_EVENTS).toContain('device.linked');
+    expect(AUDIT_EVENTS).toContain('device.unlinked');
+  });
+});

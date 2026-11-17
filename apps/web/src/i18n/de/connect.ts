@@ -52,5 +52,9 @@ export const connect: Messages['connect'] = {
     host: 'Host',
     requested: 'Angefragt',
     requestedAt: (time) => `${time} Uhr`,
+    linkLabel: 'Mit einem vorhandenen Gerät verknüpfen',
+    linkNone: 'Nicht verknüpfen',
+    linkHelp: 'Die CLI nutzt dann die Dauerfreigabe und den Standardtresor dieses Geräts. Übergaben der Gruppe lassen sich nur innerhalb der Gruppe einlösen.',
+    pairedLinked: (main) => ` ist jetzt gekoppelt und mit ${main} verknüpft. Das Terminal meldet sich in wenigen Sekunden von selbst.`,
   },
 };

@@ -931,3 +931,83 @@ describe('device default vault', () => {
     expect(t.vaultOf(t.create('Fallback').id)).toBe(t.personal);
   });
 });
+
+describe('standing approval: attached CLI uses its main device', () => {
+  async function linked(opts: { maxDays?: number } = {}) {
+    const t = await setup(opts);
+    const paired = pairDevice(t.w.ctx, { userId: t.w.alice.id, kind: 'cli', name: 'laptop-cli' });
+    const cli: DeviceIdentity = { id: paired.deviceId, userId: t.w.alice.id, kind: 'cli', name: 'laptop-cli' };
+    const cliActor: Actor = { type: 'device', deviceId: cli.id, userId: t.w.alice.id };
+    t.w.db.$client.prepare('UPDATE devices SET linked_to_device_id = ? WHERE id = ?').run(t.dev.id, cli.id);
+    return { ...t, cli, cliActor };
+  }
+
+  it("a request of the attached CLI is covered by the main device's standing approval", async () => {
+    const t = await linked();
+    t.set();
+    const r = t.read(t.secret.id, t.cli);
+    expect(r).toMatchObject({ status: 'approved', autoSource: 'standing' });
+    expect(grantIdForRequest(t.w.db, r.id, t.cli.id)).not.toBeNull();
+    // Unlinked again: not covered.
+    t.w.db.$client.prepare('UPDATE devices SET linked_to_device_id = NULL WHERE id = ?').run(t.cli.id);
+    expect(t.read(t.secret.id, t.cli)).toMatchObject({ status: 'pending', autoSource: null });
+  });
+
+  it('both devices must be approved: a revoked main device or CLI is not covered', async () => {
+    const t = await linked();
+    t.set();
+    t.w.db.$client.prepare("UPDATE devices SET status = 'revoked' WHERE id = ?").run(t.dev.id);
+    expect(t.read(t.secret.id, t.cli)).toMatchObject({ status: 'pending', autoSource: null });
+  });
+
+  it("renewal: the attached CLI's request renews the main device (audit on main, meta.requestDeviceId, device.changed for main)", async () => {
+    const t = await linked();
+    t.set({ until: t.w.clock.now() + 2 * DAY, afterExpiry: 'renew', renewDays: 5 });
+    t.w.clock.advance(2 * DAY);
+    const r = t.read(t.secret.id, t.cli);
+    expect(r).toMatchObject({ status: 'pending', renewal: { days: 5 } });
+    t.events.length = 0;
+    t.approve(r.id);
+    expect(untilOf(t.w, t.dev.id)).toBe(t.w.clock.now() + 5 * DAY);
+    expect(untilOf(t.w, t.cli.id)).toBeUndefined();
+    const renewed = auditRows(t.w.db, 'standing_approval.renewed');
+    expect(renewed).toHaveLength(1);
+    expect(renewed[0]).toMatchObject({ device_id: t.dev.id });
+    expect(meta(renewed[0])).toMatchObject({ requestId: r.id, requestDeviceId: t.cli.id, days: 5 });
+    await tick();
+    expect(t.deviceChanged()).toEqual([{ type: 'device.changed', data: { deviceId: t.dev.id } }]);
+  });
+
+  it("includeCreated: CLI creations land in the main device's list only if created in the main device's default vault", async () => {
+    const t = await linked();
+    const team = createVault(t.w.ctx, t.w.alice.id, 'Team');
+    t.set({ scope: 'list', secretIds: [], includeCreated: true });
+    const create = (title: string, vaultId?: string) =>
+      createSecret(t.w.ctx, t.cliActor, { title, value: 'x', project: 'p', reason: 'r', ...(vaultId ? { vaultId } : {}) });
+    const inDefault = create('Mine');
+    create('Elsewhere', team.id);
+    expect(t.get().standingApproval!.secrets.map((s) => s.id)).toEqual([inDefault.id]);
+    const added = auditRows(t.w.db, 'standing_approval.secret_added');
+    expect(added).toHaveLength(1);
+    expect(added[0]).toMatchObject({ actor_type: 'device', actor_id: t.cli.id, device_id: t.dev.id });
+    expect(meta(added[0])).toEqual({ cause: 'created_by_device', createdByDeviceId: t.cli.id });
+
+    // The main device's default vault applies to the CLI (its own stored default is ignored).
+    t.w.db.$client.prepare('UPDATE devices SET default_vault_id = ? WHERE id = ?').run(team.id, t.dev.id);
+    expect(deviceDefaultVault(t.w.db, t.cli.id)).toMatchObject({ id: team.id });
+    const inTeam = create('Team new');
+    expect((t.w.db.$client.prepare('SELECT vault_id FROM secrets WHERE id = ?').get(inTeam.id) as { vault_id: string }).vault_id).toBe(team.id);
+    expect(t.get().standingApproval!.secrets.map((s) => s.id)).toContain(inTeam.id);
+  });
+
+  it('set on an attached CLI -> 409 device_linked; get -> null; remove is a no-op that keeps the main device approval', async () => {
+    const t = await linked();
+    t.set();
+    expectHttp(() => t.set({}, t.cli.id), 409, 'device_linked');
+    expect(getStandingApproval(t.w.ctx, t.w.alice.id, t.cli.id)).toEqual({ standingApproval: null, maxDays: 90 });
+    expect(removeStandingApproval(t.w.ctx, t.w.alice.id, t.cli.id, {})).toEqual({ standingApproval: null, maxDays: 90 });
+    expect(t.get().standingApproval).not.toBeNull();
+    expect(auditRows(t.w.db, 'standing_approval.removed')).toHaveLength(0);
+    expect((await t.put({ until: t.w.clock.now() + DAY, scope: 'all' }, t.cli.id)).statusCode).toBe(409);
+  });
+});

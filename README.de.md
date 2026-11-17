@@ -18,6 +18,9 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   Nach der Freigabe erhält er nur eine Grant-ID und ruft `asm run --grant <id> -- <befehl>` auf: Die CLI holt
   den Wert und setzt ihn als Umgebungsvariable nur für diesen Prozess. Der Wert landet so weder im
   Gesprächsverlauf noch beim Modellanbieter. Grants gelten 15 Minuten und standardmäßig für eine Nutzung.
+  Gehört das anfragende Gerät zu einer verknüpften Gruppe (ein Claude-Code-Gerät mit seinen angehängten CLIs, siehe
+  Geräte), kann nur die CLI dieser Gruppe den Grant einlösen; jede andere CLI erhält `wrong_device_group`. Grants
+  nicht verknüpfter Geräte kann wie bisher jede deiner CLIs einlösen.
 - **Klartext ist Opt-in pro Secret.** `delivery: "plaintext"` geht nur, wenn beim Secret „Klartext an Agenten
   erlauben“ aktiv ist (Standard: aus). Ein Klartext-Wert steht danach im Transkript, in Logs und beim
   Modellanbieter – nur für unkritische Werte verwenden. Agenten können diese Einstellung nie ändern.
@@ -31,7 +34,8 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   deine Freigabe). Abrufe sind abgedeckt, Änderungen nur,
   wenn du sie zusätzlich erlaubst. Nach Ablauf fragt ASM entweder wieder jedes Mal, oder einmal – und deine Freigabe
   verlängert die Dauerfreigabe um eine voreingestellte Anzahl Tage. Jede automatische Freigabe steht als „per
-  Dauerfreigabe“ im Audit-Log; Widerrufen des Geräts entfernt sie.
+  Dauerfreigabe“ im Audit-Log; Widerrufen des Geräts entfernt sie. Eine an ein Claude-Code-Gerät angehängte CLI hat
+  keine eigene Dauerfreigabe: Ihre Anfragen deckt die Dauerfreigabe des Hauptgeräts ab (und verlängern sie bei Bedarf).
 - **Was Agenten dürfen.** Secrets anlegen (sofort), ändern (nur mit Freigabe), archivieren (sofort, mit Grund).
   Nie löschen, nie reaktivieren.
 - **Archiv statt Löschen.** Archivierte Secrets tauchen in Suchen nicht mehr auf und lassen sich weder abrufen
@@ -44,10 +48,17 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   jederzeit widerrufen kannst. Refresh-Tokens rotieren; Wiederverwendung sperrt das Gerät. Jedes Gerät hat einen
   **Standardtresor**, in dem es Secrets ohne Tresorangabe anlegt (anfangs dein persönlicher Tresor; änderbar in der
   Geräteliste, mit frischer Anmeldung). Verlierst du den Zugriff auf diesen Tresor, gilt wieder dein persönlicher.
+- **Verknüpfte Geräte.** Eine CLI lässt sich an ein Claude-Code-Gerät (das Hauptgerät) anhängen – beim `asm login`
+  auf der Bestätigungsseite im Browser („Mit einem vorhandenen Gerät verknüpfen“) oder später in der Geräteliste
+  („Verknüpfen…“). Die angehängte CLI nutzt dann Dauerfreigabe und Standardtresor des Hauptgeräts; ihre eigenen
+  entfallen beim Verknüpfen. „Lösen“ macht sie wieder zu einem eigenständigen Gerät mit leeren Einstellungen.
+  Widerrufst du das Hauptgerät, werden seine angehängten CLIs standardmäßig mit widerrufen; ohne Haken werden sie
+  stattdessen nur gelöst.
 - **Konten deaktivieren.** Admins können Konten in den Einstellungen deaktivieren (Offboarding): Die Person wird
   abgemeldet, kann sich nicht mehr anmelden, und alle ihre Geräte werden widerrufen.
 - **Verschlüsselung.** AES-256-GCM, pro Secret ein eigener Schlüssel, der mit dem Master-Key verschlüsselt ist.
-  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus, Dauerfreigabe oder Standardtresor eines Geräts setzen) verlangen eine Anmeldung, die höchstens
+  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus, Dauerfreigabe oder Standardtresor eines Geräts setzen,
+  Gerät verknüpfen oder lösen) verlangen eine Anmeldung, die höchstens
   10 Minuten alt ist. Anmeldung mit Passwort oder Passkey.
 
 ## Setup (Docker)
@@ -225,7 +236,7 @@ das ein lokal gestarteter Server automatisch unter `/cli/` ausliefert (sonst `AS
 Nutzung:
 
 ```sh
-asm login https://asm.example.com          # Gerät koppeln (Freigabe im Browser), Tokens im OS-Schlüsselbund
+asm login https://asm.example.com          # Gerät koppeln (Freigabe im Browser, optional mit Claude Code verknüpfen), Tokens im OS-Schlüsselbund
 asm search github                           # nur Metadaten
 asm run --grant grt_… -- npm run deploy     # Wert nur für diesen Prozess als ENV-Variable
 asm run --secret sec_… --reason "Deploy" -- ./deploy.sh   # anfragen, auf Freigabe warten, ausführen

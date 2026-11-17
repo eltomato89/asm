@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import type { Db } from '../db/client.js';
+import { settingsDeviceId } from '../devices/links.js';
 import { users, vaultMembers, vaults } from '../db/schema.js';
 import { HttpError, ValidationError } from '../errors.js';
 
@@ -32,9 +33,11 @@ export type DefaultVault = { id: string; name: string; personal: boolean };
 /**
  * A device's effective default vault (where it creates secrets without an explicit vault): its stored default_vault_id if the
  * owner can still access it, else the owner's personal vault. Null for devices without an owner (e.g. pending).
+ * An attached CLI resolves through its main device (settingsDeviceId).
  */
 export function deviceDefaultVault(db: Db, deviceId: string): DefaultVault | null {
-  const dev = db.$client.prepare('SELECT user_id, default_vault_id FROM devices WHERE id = ?').get(deviceId) as
+  // An attached CLI uses its main device's default vault.
+  const dev = db.$client.prepare('SELECT user_id, default_vault_id FROM devices WHERE id = ?').get(settingsDeviceId(db, deviceId)) as
     | { user_id: string | null; default_vault_id: string | null }
     | undefined;
   if (!dev?.user_id) return null;

@@ -8,6 +8,7 @@ import {
 } from '@asm/shared';
 import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
+import { settingsDeviceId } from '../devices/links.js';
 import { HttpError } from '../errors.js';
 import { canAccessVault, deviceDefaultVault } from '../vaults/service.js';
 
@@ -120,10 +121,10 @@ function toDto(ctx: ServiceCtx, row: StandingRow): StandingApprovalDto {
   };
 }
 
-function requireOwnDevice(ctx: ServiceCtx, userId: string, deviceId: string): { status: string } {
-  const dev = ctx.db.$client.prepare('SELECT status FROM devices WHERE id = ? AND user_id = ?').get(deviceId, userId) as
-    | { status: string }
-    | undefined;
+function requireOwnDevice(ctx: ServiceCtx, userId: string, deviceId: string): { status: string; linked_to_device_id: string | null } {
+  const dev = ctx.db.$client
+    .prepare('SELECT status, linked_to_device_id FROM devices WHERE id = ? AND user_id = ?')
+    .get(deviceId, userId) as { status: string; linked_to_device_id: string | null } | undefined;
   if (!dev) throw new HttpError(404, 'not_found');
   return dev;
 }
@@ -150,9 +151,13 @@ export function emitDeviceChangedAfterCommit(ctx: ServiceCtx, userId: string, de
 
 // ---------- user API (routes) ----------
 
-/** GET: the owner's view of a device's standing approval. 404 not_found unless the device belongs to `userId`. */
+/**
+ * GET: the owner's view of a device's standing approval. 404 not_found unless the device belongs to `userId`.
+ * An attached CLI has none of its own (its main device's applies): standingApproval null.
+ */
 export function getStandingApproval(ctx: ServiceCtx, userId: string, deviceId: string): StandingApprovalResponse {
-  requireOwnDevice(ctx, userId, deviceId);
+  const dev = requireOwnDevice(ctx, userId, deviceId);
+  if (dev.linked_to_device_id !== null) return { standingApproval: null, maxDays: ctx.standingMaxDays };
   return response(ctx, deviceId);
 }
 
@@ -163,7 +168,7 @@ const auditSnapshot = (row: StandingRow, maxDays: number) => ({
 
 /**
  * PUT (full replace). Callers (routes) must require recent auth.
- * 404 not_found | 409 device_inactive | 403 standing_disabled | 400 invalid_until | 400 invalid_renew_days | 404 secret_not_found
+ * 404 not_found | 409 device_inactive | 409 device_linked (attached CLI: set it on the main device) | 403 standing_disabled | 400 invalid_until | 400 invalid_renew_days | 404 secret_not_found
  * | 404 vault_not_found. Switching scope clears the other scope's rows.
  */
 export function setStandingApproval(
@@ -173,6 +178,7 @@ export function setStandingApproval(
   const input = StandingApprovalInputSchema.parse(rawInput);
   const dev = requireOwnDevice(ctx, userId, deviceId);
   if (dev.status !== 'approved') throw new HttpError(409, 'device_inactive');
+  if (dev.linked_to_device_id !== null) throw new HttpError(409, 'device_linked');
   const max = ctx.standingMaxDays;
   if (max <= 0) throw new HttpError(403, 'standing_disabled');
   const now = ctx.clock.now();
@@ -237,10 +243,14 @@ export function setStandingApproval(
   return response(ctx, deviceId);
 }
 
-/** DELETE (idempotent; no re-auth needed since it reduces rights). 404 not_found unless own device. */
+/**
+ * DELETE (idempotent; no re-auth needed since it reduces rights). 404 not_found unless own device.
+ * No-op on an attached CLI (it has no standing approval of its own; the main device's is not touched).
+ */
 export function removeStandingApproval(ctx: ServiceCtx, userId: string, deviceId: string, info: RequestInfo = {}): StandingApprovalResponse {
   const { db } = ctx;
-  requireOwnDevice(ctx, userId, deviceId);
+  const dev = requireOwnDevice(ctx, userId, deviceId);
+  if (dev.linked_to_device_id !== null) return { standingApproval: null, maxDays: ctx.standingMaxDays };
   const removed = db.$client.transaction(() => {
     const prev = loadStanding(ctx, deviceId);
     if (!prev) return false;
@@ -286,7 +296,7 @@ export type StandingCoverage = 'covered' | 'renewal' | null;
 /**
  * Whether a new request is approved by the device's standing approval ('covered'), would renew an expired one on approval
  * ('renewal'), or neither. Checks kind (update needs allow_updates), scope (list / covered vaults), vault access, device status
- * and expiry.
+ * and expiry. An attached CLI uses its main device's standing approval; both devices must be approved.
  */
 export function standingCoverage(
   ctx: ServiceCtx,
@@ -294,23 +304,26 @@ export function standingCoverage(
 ): StandingCoverage {
   const max = ctx.standingMaxDays;
   if (max <= 0) return null;
-  const row = loadStanding(ctx, q.deviceId);
+  const sid = settingsDeviceId(ctx.db, q.deviceId);
+  const row = loadStanding(ctx, sid);
   if (!row || row.user_id !== q.userId) return null;
   if (q.kind === 'update' && row.allow_updates !== 1) return null;
   if (row.scope === 'list') {
     const listed = ctx.db.$client
       .prepare('SELECT 1 FROM standing_approval_secrets WHERE device_id = ? AND secret_id = ?')
-      .get(q.deviceId, q.secretId);
+      .get(sid, q.secretId);
     if (!listed) return null;
   } else if (row.scope === 'vaults') {
     const covered = ctx.db.$client
       .prepare('SELECT 1 FROM standing_approval_vaults WHERE device_id = ? AND vault_id = ?')
-      .get(q.deviceId, q.vaultId);
+      .get(sid, q.vaultId);
     if (!covered) return null;
   }
   if (!canAccessVault(ctx.db, q.userId, q.vaultId)) return null;
-  const dev = ctx.db.$client.prepare('SELECT status FROM devices WHERE id = ?').get(q.deviceId) as { status: string } | undefined;
-  if (dev?.status !== 'approved') return null;
+  const approved = ctx.db.$client.prepare("SELECT count(*) AS n FROM devices WHERE id IN (?, ?) AND status = 'approved'").get(q.deviceId, sid) as {
+    n: number;
+  };
+  if (approved.n !== (sid === q.deviceId ? 1 : 2)) return null;
   if (isActive(row, max, ctx.clock.now())) return 'covered';
   return row.after_expiry === 'renew' ? 'renewal' : null;
 }
@@ -326,47 +339,56 @@ export function renewalDays(
 
 /**
  * Inside the decision transaction of an approved renewal request: extends an expired standing approval with
- * after_expiry 'renew' to now + min(renew_days, max) days. Idempotent (no-op if already active again). Returns whether it extended.
+ * after_expiry 'renew' to now + min(renew_days, max) days. For an attached CLI's request the main device's standing approval is
+ * renewed (audit deviceId = main device, meta.requestDeviceId = the CLI). Idempotent (no-op if already active again).
+ * Returns the id of the device whose standing approval was extended (for device.changed), or null.
  */
 export function renewOnApproval(
   ctx: ServiceCtx,
   r: { requestId: string; deviceId: string; userId: string },
   info: RequestInfo = {},
   auditMeta: Record<string, string> = {},
-): boolean {
-  const row = loadStanding(ctx, r.deviceId);
+): string | null {
+  const sid = settingsDeviceId(ctx.db, r.deviceId);
+  const row = loadStanding(ctx, sid);
   const days = renewalDays(ctx, row ?? null);
-  if (!row || days === null) return false;
+  if (!row || days === null) return null;
   const now = ctx.clock.now();
   const until = now + days * DAY_MS;
   ctx.db.$client
     .prepare('UPDATE standing_approvals SET until = ?, granted_at = ?, expiry_audited = 0, updated_at = ? WHERE device_id = ?')
-    .run(until, now, now, r.deviceId);
+    .run(until, now, now, sid);
   appendAudit(ctx.db, ctx.clock, {
-    actorType: 'user', actorId: r.userId, event: 'standing_approval.renewed', deviceId: r.deviceId, ip: info.ip,
-    meta: { ...auditMeta, requestId: r.requestId, previousUntil: effectiveUntil(row, ctx.standingMaxDays), until, days },
+    actorType: 'user', actorId: r.userId, event: 'standing_approval.renewed', deviceId: sid, ip: info.ip,
+    meta: {
+      ...auditMeta, requestId: r.requestId, previousUntil: effectiveUntil(row, ctx.standingMaxDays), until, days,
+      ...(sid !== r.deviceId ? { requestDeviceId: r.deviceId } : {}),
+    },
   });
-  return true;
+  return sid;
 }
 
 /**
  * Inside createSecret's transaction (device actor): add the new secret to a list-scoped approval with include_created — but only
  * if it was created in the device's effective default vault. (Otherwise a device could create a placeholder in a shared vault,
  * get it auto-listed, and later read a real value another member put in without approval.)
+ * A secret created by an attached CLI goes to its main device's list (and must be in the main device's default vault); the audit
+ * actor is the creating device, deviceId the main device, meta.createdByDeviceId the CLI.
  */
 export function addCreatedSecret(ctx: ServiceCtx, deviceId: string, secretId: string, vaultId: string): boolean {
-  const row = loadStanding(ctx, deviceId);
+  const sid = settingsDeviceId(ctx.db, deviceId);
+  const row = loadStanding(ctx, sid);
   if (!row || row.scope !== 'list' || row.include_created !== 1) return false;
-  if (deviceDefaultVault(ctx.db, deviceId)?.id !== vaultId) return false;
+  if (deviceDefaultVault(ctx.db, sid)?.id !== vaultId) return false;
   const res = ctx.db.$client
     .prepare(`INSERT OR IGNORE INTO standing_approval_secrets (device_id, secret_id, added_by, added_at) VALUES (?, ?, 'device', ?)`)
-    .run(deviceId, secretId, ctx.clock.now());
+    .run(sid, secretId, ctx.clock.now());
   if (res.changes === 0) return false;
   appendAudit(ctx.db, ctx.clock, {
-    actorType: 'device', actorId: deviceId, event: 'standing_approval.secret_added', deviceId, secretId, vaultId,
-    meta: { cause: 'created_by_device' },
+    actorType: 'device', actorId: deviceId, event: 'standing_approval.secret_added', deviceId: sid, secretId, vaultId,
+    meta: { cause: 'created_by_device', ...(sid !== deviceId ? { createdByDeviceId: deviceId } : {}) },
   });
-  emitDeviceChangedAfterCommit(ctx, row.user_id, deviceId);
+  emitDeviceChangedAfterCommit(ctx, row.user_id, sid);
   return true;
 }
 

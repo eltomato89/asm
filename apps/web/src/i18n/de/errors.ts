@@ -29,4 +29,7 @@ export const errors: Messages['errors'] = {
   secretNotFound: 'Eines der ausgewählten Secrets gibt es nicht mehr, oder du hast keinen Zugriff mehr darauf.',
   deviceNotActive: 'Dieses Gerät ist nicht mehr aktiv.',
   standingDisabled: 'Dauerfreigaben sind auf diesem Server abgeschaltet.',
+  deviceLinked: 'Diese CLI ist mit einem Hauptgerät verknüpft und nutzt dessen Einstellungen. Löse zuerst die Verknüpfung.',
+  mainNotFound: 'Das Hauptgerät gibt es nicht mehr, oder es ist nicht mehr aktiv.',
+  invalidLink: 'Nur eine CLI lässt sich verknüpfen, und nur mit einem aktiven MCP-Gerät.',
 };

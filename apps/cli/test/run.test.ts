@@ -94,6 +94,15 @@ describe('asm run', () => {
     expect(r.err).toBe('asm: grant_gone\n');
   });
 
+  it('wrong_device_group → exit 1 with an explanation how to link this CLI', async () => {
+    const api = fakeApi({ redeemGrant: async () => { throw new ApiError(403, 'wrong_device_group'); } });
+    const r = await runWithCapture(['run', '--grant', GRANT, '--', 'node', '-e', 'process.stdout.write("ran")'], api);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain('asm: wrong_device_group: grant ' + GRANT + ' belongs to another device group');
+    expect(r.err).toContain('Link this CLI to that Claude Code device in ASM → Devices');
+    expect(r.child).toBe('');
+  });
+
   it('forwards SIGTERM to the child; on a terminal SIGINT is swallowed (child decides) and its exit code propagates', async () => {
     const signals = new EventEmitter();
     const file = join(tmp(), 'child-out.txt');

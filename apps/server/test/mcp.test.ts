@@ -118,7 +118,7 @@ describe('mcp: transport and auth', () => {
     for (let i = 0; i < 120; i++) await inject(auth);
     const res = await inject(auth);
     expect(res.statusCode).toBe(429);
-  });
+  }, 30_000); // 120+ sequential requests; slow when the whole monorepo suite runs in parallel
 });
 
 describe('mcp: tool list and validation', () => {
@@ -436,9 +436,22 @@ describe('mcp: create, update, archive, vaults, whoami', () => {
       auto_mode: { active: false, enabledUntil: null, defaultDurationMin: 30, vaultIds: null },
       standing_approval: null,
       default_vault: { id: personalVaultId(w.db, w.alice.id), name: 'Personal' },
+      attached_cli: [],
     });
     const project = w.db.$client.prepare("SELECT last_seen FROM projects WHERE slug = 'foo'").get();
     expect(project).toBeDefined();
+  });
+});
+
+describe('mcp: attached CLIs', () => {
+  it('whoami lists the approved CLIs attached to this device', async () => {
+    const { w, call, dev } = await setup();
+    const cli = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'laptop-cli' });
+    const revoked = pairDevice(w.ctx, { userId: w.alice.id, kind: 'cli', name: 'old-cli' });
+    w.db.$client.prepare("UPDATE devices SET hostname = 'box-1' WHERE id = ?").run(cli.deviceId);
+    w.db.$client.prepare('UPDATE devices SET linked_to_device_id = ? WHERE id IN (?, ?)').run(dev.deviceId, cli.deviceId, revoked.deviceId);
+    w.db.$client.prepare("UPDATE devices SET status = 'revoked' WHERE id = ?").run(revoked.deviceId);
+    expect((await call('whoami', P)).data.attached_cli).toEqual([{ name: 'laptop-cli', hostname: 'box-1' }]);
   });
 });
 

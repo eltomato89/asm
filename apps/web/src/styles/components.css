@@ -870,3 +870,19 @@ button { cursor: pointer; }
   .pick-check { display: inline-grid; place-items: center; width: 14px; height: 14px; flex: none; color: var(--text); }
 }
 /* ---------- end standing approval ---------- */
+
+/* ---------- Linked devices (devices page, link dialog) ---------- */
+@layer components {
+  .device-name { display: inline-flex; align-items: center; gap: 6px; }
+  tr.is-attached .attached-mark { margin-left: 6px; color: var(--text-3); font-size: var(--fs-12); }
+  .inherited-vault { font-size: var(--fs-12); cursor: help; }
+  .revoke-attached { display: grid; gap: 4px; }
+  .revoke-attached .check { margin-top: 0; }
+  .revoke-attached .help { margin: 0 0 0 22px; font-size: var(--fs-12); color: var(--text-3); }
+  .link-form { display: grid; gap: 14px; }
+  .link-form .field { margin: 0; }
+  .link-drops { padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font-size: var(--fs-13); color: var(--amber); }
+  .link-drops p { margin: 0; }
+  .link-drops ul { margin: 4px 0 0; padding-left: 18px; }
+}
+/* ---------- end linked devices ---------- */

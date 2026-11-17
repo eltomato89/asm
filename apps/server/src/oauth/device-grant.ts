@@ -7,8 +7,11 @@ import { appendAudit } from '../audit/audit.js';
 import { requireRecentAuth, requireUser } from '../auth/guards.js';
 import { hashToken } from '../auth/sessions.js';
 import type { ServiceCtx } from '../context.js';
+import type { ActivationInfo } from '@asm/shared';
 import { deviceCodes, devices } from '../db/schema.js';
-import { createDevice } from '../devices/service.js';
+import { linkCandidates } from '../devices/links.js';
+import { createDevice, linkInTxn } from '../devices/service.js';
+import { emitDeviceChanged } from '../standing/service.js';
 import { HttpError, OAuthError } from '../errors.js';
 
 export const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
@@ -83,7 +86,12 @@ const startBody = z.object({
   client_name: z.string().trim().min(1).max(100),
   hostname: z.string().trim().min(1).max(255).optional(),
 });
-const activateBody = z.strictObject({ user_code: z.string().min(1).max(32), decision: z.enum(['approve', 'deny']) });
+const activateBody = z.strictObject({
+  user_code: z.string().min(1).max(32),
+  decision: z.enum(['approve', 'deny']),
+  /** Approve only: attach the new CLI to this own approved 'mcp' main device. */
+  link_to_device_id: z.string().min(1).max(100).nullable().optional(),
+});
 const userCodeQuery = z.object({ user_code: z.string().min(1).max(32) });
 
 /** POST /oauth/device_authorization (unauthenticated, no client registration needed). */
@@ -139,10 +147,14 @@ export function registerActivateRoutes(app: FastifyInstance, deps: OAuthDeps): v
   const { db } = ctx;
   const perUser = { rateLimit: { max: 10, timeWindow: '1 minute', keyGenerator: (req: { user?: { id: string }; ip: string }) => req.user?.id ?? req.ip } };
 
-  // Lets the UI show what is being paired (client name, hostname) before the user decides.
-  app.get('/api/devices/activate', { preHandler: requireUser, config: perUser }, async (req) => {
+  // Lets the UI show what is being paired (client name, hostname) and the main devices it could be attached to.
+  app.get('/api/devices/activate', { preHandler: requireUser, config: perUser }, async (req): Promise<ActivationInfo> => {
     const row = findPendingCode(ctx, userCodeQuery.parse(req.query).user_code);
-    return { name: row.name, hostname: row.hostname, requestedAt: row.createdAt };
+    const candidates = linkCandidates(db, req.user!.id);
+    return {
+      name: row.name, hostname: row.hostname, requestedAt: row.createdAt,
+      linkCandidates: candidates, suggestedLinkId: candidates.length === 1 ? candidates[0]!.id : null,
+    };
   });
 
   app.post('/api/devices/activate', { preHandler: [requireUser, requireRecentAuth(clock)], config: perUser }, async (req) => {
@@ -150,14 +162,21 @@ export function registerActivateRoutes(app: FastifyInstance, deps: OAuthDeps): v
     const row = findPendingCode(ctx, body.user_code);
     const userId = req.user!.id;
     const approve = body.decision === 'approve';
-    db.$client.transaction(() => {
+    const linkTo = approve ? (body.link_to_device_id ?? null) : null;
+    // A link target that is not an own approved 'mcp' device throws inside the transaction: nothing is approved.
+    const changed = db.$client.transaction((): string[] => {
       db.update(deviceCodes).set({ status: approve ? 'approved' : 'denied' }).where(eq(deviceCodes.deviceCodeHash, row.deviceCodeHash)).run();
       db.update(devices)
         .set(approve ? { status: 'approved', userId } : { status: 'denied' })
         .where(eq(devices.id, row.deviceId))
         .run();
-      appendAudit(db, clock, { actorType: 'user', actorId: userId, event: approve ? 'device.approved' : 'device.denied', deviceId: row.deviceId, ip: req.ip });
+      appendAudit(db, clock, {
+        actorType: 'user', actorId: userId, event: approve ? 'device.approved' : 'device.denied', deviceId: row.deviceId, ip: req.ip,
+        ...(linkTo ? { meta: { linkedTo: linkTo } } : {}),
+      });
+      return linkTo ? linkInTxn(ctx, userId, row.deviceId, linkTo, { ip: req.ip }, 'activation') : [];
     })();
+    for (const id of changed) emitDeviceChanged(ctx, userId, id);
     return { deviceId: row.deviceId, status: approve ? 'approved' : 'denied' };
   });
 }

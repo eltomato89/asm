@@ -11,12 +11,15 @@ import {
   createUpdateRequest,
   decideRequest,
   expireDue,
+  getRequestDto,
+  listRequests,
   waitForRequest,
 } from '../src/requests/service.js';
 import { applySecretChange, archiveSecret, createSecret, getSecretMeta, openVersion } from '../src/secrets/service.js';
 import { listVersions } from '../src/secrets/versions.js';
 import { addMember, createVault, removeMember } from '../src/vaults/service.js';
 import { revokeDevice } from '../src/devices/service.js';
+import { setStandingApproval } from '../src/standing/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, allKeys, auditRows, pairDevice, world, type TestUser } from './helpers/fixtures.js';
 
 const MIN = 60_000;
@@ -540,5 +543,22 @@ describe('requests: waitForRequest', () => {
     expect((await waitForRequest(w.ctx, r2.id, mcp.id, 20)).status).toBe('pending');
     await rejects(() => waitForRequest(w.ctx, r2.id, cli.id, 20), 404);
     await rejects(() => waitForRequest(w.ctx, 'req_nope', mcp.id, 20), 404);
+  });
+});
+
+describe('requests: attached CLI', () => {
+  it("a renewal request of an attached CLI carries the main device's renewal in the DTO", async () => {
+    const { w, secret, mcp, cli } = await setup();
+    w.db.$client.prepare('UPDATE devices SET linked_to_device_id = ? WHERE id = ?').run(mcp.id, cli.id);
+    const DAY = 24 * 60 * MIN;
+    setStandingApproval(w.ctx, w.alice.id, mcp.id, { until: w.clock.now() + DAY, scope: 'all', afterExpiry: 'renew', renewDays: 3 } as never, {});
+    w.clock.advance(DAY);
+    const r = createRequest(w.ctx, { device: cli, secretId: secret.id, project: 'p', reason: 'r', delivery: 'cli' });
+    expect(AccessRequestDtoSchema.parse(r)).toMatchObject({ status: 'pending', renewal: { days: 3 } });
+    expect(getRequestDto(w.ctx, r.id).renewal).toEqual({ days: 3 });
+    expect(listRequests(w.ctx, w.alice.id).find((x) => x.id === r.id)?.renewal).toEqual({ days: 3 });
+    // An unlinked CLI has no standing approval of its own: no renewal.
+    w.db.$client.prepare('UPDATE devices SET linked_to_device_id = NULL WHERE id = ?').run(cli.id);
+    expect(getRequestDto(w.ctx, r.id).renewal).toBeNull();
   });
 });

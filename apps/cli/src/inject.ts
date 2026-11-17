@@ -1,3 +1,4 @@
+import { ApiError, type ApiClient } from '@asm/shared/api-client';
 import { CliError, EXIT, type Runtime } from './runtime.js';
 import { stripControl } from './sanitize.js';
 
@@ -28,6 +29,26 @@ function assertUnique(names: string[]): void {
   for (const n of names) {
     if (seen.has(n)) throw new CliError(EXIT.usage, `duplicate env name ${n}; map one of them with =OTHER_NAME`);
     seen.add(n);
+  }
+}
+
+/**
+ * Redeems one grant. A grant of a linked device group (a Claude Code device with its attached CLIs) can only be redeemed
+ * by that group's CLI: the server answers 403 `wrong_device_group`, which gets an explanation instead of the bare code
+ * (same exit code as every other API error).
+ */
+async function redeem(api: ApiClient, grantId: string, hostname: string) {
+  try {
+    return await api.redeemGrant(grantId, hostname);
+  } catch (err) {
+    if (err instanceof ApiError && err.code === 'wrong_device_group') {
+      throw new CliError(
+        EXIT.api,
+        `wrong_device_group: grant ${grantId} belongs to another device group, so this CLI cannot redeem it. ` +
+          'Link this CLI to that Claude Code device in ASM → Devices, or run the command from the CLI attached to it.',
+      );
+    }
+    throw err;
   }
 }
 
@@ -69,7 +90,7 @@ export async function collectEnv(
 
   const vars: EnvVar[] = [];
   for (const g of [...grants, ...fromRequests]) {
-    const { secrets: redeemed } = await api.redeemGrant(g.id, rt.deps.hostname);
+    const { secrets: redeemed } = await redeem(api, g.id, rt.deps.hostname);
     for (const r of redeemed) {
       const name = g.env ?? r.envName;
       if (!name) throw noEnvName(stripControl(r.secretId), `--grant ${g.id}`);

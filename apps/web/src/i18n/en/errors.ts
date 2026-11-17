@@ -27,4 +27,7 @@ export const errors = {
   secretNotFound: "One of the selected secrets no longer exists or you've lost access to it.",
   deviceNotActive: 'This device is no longer active.',
   standingDisabled: 'Standing approvals are turned off on this server.',
+  deviceLinked: 'This CLI is linked to a main device and uses its settings. Unlink it first.',
+  mainNotFound: 'The main device no longer exists or is no longer active.',
+  invalidLink: 'Only a CLI can be linked, and only to an active MCP device.',
 };

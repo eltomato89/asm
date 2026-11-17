@@ -13,6 +13,7 @@ import { z, ZodError } from 'zod';
 import { appendAudit } from '../audit/audit.js';
 import type { Actor, RequestInfo, ServiceCtx } from '../context.js';
 import { HttpError, ValidationError } from '../errors.js';
+import { attachedClis, settingsDeviceId } from '../devices/links.js';
 import type { DeviceIdentity } from '../oauth/bearer.js';
 import { touchProject, type Project } from '../projects/service.js';
 import { getAutoMode } from '../requests/automode.js';
@@ -134,7 +135,7 @@ function requestCreated(t: ToolContext, dto: AccessRequestDto): ToolPayload {
 
 /** This device's standing approval for whoami (no secret ids). */
 function standingApproval(t: ToolContext): ToolPayload | null {
-  const s = standingSummaryForDevice(t.ctx, t.device.id);
+  const s = standingSummaryForDevice(t.ctx, settingsDeviceId(t.ctx.db, t.device.id));
   return s ? { active: s.active, until: iso(s.until), covers_updates: s.allowUpdates, scope: s.scope } : null;
 }
 
@@ -142,6 +143,11 @@ function standingApproval(t: ToolContext): ToolPayload | null {
 function defaultVault(t: ToolContext): ToolPayload | null {
   const v = deviceDefaultVault(t.ctx.db, t.device.id);
   return v ? { id: v.id, name: v.name } : null;
+}
+
+/** CLIs attached to this device (it is their main device) for whoami; grants of this device are redeemable only by them. */
+function attachedCli(t: ToolContext): ToolPayload[] {
+  return attachedClis(t.ctx.db, t.device.id).map((c) => ({ name: c.name, hostname: c.hostname }));
 }
 
 // ---------- tools ----------
@@ -194,6 +200,7 @@ export const TOOLS = [
       'standing approval for this device; approved_by then says which). ' +
       'Returns request_id and status; while pending, call await_request. Prefer delivery "cli" (default): you get a one-time grant to use with ' +
       '`asm run --grant <id> -- <command>` (injects the env var) or `asm write --grant <id> <file>`, so the value never enters your context. ' +
+      'If this device has attached CLIs (whoami attached_cli), only those can redeem the grant. ' +
       'Use delivery "plaintext" only if strictly necessary and allowed for the secret — the value then lands in the transcript. ' +
       `${NEVER_LEAK} Always pass the git repo / working-folder name as project and a concrete reason.`,
     schema: z.strictObject({
@@ -305,7 +312,8 @@ export const TOOLS = [
     description:
       'Show which device and user this connection acts as, whether auto mode (automatic approval of requests) is active, and ' +
       "this device's standing approval (automatic approval for this device until a date; null if none) and its default vault " +
-      '(where create_secret puts secrets without vault_id). Always pass project.',
+      '(where create_secret puts secrets without vault_id), and the CLIs attached to this device (attached_cli; only they can ' +
+      'redeem its cli grants when non-empty). Always pass project.',
     schema: z.strictObject({ project }),
     run: (t) => {
       const user = t.ctx.db.$client.prepare('SELECT id, username FROM users WHERE id = ?').get(t.device.userId) as { id: string; username: string };
@@ -315,6 +323,7 @@ export const TOOLS = [
         auto_mode: getAutoMode(t.ctx, t.device.userId),
         standing_approval: standingApproval(t),
         default_vault: defaultVault(t),
+        attached_cli: attachedCli(t),
       };
     },
   }),

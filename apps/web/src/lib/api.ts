@@ -9,7 +9,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
-import type { ApproveSummaryDto, DeviceDto, PushSubscriptionDto, PushSubscribeInput, StandingApprovalInputRaw, StandingApprovalResponse } from '@asm/shared';
+import type { ActivationInfo, ApproveSummaryDto, DeviceDto, PushSubscriptionDto, PushSubscribeInput, StandingApprovalInputRaw, StandingApprovalResponse } from '@asm/shared';
 
 export { ApiError };
 
@@ -112,7 +112,7 @@ export type SecretWrite = {
   value?: string;
   generate?: GenerateInput;
 };
-export type { DeviceDto };
+export type { ActivationInfo, DeviceDto };
 export type AuditRow = {
   seq: number;
   id: string;
@@ -153,7 +153,6 @@ export type AdminUser = {
   disabledAt: number | null;
 };
 export type ConsentInfo = { clientName: string; redirectHost: string; requestedAt: number };
-export type ActivationInfo = { name: string; hostname: string | null; requestedAt: number };
 
 export const api = {
   setupStatus: () => get<{ needsSetup: boolean }>('/api/setup/status'),
@@ -199,7 +198,12 @@ export const api = {
 
   devices: () => get<{ items: DeviceDto[] }>('/api/devices'),
   renameDevice: (deviceId: string, name: string) => patch<DeviceDto>(`/api/devices/${id(deviceId)}`, { name }),
-  revokeDevice: (deviceId: string) => post<DeviceDto>(`/api/devices/${id(deviceId)}/revoke`),
+  /** `attached` only matters for a main device: 'revoke' (server default) also revokes its attached CLIs, 'detach' unlinks them. */
+  revokeDevice: (deviceId: string, attached?: 'revoke' | 'detach') => post<DeviceDto>(`/api/devices/${id(deviceId)}/revoke`, attached ? { attached } : {}),
+  /** Attach a CLI to a main (MCP) device. Needs recent auth (sessionFetch handles the reauth prompt). */
+  linkDevice: (deviceId: string, mainDeviceId: string) => sendMaybeEmpty<DeviceDto>('PUT', `/api/devices/${id(deviceId)}/link`, { mainDeviceId }),
+  /** Detach a CLI from its main device; it starts with empty settings. Needs recent auth. */
+  unlinkDevice: (deviceId: string) => sendMaybeEmpty<DeviceDto>('DELETE', `/api/devices/${id(deviceId)}/link`),
   /** `vaultId` null = back to the personal vault. Needs a recent login (sessionFetch handles the reauth prompt). */
   setDeviceDefaultVault: (deviceId: string, vaultId: string | null) =>
     client.request<DeviceDto>('PUT', `/api/devices/${id(deviceId)}/default-vault`, { body: { vaultId } }),
@@ -226,7 +230,8 @@ export const api = {
   consentInfo: (req: string) => get<ConsentInfo>(`/api/oauth/consent/${id(req)}`),
   consent: (body: { req: string; decision: 'approve' | 'deny'; deviceName?: string }) => post<{ redirectTo: string }>('/api/oauth/consent', body),
   activationInfo: (userCode: string) => get<ActivationInfo>('/api/devices/activate', { user_code: userCode }),
-  activate: (body: { user_code: string; decision: 'approve' | 'deny' }) => post<{ deviceId: string; status: 'approved' | 'denied' }>('/api/devices/activate', body),
+  /** `link_to_device_id` attaches the new CLI to that main device (approve only; omitted = don't link). */
+  activate: (body: { user_code: string; decision: 'approve' | 'deny'; link_to_device_id?: string }) => post<{ deviceId: string; status: 'approved' | 'denied' }>('/api/devices/activate', body),
 
   pushVapidKey: () => get<{ publicKey: string }>('/api/push/vapid-key'),
   pushSubscriptions: () => get<{ items: PushSubscriptionDto[] }>('/api/push/subscriptions'),
