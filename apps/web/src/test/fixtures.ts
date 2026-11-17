@@ -44,6 +44,7 @@ export function makeStandingSummary(over: Partial<StandingApprovalSummary> = {})
     active: true,
     scope: 'all',
     secretCount: 0,
+    vaultCount: 0,
     allowUpdates: false,
     afterExpiry: 'ask',
     renewDays: 7,

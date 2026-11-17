@@ -9,6 +9,16 @@ CREATE TABLE `standing_approval_secrets` (
 );
 --> statement-breakpoint
 CREATE INDEX `standing_approval_secrets_secret_idx` ON `standing_approval_secrets` (`secret_id`);--> statement-breakpoint
+CREATE TABLE `standing_approval_vaults` (
+	`device_id` text NOT NULL,
+	`vault_id` text NOT NULL,
+	`added_at` integer NOT NULL,
+	PRIMARY KEY(`device_id`, `vault_id`),
+	FOREIGN KEY (`device_id`) REFERENCES `standing_approvals`(`device_id`) ON UPDATE no action ON DELETE cascade,
+	FOREIGN KEY (`vault_id`) REFERENCES `vaults`(`id`) ON UPDATE no action ON DELETE cascade
+);
+--> statement-breakpoint
+CREATE INDEX `standing_approval_vaults_vault_idx` ON `standing_approval_vaults` (`vault_id`);--> statement-breakpoint
 CREATE TABLE `standing_approvals` (
 	`device_id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,

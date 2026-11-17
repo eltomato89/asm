@@ -15,7 +15,7 @@ import { createRequest, createUpdateRequest, decideRequest, expireDue } from '..
 import { archiveSecret, createSecret, deleteSecret } from '../src/secrets/service.js';
 import { listVersions } from '../src/secrets/versions.js';
 import { getStandingApproval, removeStandingApproval, setStandingApproval } from '../src/standing/service.js';
-import { addMember, createVault, removeMember } from '../src/vaults/service.js';
+import { addMember, createVault, personalVaultId, removeMember } from '../src/vaults/service.js';
 import { ORIGIN, auditRows, pairDevice, world } from './helpers/fixtures.js';
 
 const MIN = 60_000;
@@ -396,6 +396,109 @@ describe('standing approval: includeCreated', () => {
   });
 });
 
+describe('standing approval: vaults scope', () => {
+  async function withTeam() {
+    const t = await setup();
+    const team = createVault(t.w.ctx, t.w.bob.id, 'Team');
+    addMember(t.w.ctx, t.w.bob.id, team.id, { username: 'alice' });
+    const teamSecret = createSecret(t.w.ctx, t.w.bob.actor, { vaultId: team.id, title: 'Team Key', value: 't' });
+    const personal = personalVaultId(t.w.db, t.w.alice.id);
+    const vaultRowCount = () => (t.w.db.$client.prepare('SELECT count(*) AS n FROM standing_approval_vaults').get() as { n: number }).n;
+    return { ...t, team, teamSecret, personal, vaultRowCount };
+  }
+
+  it('covers secrets in listed vaults (incl. ones created later), not secrets in other vaults', async () => {
+    const t = await withTeam();
+    const res = t.set({ scope: 'vaults', vaultIds: [t.team.id, t.team.id] });
+    StandingApprovalResponseSchema.parse(res);
+    expect(res.standingApproval).toMatchObject({
+      scope: 'vaults', vaultCount: 1, secretCount: 0, secrets: [], vaults: [{ id: t.team.id, name: 'Team', personal: false }],
+    });
+    expect(t.read(t.teamSecret.id)).toMatchObject({ status: 'approved', autoSource: 'standing' });
+    expect(t.read()).toMatchObject({ status: 'pending', autoSource: null });
+    const later = createSecret(t.w.ctx, t.w.bob.actor, { vaultId: t.team.id, title: 'Later', value: 'l' });
+    expect(t.read(later.id)).toMatchObject({ status: 'approved', autoSource: 'standing' });
+    const byDevice = createSecret(t.w.ctx, t.devActor, { vaultId: t.team.id, title: 'Dev', value: 'd', project: 'p', reason: 'r' });
+    expect(t.read(byDevice.id).status).toBe('approved');
+    // addCreatedSecret is list-only: nothing listed.
+    expect(t.get().standingApproval!.secretCount).toBe(0);
+    // update still needs allowUpdates
+    expect(t.update(t.teamSecret.id).status).toBe('pending');
+
+    const both = t.set({ scope: 'vaults', vaultIds: [t.team.id, t.personal] });
+    expect(both.standingApproval).toMatchObject({
+      vaultCount: 2, vaults: [{ id: t.personal, personal: true }, { id: t.team.id, personal: false }],
+    });
+    expect(t.read().status).toBe('approved');
+    const set = auditRows(t.w.db, 'standing_approval.set');
+    expect(meta(set[set.length - 1])).toMatchObject({ scope: 'vaults', vaultCount: 2, vaultIds: [t.team.id, t.personal] });
+  });
+
+  it('summary (device list) reports vaultCount; 0 for other scopes', async () => {
+    const t = await withTeam();
+    t.set({ scope: 'vaults', vaultIds: [t.team.id, t.personal] });
+    const dto = listDevices(t.w.ctx, t.w.alice.id).find((d) => d.id === t.dev.id)!;
+    DeviceDtoSchema.parse(dto);
+    expect(dto.standingApproval).toMatchObject({ scope: 'vaults', vaultCount: 2, secretCount: 0 });
+    t.set();
+    expect(t.get().standingApproval).toMatchObject({ scope: 'all', vaultCount: 0, vaults: [] });
+  });
+
+  it('foreign or unknown vault -> 404 vault_not_found', async () => {
+    const t = await setup();
+    const bobVault = createVault(t.w.ctx, t.w.bob.id, 'Bob only');
+    expectHttp(() => t.set({ scope: 'vaults', vaultIds: [bobVault.id] }), 404, 'vault_not_found');
+    expectHttp(() => t.set({ scope: 'vaults', vaultIds: ['vlt_nope'] }), 404, 'vault_not_found');
+    expect(t.get().standingApproval).toBeNull();
+    const res = await t.put({ until: t.w.clock.now() + DAY, scope: 'vaults', vaultIds: [bobVault.id] });
+    expect(res.statusCode).toBe(404);
+    expect(res.json()).toEqual({ error: 'vault_not_found' });
+    const empty = await t.put({ until: t.w.clock.now() + DAY, scope: 'vaults' });
+    expect(empty.statusCode).toBe(400);
+  });
+
+  it('losing membership removes the vault row and coverage (not restored by re-adding)', async () => {
+    const t = await withTeam();
+    t.set({ scope: 'vaults', vaultIds: [t.team.id, t.personal] });
+    t.events.length = 0;
+    removeMember(t.w.ctx, t.w.bob.id, t.team.id, t.w.alice.id);
+    await tick();
+    expect(t.deviceChanged()).toEqual([{ type: 'device.changed', data: { deviceId: t.dev.id } }]);
+    expect(t.get().standingApproval).toMatchObject({ vaultCount: 1, vaults: [{ id: t.personal }] });
+    expect(t.vaultRowCount()).toBe(1);
+    addMember(t.w.ctx, t.w.bob.id, t.team.id, { username: 'alice' });
+    expect(t.read(t.teamSecret.id)).toMatchObject({ status: 'pending', autoSource: null });
+    expect(t.read().status).toBe('approved');
+  });
+
+  it('switching scopes clears the other scope rows', async () => {
+    const t = await withTeam();
+    t.set({ scope: 'list', secretIds: [t.secret.id] });
+    const v = t.set({ scope: 'vaults', vaultIds: [t.team.id], secretIds: [t.secret.id] });
+    expect(v.standingApproval).toMatchObject({ secretCount: 0, secrets: [], vaultCount: 1 });
+    expect(t.read()).toMatchObject({ status: 'pending' });
+    const l = t.set({ scope: 'list', secretIds: [t.secret.id], vaultIds: [t.team.id] });
+    expect(l.standingApproval).toMatchObject({ secretCount: 1, vaultCount: 0, vaults: [] });
+    expect(t.vaultRowCount()).toBe(0);
+    expect(t.read(t.teamSecret.id).status).toBe('pending');
+    t.set({ scope: 'vaults', vaultIds: [t.team.id] });
+    t.set();
+    expect(t.vaultRowCount()).toBe(0);
+    expect(t.w.db.$client.prepare('SELECT count(*) AS n FROM standing_approval_secrets').get()).toEqual({ n: 0 });
+  });
+
+  it('deleting a vault or removing the approval cascades the vault rows', async () => {
+    const t = await withTeam();
+    const empty = createVault(t.w.ctx, t.w.alice.id, 'Empty');
+    t.set({ scope: 'vaults', vaultIds: [empty.id, t.personal] });
+    // (vaults with secrets cannot be deleted: secrets.vault_id has no cascade)
+    t.w.db.$client.prepare('DELETE FROM vaults WHERE id = ?').run(empty.id);
+    expect(t.vaultRowCount()).toBe(1);
+    removeStandingApproval(t.w.ctx, t.w.alice.id, t.dev.id, {});
+    expect(t.vaultRowCount()).toBe(0);
+  });
+});
+
 describe('standing approval: lifecycle', () => {
   it('revoking the device deletes it (audit removed, cause device_revoked); a re-paired device inherits nothing', async () => {
     const t = await setup();
@@ -550,7 +653,7 @@ describe('standing approval: routes', () => {
     for (const it of items) DeviceDtoSchema.parse(it);
     expect(items).toHaveLength(2);
     expect(items.find((d) => d.id === t.dev.id)!.standingApproval).toEqual({
-      until, active: true, scope: 'list', secretCount: 1, allowUpdates: true, afterExpiry: 'ask', renewDays: 7,
+      until, active: true, scope: 'list', secretCount: 1, vaultCount: 0, allowUpdates: true, afterExpiry: 'ask', renewDays: 7,
     });
     expect(items.find((d) => d.id === second.deviceId)!.standingApproval).toBeNull();
     t.w.clock.advance(7 * DAY);

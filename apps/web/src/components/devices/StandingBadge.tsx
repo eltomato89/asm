@@ -11,7 +11,7 @@ export const STANDING_WARN_DAYS = 3;
 export function standingSummaryText(s: StandingApprovalSummary): string {
   const m = t.standing.summary;
   return [
-    s.scope === 'all' ? m.all : m.list(s.secretCount),
+    s.scope === 'all' ? m.all : s.scope === 'vaults' ? m.vaults(s.vaultCount) : m.list(s.secretCount),
     s.allowUpdates ? m.withUpdates : m.readOnly,
     s.afterExpiry === 'renew' ? m.afterRenew(s.renewDays) : m.afterAsk,
   ].join(' · ');

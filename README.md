@@ -26,8 +26,9 @@ browser. By default the value never reaches the agent, only the process it start
   after 5 minutes. **Auto mode** approves automatically for a limited time (default 30 min, at most
   `ASM_AUTO_MODE_MAX_MIN`) and for selected vaults – every auto-approval is recorded in the audit log.
 - **Standing approval per device.** Trust a single device for days instead of minutes (Devices → "Standing
-  approval…"): until a date you pick (at most `ASM_STANDING_APPROVAL_MAX_DAYS`, default 90), for all secrets or a
-  selected list, optionally including the secrets the device creates itself. Reads are covered; changes only if you
+  approval…"): until a date you pick (at most `ASM_STANDING_APPROVAL_MAX_DAYS`, default 90), for all secrets, for
+  selected vaults (including secrets added to them later) or for a selected list of secrets, optionally including the
+  secrets the device creates itself. Reads are covered; changes only if you
   also allow them. After the expiry, ASM either asks every time again, or asks once and extends the standing approval
   by a preset number of days when you approve. Every automatic approval is recorded as "via standing approval"; revoking
   the device removes it.

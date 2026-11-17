@@ -835,6 +835,12 @@ button { cursor: pointer; }
   .standing-inline .standing-num { width: 56px; }
   .standing-after { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
   .standing-list { display: grid; gap: 12px; width: 100%; }
+  .standing-vaults { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 6px; }
+  .standing-vaults label { display: flex; align-items: center; gap: 8px; font-size: var(--fs-13); color: var(--text); cursor: pointer; }
+  .standing-vaults input { accent-color: var(--text); margin: 0; width: 14px; height: 14px; }
+  .standing-vaults:disabled label { cursor: default; color: var(--text-3); }
+  .standing-vaults-error { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: var(--fs-13); color: var(--danger); }
+  .standing-vaults-error .btn { height: 26px; color: var(--text); }
   .standing-note { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font-size: var(--fs-13); color: var(--text-2); }
   .standing-note strong { display: block; color: var(--text); font-weight: 500; margin-bottom: 4px; }
   .standing-note p { margin: 0; }

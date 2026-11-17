@@ -204,7 +204,7 @@ export const AutoModeInputSchema = z.strictObject({
 // ---------- devices / standing approval ----------
 export const DeviceKindSchema = z.enum(['mcp', 'cli']);
 export const DeviceStatusSchema = z.enum(['pending', 'approved', 'denied', 'revoked']);
-export const StandingScopeSchema = z.enum(['all', 'list']);
+export const StandingScopeSchema = z.enum(['all', 'vaults', 'list']);
 export type StandingScope = z.infer<typeof StandingScopeSchema>;
 export const AfterExpirySchema = z.enum(['ask', 'renew']);
 export type AfterExpiry = z.infer<typeof AfterExpirySchema>;
@@ -216,6 +216,8 @@ export const StandingApprovalSummarySchema = z.strictObject({
   scope: StandingScopeSchema,
   /** Number of listed secrets (also reported for scope 'all'). */
   secretCount: z.number().int(),
+  /** Number of covered vaults (0 unless scope 'vaults'). */
+  vaultCount: z.number().int(),
   allowUpdates: z.boolean(),
   afterExpiry: AfterExpirySchema,
   renewDays: z.number().int(),
@@ -251,6 +253,8 @@ export const StandingApprovalDtoSchema = StandingApprovalSummarySchema.extend({
   grantedAt: z.number(),
   updatedAt: z.number(),
   secrets: z.array(StandingApprovalSecretSchema),
+  /** Covered vaults (scope 'vaults'; only vaults the owner can still access). */
+  vaults: z.array(z.strictObject({ id: z.string(), name: z.string(), personal: z.boolean() })),
 });
 export type StandingApprovalDto = z.infer<typeof StandingApprovalDtoSchema>;
 
@@ -267,12 +271,15 @@ export const StandingApprovalInputSchema = z
     until: z.number().int(),
     scope: StandingScopeSchema,
     secretIds: z.array(z.string().min(1).max(100)).max(200).default([]),
+    vaultIds: z.array(z.string().min(1).max(100)).max(50).default([]),
+    /** Only applies to scope 'list' (in scope 'vaults' created secrets in covered vaults are covered anyway). */
     includeCreated: z.boolean().default(false),
     allowUpdates: z.boolean().default(false),
     afterExpiry: AfterExpirySchema.default('ask'),
     renewDays: z.number().int().min(1).default(7),
   })
-  .refine((v) => v.scope === 'all' || v.secretIds.length > 0 || v.includeCreated, { message: 'empty_list' });
+  .refine((v) => v.scope !== 'list' || v.secretIds.length > 0 || v.includeCreated, { message: 'empty_list' })
+  .refine((v) => v.scope !== 'vaults' || v.vaultIds.length > 0, { message: 'empty_vaults' });
 export type StandingApprovalInput = z.infer<typeof StandingApprovalInputSchema>;
 export type StandingApprovalInputRaw = z.input<typeof StandingApprovalInputSchema>;
 

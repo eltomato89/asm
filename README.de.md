@@ -25,8 +25,9 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
   verfällt nach 5 Minuten. Der **Auto-Modus** gibt für eine begrenzte Zeit (Standard 30 min, maximal
   `ASM_AUTO_MODE_MAX_MIN`) und für gewählte Tresore automatisch frei – jede Auto-Freigabe steht im Audit-Log.
 - **Dauerfreigabe pro Gerät.** Einem einzelnen Gerät für Tage statt Minuten vertrauen (Geräte → „Dauerfreigabe…“):
-  bis zu einem Datum deiner Wahl (höchstens `ASM_STANDING_APPROVAL_MAX_DAYS`, Standard 90), für alle Secrets oder
-  eine Auswahl, optional inklusive der Secrets, die das Gerät selbst anlegt. Abrufe sind abgedeckt, Änderungen nur,
+  bis zu einem Datum deiner Wahl (höchstens `ASM_STANDING_APPROVAL_MAX_DAYS`, Standard 90), für alle Secrets,
+  für ausgewählte Tresore (inklusive später darin angelegter Secrets) oder für ausgewählte Secrets, optional inklusive
+  der Secrets, die das Gerät selbst anlegt. Abrufe sind abgedeckt, Änderungen nur,
   wenn du sie zusätzlich erlaubst. Nach Ablauf fragt ASM entweder wieder jedes Mal, oder einmal – und deine Freigabe
   verlängert die Dauerfreigabe um eine voreingestellte Anzahl Tage. Jede automatische Freigabe steht als „per
   Dauerfreigabe“ im Audit-Log; Widerrufen des Geräts entfernt sie.

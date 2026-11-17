@@ -10,6 +10,7 @@ export const standing: Messages['standing'] = {
   summary: {
     all: 'Alle Secrets',
     list: (n) => (n === 1 ? '1 Secret' : `${n} Secrets`),
+    vaults: (n) => (n === 1 ? '1 Tresor' : `${n} Tresore`),
     readOnly: 'nur lesen',
     withUpdates: 'lesen und ändern',
     afterAsk: 'fragt nach Ablauf jedes Mal',
@@ -35,8 +36,15 @@ export const standing: Messages['standing'] = {
 
   scope: 'Gilt für',
   scopeAll: 'Alle Secrets',
+  scopeVaults: 'Ausgewählte Tresore',
   scopeList: 'Ausgewählte Secrets',
   scopeAllHelp: 'Alle Secrets in Tresoren, auf die du Zugriff hast, auch später hinzugefügte.',
+  vaultsLegend: 'Tresore',
+  vaultsHelp: 'Neue Secrets in diesen Tresoren sind automatisch mit abgedeckt.',
+  vaultsEmpty: 'Wähle mindestens einen Tresor aus.',
+  vaultsNone: 'Du hast noch keine Tresore.',
+  vaultsLoading: 'Tresore werden geladen',
+  vaultsLoadFailed: 'Deine Tresore konnten nicht geladen werden.',
   includeCreated: 'Secrets, die dieses Gerät anlegt, automatisch aufnehmen',
   listEmpty: 'Wähle mindestens ein Secret aus oder lass die vom Gerät angelegten automatisch aufnehmen.',
 

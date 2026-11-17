@@ -16,7 +16,7 @@ import { canAccessVault } from '../vaults/service.js';
 export const DAY_MS = 24 * 60 * 60_000;
 
 export type StandingRow = {
-  device_id: string; user_id: string; until: number; granted_at: number; scope: 'all' | 'list';
+  device_id: string; user_id: string; until: number; granted_at: number; scope: 'all' | 'vaults' | 'list';
   include_created: number; allow_updates: number; after_expiry: 'ask' | 'renew'; renew_days: number;
   expiry_audited: number; created_at: number; updated_at: number;
 };
@@ -39,13 +39,21 @@ function secretCount(ctx: ServiceCtx, deviceId: string): number {
   return (ctx.db.$client.prepare('SELECT count(*) AS n FROM standing_approval_secrets WHERE device_id = ?').get(deviceId) as { n: number }).n;
 }
 
-/** Short form for DeviceDto (`count` = number of listed secrets; looked up if omitted). */
-export function standingSummary(ctx: ServiceCtx, row: StandingRow, count?: number): StandingApprovalSummary {
+function vaultCount(ctx: ServiceCtx, deviceId: string): number {
+  return (ctx.db.$client.prepare('SELECT count(*) AS n FROM standing_approval_vaults WHERE device_id = ?').get(deviceId) as { n: number }).n;
+}
+
+/**
+ * Short form for DeviceDto (`count` = number of listed secrets, `vaults` = number of covered vaults; looked up if omitted).
+ * vaultCount is 0 unless scope 'vaults'.
+ */
+export function standingSummary(ctx: ServiceCtx, row: StandingRow, count?: number, vaults?: number): StandingApprovalSummary {
   return {
     until: effectiveUntil(row, ctx.standingMaxDays),
     active: isActive(row, ctx.standingMaxDays, ctx.clock.now()),
     scope: row.scope,
     secretCount: count ?? secretCount(ctx, row.device_id),
+    vaultCount: row.scope === 'vaults' ? (vaults ?? vaultCount(ctx, row.device_id)) : 0,
     allowUpdates: row.allow_updates === 1,
     afterExpiry: row.after_expiry,
     renewDays: row.renew_days,
@@ -56,11 +64,12 @@ export function standingSummary(ctx: ServiceCtx, row: StandingRow, count?: numbe
 export function standingSummariesForUser(ctx: ServiceCtx, userId: string): Map<string, StandingApprovalSummary> {
   const rows = ctx.db.$client
     .prepare(
-      `SELECT sa.*, (SELECT count(*) FROM standing_approval_secrets x WHERE x.device_id = sa.device_id) AS secret_count
+      `SELECT sa.*, (SELECT count(*) FROM standing_approval_secrets x WHERE x.device_id = sa.device_id) AS secret_count,
+              (SELECT count(*) FROM standing_approval_vaults y WHERE y.device_id = sa.device_id) AS vault_count
          FROM standing_approvals sa WHERE sa.user_id = ?`,
     )
-    .all(userId) as (StandingRow & { secret_count: number })[];
-  return new Map(rows.map((r) => [r.device_id, standingSummary(ctx, r, r.secret_count)]));
+    .all(userId) as (StandingRow & { secret_count: number; vault_count: number })[];
+  return new Map(rows.map((r) => [r.device_id, standingSummary(ctx, r, r.secret_count, r.vault_count)]));
 }
 
 /** Summary of one device's standing approval, or null (e.g. for MCP whoami). */
@@ -90,12 +99,24 @@ function toDto(ctx: ServiceCtx, row: StandingRow): StandingApprovalDto {
       addedBy: s.added_by, addedAt: s.added_at,
     }),
   );
+  const vaults = (
+    ctx.db.$client
+      .prepare(
+        `SELECT v.id, v.name, v.personal_of_user_id IS NOT NULL AS personal
+           FROM standing_approval_vaults y
+           JOIN vaults v ON v.id = y.vault_id
+          WHERE y.device_id = ? AND v.id IN (SELECT vault_id FROM vault_members WHERE user_id = ?)
+          ORDER BY v.personal_of_user_id IS NULL, v.name COLLATE NOCASE, v.id`,
+      )
+      .all(row.device_id, row.user_id) as { id: string; name: string; personal: number }[]
+  ).map((v) => ({ id: v.id, name: v.name, personal: v.personal === 1 }));
   return {
-    ...standingSummary(ctx, row, secrets.length),
+    ...standingSummary(ctx, row, secrets.length, vaults.length),
     includeCreated: row.include_created === 1,
     grantedAt: row.granted_at,
     updatedAt: row.updated_at,
     secrets,
+    vaults,
   };
 }
 
@@ -142,7 +163,8 @@ const auditSnapshot = (row: StandingRow, maxDays: number) => ({
 
 /**
  * PUT (full replace). Callers (routes) must require recent auth.
- * 404 not_found | 409 device_inactive | 403 standing_disabled | 400 invalid_until | 400 invalid_renew_days | 404 secret_not_found.
+ * 404 not_found | 409 device_inactive | 403 standing_disabled | 400 invalid_until | 400 invalid_renew_days | 404 secret_not_found
+ * | 404 vault_not_found. Switching scope clears the other scope's rows.
  */
 export function setStandingApproval(
   ctx: ServiceCtx, userId: string, deviceId: string, rawInput: StandingApprovalInputRaw, info: RequestInfo = {},
@@ -161,6 +183,8 @@ export function setStandingApproval(
     'SELECT 1 FROM secrets s JOIN vault_members m ON m.vault_id = s.vault_id AND m.user_id = ? WHERE s.id = ?',
   );
   for (const id of ids) if (!visible.get(userId, id)) throw new HttpError(404, 'secret_not_found');
+  const vaultIds = input.scope === 'vaults' ? [...new Set(input.vaultIds)] : [];
+  for (const id of vaultIds) if (!canAccessVault(db, userId, id)) throw new HttpError(404, 'vault_not_found');
 
   db.$client.transaction(() => {
     const prev = loadStanding(ctx, deviceId);
@@ -177,7 +201,7 @@ export function setStandingApproval(
         deviceId, userId, until: input.until, now, scope: input.scope, includeCreated: input.includeCreated ? 1 : 0,
         allowUpdates: input.allowUpdates ? 1 : 0, afterExpiry: input.afterExpiry, renewDays: input.renewDays,
       });
-    if (input.scope === 'all') {
+    if (input.scope !== 'list') {
       db.$client.prepare('DELETE FROM standing_approval_secrets WHERE device_id = ?').run(deviceId);
     } else {
       // Keep added_by/added_at of ids that stay on the list.
@@ -189,10 +213,21 @@ export function setStandingApproval(
       );
       for (const id of ids) ins.run(deviceId, id, now);
     }
+    if (input.scope !== 'vaults') {
+      db.$client.prepare('DELETE FROM standing_approval_vaults WHERE device_id = ?').run(deviceId);
+    } else {
+      // Keep added_at of vaults that stay covered.
+      db.$client
+        .prepare(`DELETE FROM standing_approval_vaults WHERE device_id = ? AND vault_id NOT IN (SELECT value FROM json_each(?))`)
+        .run(deviceId, JSON.stringify(vaultIds));
+      const ins = db.$client.prepare('INSERT OR IGNORE INTO standing_approval_vaults (device_id, vault_id, added_at) VALUES (?, ?, ?)');
+      for (const id of vaultIds) ins.run(deviceId, id, now);
+    }
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: userId, event: 'standing_approval.set', deviceId, ip: info.ip,
       meta: {
-        until: input.until, scope: input.scope, secretCount: ids.length, secretIds: ids, includeCreated: input.includeCreated,
+        until: input.until, scope: input.scope, secretCount: ids.length, secretIds: ids, vaultCount: vaultIds.length, vaultIds,
+        includeCreated: input.includeCreated,
         allowUpdates: input.allowUpdates, afterExpiry: input.afterExpiry, renewDays: input.renewDays,
         previous: prev ? auditSnapshot(prev, max) : null,
       },
@@ -238,7 +273,8 @@ export type StandingCoverage = 'covered' | 'renewal' | null;
 
 /**
  * Whether a new request is approved by the device's standing approval ('covered'), would renew an expired one on approval
- * ('renewal'), or neither. Checks kind (update needs allow_updates), scope/list, vault access, device status and expiry.
+ * ('renewal'), or neither. Checks kind (update needs allow_updates), scope (list / covered vaults), vault access, device status
+ * and expiry.
  */
 export function standingCoverage(
   ctx: ServiceCtx,
@@ -254,6 +290,11 @@ export function standingCoverage(
       .prepare('SELECT 1 FROM standing_approval_secrets WHERE device_id = ? AND secret_id = ?')
       .get(q.deviceId, q.secretId);
     if (!listed) return null;
+  } else if (row.scope === 'vaults') {
+    const covered = ctx.db.$client
+      .prepare('SELECT 1 FROM standing_approval_vaults WHERE device_id = ? AND vault_id = ?')
+      .get(q.deviceId, q.vaultId);
+    if (!covered) return null;
   }
   if (!canAccessVault(ctx.db, q.userId, q.vaultId)) return null;
   const dev = ctx.db.$client.prepare('SELECT status FROM devices WHERE id = ?').get(q.deviceId) as { status: string } | undefined;
@@ -313,22 +354,35 @@ export function addCreatedSecret(ctx: ServiceCtx, deviceId: string, secretId: st
   return true;
 }
 
-/** Member-removal hook (inside the removal transaction): drop the vault's secrets from the user's standing approval lists. */
+/**
+ * Member-removal hook (inside the removal transaction): drop the vault's secrets from the user's standing approval lists and
+ * the vault from vaults-scoped approvals.
+ */
 export function removeForLostVault(ctx: ServiceCtx, vaultId: string, userId: string): void {
   const affected = ctx.db.$client
     .prepare(
-      `SELECT DISTINCT x.device_id FROM standing_approval_secrets x
+      `SELECT x.device_id FROM standing_approval_secrets x
          JOIN standing_approvals sa ON sa.device_id = x.device_id
          JOIN secrets s ON s.id = x.secret_id
-        WHERE sa.user_id = ? AND s.vault_id = ?`,
+        WHERE sa.user_id = ? AND s.vault_id = ?
+       UNION
+       SELECT y.device_id FROM standing_approval_vaults y
+         JOIN standing_approvals sa ON sa.device_id = y.device_id
+        WHERE sa.user_id = ? AND y.vault_id = ?`,
     )
-    .all(userId, vaultId) as { device_id: string }[];
+    .all(userId, vaultId, userId, vaultId) as { device_id: string }[];
   if (affected.length === 0) return;
   ctx.db.$client
     .prepare(
       `DELETE FROM standing_approval_secrets
         WHERE device_id IN (SELECT device_id FROM standing_approvals WHERE user_id = ?)
           AND secret_id IN (SELECT id FROM secrets WHERE vault_id = ?)`,
+    )
+    .run(userId, vaultId);
+  ctx.db.$client
+    .prepare(
+      `DELETE FROM standing_approval_vaults
+        WHERE device_id IN (SELECT device_id FROM standing_approvals WHERE user_id = ?) AND vault_id = ?`,
     )
     .run(userId, vaultId);
   for (const a of affected) emitDeviceChangedAfterCommit(ctx, userId, a.device_id);

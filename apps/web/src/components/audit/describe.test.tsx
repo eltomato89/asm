@@ -10,7 +10,7 @@ const names: Names = {
   meId: 'usr_1',
   device: (id) => (id === 'dev_1' ? 'claude@mbp-office' : undefined),
   secret: (id) => (id === 'sec_1' ? 'GITHUB_TOKEN' : undefined),
-  vault: () => undefined,
+  vault: (id) => (id === 'vlt_w' ? 'Work' : id === 'vlt_o' ? 'Ops' : undefined),
   user: () => undefined,
 };
 
@@ -75,6 +75,19 @@ describe('describeAudit: standing approvals', () => {
     expect(expired.note).toBe('the next request asks once to extend it');
     const added = text(row({ event: 'standing_approval.secret_added', actorType: 'device', actorId: 'dev_1', secretId: 'sec_1', meta: { cause: 'created_by_device' } }));
     expect(added.sentence).toBe('claude@mbp-office created GITHUB_TOKEN, which was added to its standing approval');
+  });
+
+  it('standing approval for selected vaults: names when known, otherwise a count', () => {
+    const meta = { until: UNTIL, scope: 'vaults', secretCount: 0, allowUpdates: false, afterExpiry: 'ask', renewDays: 7 };
+    expect(text(row({ event: 'standing_approval.set', meta: { ...meta, vaultIds: ['vlt_w', 'vlt_o'], vaultCount: 2 } })).sentence).toBe(
+      `You set a standing approval for claude@mbp-office until ${formatDay(UNTIL)} (vaults Work, Ops)`,
+    );
+    expect(text(row({ event: 'standing_approval.set', meta: { ...meta, vaultIds: ['vlt_w'], vaultCount: 1 } })).sentence).toBe(
+      `You set a standing approval for claude@mbp-office until ${formatDay(UNTIL)} (vault Work)`,
+    );
+    expect(text(row({ event: 'standing_approval.set', meta: { ...meta, vaultIds: ['vlt_w', 'vlt_gone'], vaultCount: 2 } })).sentence).toBe(
+      `You set a standing approval for claude@mbp-office until ${formatDay(UNTIL)} (2 vaults)`,
+    );
   });
 
   it('notes renewal requests and approvals that extended a standing approval', () => {

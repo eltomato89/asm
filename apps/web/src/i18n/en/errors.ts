@@ -23,6 +23,7 @@ export const errors = {
   notFound: 'Not found. Reload the page.',
   invalidUntil: 'Pick an end date within the allowed range.',
   invalidRenewDays: 'The extension is outside the allowed range.',
+  vaultNotFound: "One of the selected vaults no longer exists or you've lost access to it.",
   secretNotFound: "One of the selected secrets no longer exists or you've lost access to it.",
   deviceNotActive: 'This device is no longer active.',
   standingDisabled: 'Standing approvals are turned off on this server.',

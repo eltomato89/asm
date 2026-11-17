@@ -217,7 +217,7 @@ export const standingApprovals = sqliteTable(
     userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
     until: ts('until').notNull(),
     grantedAt: ts('granted_at').notNull(),
-    scope: text('scope', { enum: ['all', 'list'] }).notNull(),
+    scope: text('scope', { enum: ['all', 'vaults', 'list'] }).notNull(),
     includeCreated: bool('include_created').notNull().default(false),
     allowUpdates: bool('allow_updates').notNull().default(false),
     afterExpiry: text('after_expiry', { enum: ['ask', 'renew'] }).notNull().default('ask'),
@@ -239,6 +239,17 @@ export const standingApprovalSecrets = sqliteTable(
     addedAt: ts('added_at').notNull(),
   },
   (t) => [primaryKey({ columns: [t.deviceId, t.secretId] }), index('standing_approval_secrets_secret_idx').on(t.secretId)],
+);
+
+/** Vaults covered by a standing approval with scope 'vaults' (all their secrets, incl. ones created later). */
+export const standingApprovalVaults = sqliteTable(
+  'standing_approval_vaults',
+  {
+    deviceId: text('device_id').notNull().references(() => standingApprovals.deviceId, { onDelete: 'cascade' }),
+    vaultId: text('vault_id').notNull().references(() => vaults.id, { onDelete: 'cascade' }),
+    addedAt: ts('added_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.deviceId, t.vaultId] }), index('standing_approval_vaults_vault_idx').on(t.vaultId)],
 );
 
 export const auditLog = sqliteTable('audit_log', {

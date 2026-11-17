@@ -9,6 +9,7 @@ export const standing = {
   summary: {
     all: 'All secrets',
     list: (n: number) => (n === 1 ? '1 secret' : `${n} secrets`),
+    vaults: (n: number) => (n === 1 ? '1 vault' : `${n} vaults`),
     readOnly: 'reading only',
     withUpdates: 'reading and changes',
     afterAsk: 'asks every time after expiry',
@@ -34,8 +35,15 @@ export const standing = {
 
   scope: 'Applies to',
   scopeAll: 'All secrets',
+  scopeVaults: 'Selected vaults',
   scopeList: 'Selected secrets',
   scopeAllHelp: 'Every secret in vaults you can access, including ones added later.',
+  vaultsLegend: 'Vaults',
+  vaultsHelp: 'New secrets in these vaults are covered automatically.',
+  vaultsEmpty: 'Pick at least one vault.',
+  vaultsNone: 'You have no vaults yet.',
+  vaultsLoading: 'Loading vaults',
+  vaultsLoadFailed: "Couldn't load your vaults.",
   includeCreated: 'Automatically add secrets this device creates',
   listEmpty: 'Pick at least one secret, or turn on adding the ones this device creates.',
 

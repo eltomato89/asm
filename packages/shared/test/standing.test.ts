@@ -4,7 +4,7 @@ import { StandingApprovalInputSchema } from '../src/schemas.js';
 describe('StandingApprovalInputSchema', () => {
   it('applies defaults', () => {
     expect(StandingApprovalInputSchema.parse({ until: 1, scope: 'all' })).toEqual({
-      until: 1, scope: 'all', secretIds: [], includeCreated: false, allowUpdates: false, afterExpiry: 'ask', renewDays: 7,
+      until: 1, scope: 'all', secretIds: [], vaultIds: [], includeCreated: false, allowUpdates: false, afterExpiry: 'ask', renewDays: 7,
     });
   });
   it('rejects an empty list scope with empty_list', () => {
@@ -21,5 +21,17 @@ describe('StandingApprovalInputSchema', () => {
     expect(StandingApprovalInputSchema.safeParse({ until: 1, scope: 'all', extra: 1 }).success).toBe(false);
     const ids = Array.from({ length: 201 }, (_, i) => `sec_${i}`);
     expect(StandingApprovalInputSchema.safeParse({ until: 1, scope: 'list', secretIds: ids }).success).toBe(false);
+  });
+  it('rejects a vaults scope without vaults with empty_vaults', () => {
+    const r = StandingApprovalInputSchema.safeParse({ until: 1, scope: 'vaults' });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues.map((i) => i.message)).toEqual(['empty_vaults']);
+    // includeCreated does not satisfy the vaults scope
+    expect(StandingApprovalInputSchema.safeParse({ until: 1, scope: 'vaults', includeCreated: true }).success).toBe(false);
+  });
+  it('accepts a vaults scope with vault ids (no secrets needed) and caps vaultIds at 50', () => {
+    expect(StandingApprovalInputSchema.safeParse({ until: 1, scope: 'vaults', vaultIds: ['vlt_1'] }).success).toBe(true);
+    const ids = Array.from({ length: 51 }, (_, i) => `vlt_${i}`);
+    expect(StandingApprovalInputSchema.safeParse({ until: 1, scope: 'vaults', vaultIds: ids }).success).toBe(false);
   });
 });

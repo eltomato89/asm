@@ -42,6 +42,17 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
 const Day = ({ ts }: { ts: number | undefined }) => (ts === undefined ? <>?</> : <time dateTime={new Date(ts).toISOString()} title={formatAbsolute(ts)}>{formatDay(ts)}</time>);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : undefined);
 
+/** Max. vault names spelled out in a standing approval sentence; more become "(N vaults)". */
+const MAX_VAULT_NAMES = 3;
+/** "(vaults Work, Ops)" when every vault id is known, otherwise "(N vaults)". */
+function vaultScope(meta: Record<string, unknown>, names: Names): string {
+  const w = t.audit.words;
+  const ids = Array.isArray(meta.vaultIds) ? meta.vaultIds.filter((v): v is string => typeof v === 'string') : [];
+  const labels = ids.map((id) => names.vault(id));
+  if (ids.length > 0 && ids.length <= MAX_VAULT_NAMES && labels.every((l) => l !== undefined)) return w.vaultNames(labels as string[]);
+  return w.vaultCount(num(meta.vaultCount) ?? ids.length);
+}
+
 /** Readable sentence for an audit row ("claude@mbp received GITHUB_TOKEN for asm automatically"). */
 export function describeAudit(r: AuditRow, names: Names): Described {
   const w = t.audit.words;
@@ -69,7 +80,7 @@ export function describeAudit(r: AuditRow, names: Names): Described {
       return s(ev.requestAutoApproved(c, <span className="muted">{meta.via === 'standing' ? w.automaticallyStanding : w.automatically}</span>));
     case 'standing_approval.set': {
       const count = num(meta.secretCount);
-      const scope = <span className="muted">{meta.scope === 'list' && count !== undefined ? w.secretCount(count) : w.allSecrets}</span>;
+      const scope = <span className="muted">{meta.scope === 'vaults' ? vaultScope(meta, names) : meta.scope === 'list' && count !== undefined ? w.secretCount(count) : w.allSecrets}</span>;
       const changed = meta.previous !== undefined && meta.previous !== null;
       const after = meta.afterExpiry === 'renew' ? w.thenRenew(str(meta.renewDays) ?? null) : w.thenAsk;
       const note = meta.allowUpdates === true || meta.allowUpdates === 'true' ? `${w.withUpdates}; ${after}` : after;

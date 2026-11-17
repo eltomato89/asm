@@ -105,6 +105,8 @@ export const audit = {
     automaticallyStanding: 'automatically (standing approval)',
     allSecrets: '(all secrets)',
     secretCount: (n: number) => `(${n} ${n === 1 ? 'secret' : 'secrets'})`,
+    vaultCount: (n: number) => `(${n} ${n === 1 ? 'vault' : 'vaults'})`,
+    vaultNames: (names: string[]) => `(${names.length === 1 ? 'vault' : 'vaults'} ${names.join(', ')})`,
     withUpdates: 'changes allowed too',
     thenAsk: 'afterwards, every request asks again',
     thenRenew: (days: string | null) => (days ? `the next request asks once to extend it by ${days} days` : 'the next request asks once to extend it'),

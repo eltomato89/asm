@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProviders } from '../../app';
-import { makeSecret } from '../../test/fixtures';
+import { makeSecret, VAULTS } from '../../test/fixtures';
 import { makeQueryClient, mockFetch, type FetchCall } from '../../test/utils';
 import { DAY_MS, endOfLocalDay, StandingApprovalDialog, toDateInput } from './StandingApprovalDialog';
 
@@ -33,6 +33,7 @@ function existing(over: Partial<StandingApprovalDto> = {}): StandingApprovalDto 
     active: true,
     scope: 'list',
     secretCount: 2,
+    vaultCount: 0,
     allowUpdates: true,
     afterExpiry: 'renew',
     renewDays: 14,
@@ -43,6 +44,7 @@ function existing(over: Partial<StandingApprovalDto> = {}): StandingApprovalDto 
       { id: 'sec_1', title: 'GitHub', envName: 'GITHUB_TOKEN', vaultId: 'vlt_p', vaultName: 'Personal', archived: false, addedBy: 'user', addedAt: now },
       { id: 'sec_2', title: 'Stripe', envName: 'STRIPE_KEY', vaultId: 'vlt_w', vaultName: 'Work', archived: false, addedBy: 'device', addedAt: now },
     ],
+    vaults: [],
     ...over,
   };
 }
@@ -57,7 +59,7 @@ function server({ maxDays = 90, current = null, reauth = false, extra }: Opts = 
     if (c.path === PATH && c.method === 'GET') return { body: { standingApproval: current, maxDays } };
     if (c.path === PATH && c.method === 'PUT') {
       if (!recent) return { status: 401, body: { error: 'reauth_required' } };
-      const b = c.body as { until: number; scope: 'all' | 'list'; includeCreated: boolean; allowUpdates: boolean; afterExpiry: 'ask' | 'renew'; renewDays: number };
+      const b = c.body as { until: number; scope: 'all' | 'vaults' | 'list'; includeCreated: boolean; allowUpdates: boolean; afterExpiry: 'ask' | 'renew'; renewDays: number };
       return { body: { standingApproval: { ...existing(), ...b, secrets: [], secretCount: 0, updatedAt: Date.now() }, maxDays } };
     }
     if (c.path === PATH && c.method === 'DELETE') return { body: { standingApproval: null, maxDays } };
@@ -65,6 +67,7 @@ function server({ maxDays = 90, current = null, reauth = false, extra }: Opts = 
       recent = true;
       return { body: { ok: true } };
     }
+    if (c.path === '/api/vaults' && c.method === 'GET') return { body: VAULTS };
     if (c.path === '/api/secrets') return { body: { items: [makeSecret(), makeSecret({ id: 'sec_3', title: 'npm', envName: 'NPM_TOKEN', vaultName: 'Work' })] } };
     return undefined;
   });
@@ -110,7 +113,7 @@ describe('StandingApprovalDialog', () => {
     await user.click(await within(d).findByRole('button', { name: 'Save' }));
     await waitFor(() => expect(putCall(calls)).toBeDefined());
     const body = putCall(calls)!.body as { until: number };
-    expect(body).toEqual({ until: expect.any(Number), scope: 'all', secretIds: [], includeCreated: false, allowUpdates: false, afterExpiry: 'ask', renewDays: 7 });
+    expect(body).toEqual({ until: expect.any(Number), scope: 'all', secretIds: [], vaultIds: [], includeCreated: false, allowUpdates: false, afterExpiry: 'ask', renewDays: 7 });
     expect(body.until).toBeGreaterThanOrEqual(before + 7 * DAY_MS - 60_000);
     expect(body.until).toBeLessThanOrEqual(Date.now() + 7 * DAY_MS);
     expect(await screen.findByText('Standing approval for claude@mbp saved.')).toBeInTheDocument();
@@ -185,6 +188,66 @@ describe('StandingApprovalDialog', () => {
     expect(putCall(calls)!.body).toMatchObject({ scope: 'list', secretIds: ['sec_3'], includeCreated: false, allowUpdates: true, afterExpiry: 'renew', renewDays: 14 });
   });
 
+  it('three scope options; selected vaults lists the vaults and hides the "add created secrets" switch', async () => {
+    server();
+    const user = userEvent.setup();
+    renderDialog();
+    const d = await dialog();
+    const group = await within(d).findByRole('group', { name: 'Applies to' });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['All secrets', 'Selected vaults', 'Selected secrets']);
+    await user.click(within(group).getByRole('button', { name: 'Selected vaults' }));
+    const vaults = await within(d).findByRole('group', { name: 'Vaults' });
+    expect(within(vaults).getAllByRole('checkbox').map((c) => c.parentElement!.textContent!.trim())).toEqual(['Personal', 'Work']);
+    expect(within(d).getByText('New secrets in these vaults are covered automatically.')).toBeInTheDocument();
+    expect(within(d).queryByRole('switch', { name: 'Automatically add secrets this device creates' })).toBeNull();
+  });
+
+  it('requires at least one vault for selected vaults and sends nothing until then', async () => {
+    const { calls } = server();
+    const user = userEvent.setup();
+    renderDialog();
+    const d = await dialog();
+    await user.click(await within(d).findByRole('button', { name: 'Selected vaults' }));
+    await within(d).findByRole('group', { name: 'Vaults' });
+    await user.click(within(d).getByRole('button', { name: 'Save' }));
+    expect(within(d).getByRole('alert')).toHaveTextContent('Pick at least one vault.');
+    expect(putCall(calls)).toBeUndefined();
+
+    await user.click(within(d).getByRole('checkbox', { name: 'Work' }));
+    expect(within(d).queryByRole('alert')).toBeNull();
+    await user.click(within(d).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(putCall(calls)).toBeDefined());
+    expect(putCall(calls)!.body).toMatchObject({ scope: 'vaults', vaultIds: ['vlt_w'], secretIds: [], includeCreated: false });
+  });
+
+  it('prefills selected vaults when editing and sends only vaultIds', async () => {
+    const current = existing({ scope: 'vaults', vaultCount: 1, secretCount: 0, secrets: [], includeCreated: false, vaults: [{ id: 'vlt_p', name: 'Personal', personal: true }] });
+    const { calls } = server({ current });
+    const user = userEvent.setup();
+    renderDialog();
+    const d = await dialog();
+    expect(await within(d).findByRole('button', { name: 'Selected vaults' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await within(d).findByRole('checkbox', { name: 'Personal' })).toBeChecked();
+    expect(within(d).getByRole('checkbox', { name: 'Work' })).not.toBeChecked();
+    await user.click(within(d).getByRole('checkbox', { name: 'Work' }));
+    await user.click(within(d).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(putCall(calls)).toBeDefined());
+    expect(putCall(calls)!.body).toMatchObject({ scope: 'vaults', vaultIds: ['vlt_p', 'vlt_w'], secretIds: [], includeCreated: false });
+  });
+
+  it('switching from selected vaults to all secrets sends no vaultIds', async () => {
+    const current = existing({ scope: 'vaults', vaultCount: 1, secretCount: 0, secrets: [], includeCreated: false, vaults: [{ id: 'vlt_w', name: 'Work', personal: false }] });
+    const { calls } = server({ current });
+    const user = userEvent.setup();
+    renderDialog();
+    const d = await dialog();
+    await within(d).findByRole('checkbox', { name: 'Work' });
+    await user.click(within(d).getByRole('button', { name: 'All secrets' }));
+    await user.click(within(d).getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(putCall(calls)).toBeDefined());
+    expect(putCall(calls)!.body).toMatchObject({ scope: 'all', vaultIds: [], secretIds: [] });
+  });
+
   it('asks to confirm identity when the server wants recent auth, then retries the PUT', async () => {
     const { calls } = server({ reauth: true });
     const user = userEvent.setup();
@@ -219,6 +282,17 @@ describe('StandingApprovalDialog', () => {
     expect(await screen.findByText(/One of the selected secrets no longer exists/)).toBeInTheDocument();
   });
 
+  it('explains a vault that no longer exists', async () => {
+    server({ extra: (c) => (c.path === PATH && c.method === 'PUT' ? { status: 404, body: { error: 'vault_not_found' } } : undefined) });
+    const user = userEvent.setup();
+    renderDialog();
+    const d = await dialog();
+    await user.click(await within(d).findByRole('button', { name: 'Selected vaults' }));
+    await user.click(await within(d).findByRole('checkbox', { name: 'Work' }));
+    await user.click(within(d).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(/One of the selected vaults no longer exists/)).toBeInTheDocument();
+  });
+
   it('prefills an existing approval, keeps its end date and marks device-added secrets', async () => {
     const current = existing();
     const { calls } = server({ current });
@@ -242,6 +316,7 @@ describe('StandingApprovalDialog', () => {
       until: current.until,
       scope: 'list',
       secretIds: ['sec_1'],
+      vaultIds: [],
       includeCreated: true,
       allowUpdates: true,
       afterExpiry: 'renew',

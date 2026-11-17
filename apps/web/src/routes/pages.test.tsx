@@ -304,6 +304,7 @@ describe('devices page: standing approval', () => {
         device('dev_b', 'ending', { standingApproval: summary({ until: Date.now() + 2 * DAY, scope: 'list', secretCount: 3, allowUpdates: true }) }),
         device('dev_c', 'lapsed', { standingApproval: summary({ until: Date.now() - DAY, active: false, afterExpiry: 'renew', renewDays: 14 }) }),
         device('dev_d', 'plain'),
+        device('dev_g', 'scoped', { standingApproval: summary({ scope: 'vaults', vaultCount: 2 }) }),
         device('dev_e', 'waiting', { status: 'pending' }),
         device('dev_f', 'gone', { status: 'revoked' }),
       ],
@@ -319,6 +320,7 @@ describe('devices page: standing approval', () => {
     const ending = within(row('ending')).getByText(/^Trusted until /);
     expect(ending).toHaveClass('badge-amber');
     expect(ending.getAttribute('title')).toContain('3 secrets · reading and changes');
+    expect(within(row('scoped')).getByText(/^Trusted until /).getAttribute('title')).toContain('2 vaults · reading only');
     const lapsed = within(row('lapsed')).getByText('Standing approval expired');
     expect(lapsed).not.toHaveClass('badge-ok');
     expect(lapsed).not.toHaveClass('badge-amber');

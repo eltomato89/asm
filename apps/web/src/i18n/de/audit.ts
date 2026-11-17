@@ -92,6 +92,8 @@ export const audit: Messages['audit'] = {
     automaticallyStanding: 'automatisch (Dauerfreigabe)',
     allSecrets: '(alle Secrets)',
     secretCount: (n) => `(${n} ${n === 1 ? 'Secret' : 'Secrets'})`,
+    vaultCount: (n) => `(${n} ${n === 1 ? 'Tresor' : 'Tresore'})`,
+    vaultNames: (names) => `(${names.length === 1 ? 'Tresor' : 'Tresore'} ${names.join(', ')})`,
     withUpdates: 'auch Änderungen erlaubt',
     thenAsk: 'danach wird wieder jedes Mal gefragt',
     thenRenew: (days) => (days ? `die nächste Anfrage fragt einmal und verlängert sie um ${days} Tage` : 'die nächste Anfrage fragt einmal und verlängert sie'),

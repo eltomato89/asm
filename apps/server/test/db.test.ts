@@ -13,7 +13,7 @@ const TABLES = [
   'users', 'passkeys', 'sessions', 'vaults', 'vault_members', 'secrets', 'secret_versions',
   'secrets_fts', 'devices', 'oauth_clients', 'oauth_codes', 'device_codes', 'tokens',
   'access_requests', 'grants', 'projects', 'project_usage', 'auto_mode', 'audit_log',
-  'standing_approvals', 'standing_approval_secrets',
+  'standing_approvals', 'standing_approval_secrets', 'standing_approval_vaults',
 ];
 
 function seed(db: Db) {
@@ -151,8 +151,23 @@ describe('openDb', () => {
     db.$client.prepare("DELETE FROM secrets WHERE id = 'sec_1'").run();
     expect(n('standing_approval_secrets')).toBe(0);
     expect(n('standing_approvals')).toBe(1);
+    db.insert(schema.standingApprovalVaults).values({ deviceId: 'dev_1', vaultId: 'vlt_1', addedAt: 1 }).run();
+    expect(n('standing_approval_vaults')).toBe(1);
     db.$client.prepare("DELETE FROM devices WHERE id = 'dev_1'").run();
     expect(n('standing_approvals')).toBe(0);
+    expect(n('standing_approval_vaults')).toBe(0);
+  });
+
+  it('standing approval vault rows cascade with the vault', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    db.$client.prepare("INSERT INTO devices (id, user_id, name, kind, status, created_at) VALUES ('dev_1', 'usr_1', 'd', 'mcp', 'approved', 1)").run();
+    db.insert(schema.standingApprovals).values({ deviceId: 'dev_1', userId: 'usr_1', until: 10, grantedAt: 1, scope: 'vaults', createdAt: 1, updatedAt: 1 }).run();
+    db.insert(schema.standingApprovalVaults).values({ deviceId: 'dev_1', vaultId: 'vlt_1', addedAt: 1 }).run();
+    const n = (t: string) => (db.$client.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
+    db.$client.prepare("DELETE FROM vaults WHERE id = 'vlt_1'").run();
+    expect(n('standing_approval_vaults')).toBe(0);
+    expect(n('standing_approvals')).toBe(1);
   });
 
   it('survives VACUUM with correct secret_id', () => {

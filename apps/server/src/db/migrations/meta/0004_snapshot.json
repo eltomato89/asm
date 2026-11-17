@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8cf6849e-96d4-4759-a628-8829a2222581",
+  "id": "ccc1542b-4695-4a19-bb41-8cc027fe49ff",
   "prevId": "9fd7f23c-a68a-471a-837e-c2c5cbc964db",
   "tables": {
     "access_requests": {
@@ -1628,6 +1628,80 @@
             "secret_id"
           ],
           "name": "standing_approval_secrets_device_id_secret_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "standing_approval_vaults": {
+      "name": "standing_approval_vaults",
+      "columns": {
+        "device_id": {
+          "name": "device_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "vault_id": {
+          "name": "vault_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "standing_approval_vaults_vault_idx": {
+          "name": "standing_approval_vaults_vault_idx",
+          "columns": [
+            "vault_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "standing_approval_vaults_device_id_standing_approvals_device_id_fk": {
+          "name": "standing_approval_vaults_device_id_standing_approvals_device_id_fk",
+          "tableFrom": "standing_approval_vaults",
+          "tableTo": "standing_approvals",
+          "columnsFrom": [
+            "device_id"
+          ],
+          "columnsTo": [
+            "device_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "standing_approval_vaults_vault_id_vaults_id_fk": {
+          "name": "standing_approval_vaults_vault_id_vaults_id_fk",
+          "tableFrom": "standing_approval_vaults",
+          "tableTo": "vaults",
+          "columnsFrom": [
+            "vault_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "standing_approval_vaults_device_id_vault_id_pk": {
+          "columns": [
+            "device_id",
+            "vault_id"
+          ],
+          "name": "standing_approval_vaults_device_id_vault_id_pk"
         }
       },
       "uniqueConstraints": {},

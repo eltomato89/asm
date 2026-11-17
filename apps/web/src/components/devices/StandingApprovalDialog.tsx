@@ -1,10 +1,11 @@
-import type { AfterExpiry, DeviceDto, StandingApprovalDto, StandingApprovalInputRaw, StandingScope } from '@asm/shared';
+import type { AfterExpiry, DeviceDto, StandingApprovalDto, StandingApprovalInputRaw, StandingScope, VaultDto } from '@asm/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useId, useState } from 'react';
 import { t } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
 import { errorText } from '../../lib/errors';
 import { formatDay } from '../../lib/format';
+import { vaultLabel } from '../../lib/vault';
 import { Button } from '../ui/Button';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { Dialog } from '../ui/Dialog';
@@ -97,6 +98,8 @@ function StandingForm({ device, existing, maxDays, close }: { device: DeviceDto;
   const [secrets, setSecrets] = useState<PickedSecret[]>(() =>
     (existing?.secrets ?? []).map((s) => ({ id: s.id, title: s.title, envName: s.envName, vaultName: s.vaultName, addedBy: s.addedBy, archived: s.archived })),
   );
+  const [pickedVaults, setPickedVaults] = useState<Set<string>>(() => new Set((existing?.vaults ?? []).map((v) => v.id)));
+  const vaultsQuery = useQuery({ queryKey: queryKeys.vaults, queryFn: api.vaults, enabled: scope === 'vaults' });
   const [includeCreated, setIncludeCreated] = useState(existing?.includeCreated ?? false);
   const [allowUpdates, setAllowUpdates] = useState(existing?.allowUpdates ?? false);
   const [afterExpiry, setAfterExpiry] = useState<AfterExpiry>(existing?.afterExpiry ?? 'ask');
@@ -111,8 +114,19 @@ function StandingForm({ device, existing, maxDays, close }: { device: DeviceDto;
   const until = duration === 'custom' ? (keepsDate ? keepUntil! : dateOk ? Math.min(dateEnd!, now + maxDays * DAY_MS) : null) : now + duration * DAY_MS;
   const renewNum = /^\d{1,4}$/.test(renew) ? Number(renew) : NaN;
   const renewOk = afterExpiry === 'ask' || (renewNum >= 1 && renewNum <= maxDays);
-  const listOk = scope === 'all' || secrets.length > 0 || includeCreated;
-  const valid = until !== null && renewOk && listOk;
+  const listOk = scope !== 'list' || secrets.length > 0 || includeCreated;
+  // Once the vault list is loaded, only vaults still in it count (a deleted vault would fail with vault_not_found).
+  const vaults: VaultDto[] = vaultsQuery.data?.items ?? [];
+  const vaultIds = vaultsQuery.data ? vaults.filter((v) => pickedVaults.has(v.id)).map((v) => v.id) : [...pickedVaults];
+  const vaultsOk = scope !== 'vaults' || vaultIds.length > 0;
+  const valid = until !== null && renewOk && listOk && vaultsOk;
+  const toggleVault = (vaultId: string) =>
+    setPickedVaults((prev) => {
+      const next = new Set(prev);
+      if (next.has(vaultId)) next.delete(vaultId);
+      else next.add(vaultId);
+      return next;
+    });
 
   const save = useMutation({
     mutationFn: (body: StandingApprovalInputRaw) => api.setStandingApproval(device.id, body),
@@ -144,6 +158,7 @@ function StandingForm({ device, existing, maxDays, close }: { device: DeviceDto;
       until,
       scope,
       secretIds: scope === 'list' ? secrets.map((s) => s.id) : [],
+      vaultIds: scope === 'vaults' ? vaultIds : [],
       includeCreated: scope === 'list' && includeCreated,
       allowUpdates,
       afterExpiry,
@@ -243,12 +258,48 @@ function StandingForm({ device, existing, maxDays, close }: { device: DeviceDto;
           <button type="button" aria-pressed={scope === 'all'} onClick={() => setScope('all')}>
             {t.standing.scopeAll}
           </button>
+          <button type="button" aria-pressed={scope === 'vaults'} onClick={() => setScope('vaults')}>
+            {t.standing.scopeVaults}
+          </button>
           <button type="button" aria-pressed={scope === 'list'} onClick={() => setScope('list')}>
             {t.standing.scopeList}
           </button>
         </div>
         {scope === 'all' ? (
           <p className="help">{t.standing.scopeAllHelp}</p>
+        ) : scope === 'vaults' ? (
+          <div className="standing-list">
+            {vaultsQuery.isError ? (
+              <div className="standing-vaults-error" role="alert">
+                <span>{t.standing.vaultsLoadFailed}</span>
+                <Button variant="ghost" onClick={() => void vaultsQuery.refetch()} disabled={vaultsQuery.isFetching}>
+                  {t.standing.retry}
+                </Button>
+              </div>
+            ) : !vaultsQuery.data ? (
+              <div className="standing-vaults" aria-busy="true" aria-label={t.standing.vaultsLoading}>
+                <Skeleton width="50%" />
+                <Skeleton width="35%" />
+              </div>
+            ) : vaults.length === 0 ? (
+              <p className="help">{t.standing.vaultsNone}</p>
+            ) : (
+              <fieldset
+                className="standing-vaults"
+                disabled={busy}
+                aria-invalid={(submitted && !vaultsOk) || undefined}
+                aria-describedby={submitted && !vaultsOk ? `${ids}-vaults-err` : undefined}
+              >
+                <legend className="visually-hidden">{t.standing.vaultsLegend}</legend>
+                {vaults.map((v) => (
+                  <label key={v.id}>
+                    <input type="checkbox" checked={pickedVaults.has(v.id)} onChange={() => toggleVault(v.id)} /> {vaultLabel(v)}
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {submitted && !vaultsOk ? <FieldError id={`${ids}-vaults-err`}>{t.standing.vaultsEmpty}</FieldError> : <p className="help">{t.standing.vaultsHelp}</p>}
+          </div>
         ) : (
           <div className="standing-list">
             <SecretMultiPicker value={secrets} onChange={setSecrets} disabled={busy} />
