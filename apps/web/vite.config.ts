@@ -15,11 +15,11 @@ export default defineConfig({
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         // Long-lived vendor chunk: app updates do not invalidate the framework code in caches.
         // One vendor chunk (splitting React from libraries that import it causes init-order cycles).
-        manualChunks: (id) => (id.includes('node_modules') ? 'vendor' : undefined),
+        codeSplitting: { groups: [{ name: 'vendor', test: /node_modules/ }] },
       },
     },
   },
