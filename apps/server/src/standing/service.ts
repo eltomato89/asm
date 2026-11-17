@@ -405,6 +405,8 @@ export function renewOnApproval(
   ctx.db.$client
     .prepare('UPDATE standing_approvals SET until = ?, granted_at = ?, expiry_audited = 0, updated_at = ? WHERE device_id = ?')
     .run(until, now, now, sid);
+  // Active again: an open agent proposal for this device is superseded (like a manual set).
+  cancelStandingRequestsForDevice(ctx, sid, 'superseded');
   appendAudit(ctx.db, ctx.clock, {
     actorType: 'user', actorId: r.userId, event: 'standing_approval.renewed', deviceId: sid, ip: info.ip,
     meta: {

@@ -1,6 +1,6 @@
-import type { StandingNarrowInput, StandingRequestDto } from '@asm/shared';
+import type { StandingApprovalSummary, StandingNarrowInput, StandingRequestDto } from '@asm/shared';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, Terminal } from 'lucide-react';
+import { History, ShieldCheck, Terminal } from 'lucide-react';
 import { useState } from 'react';
 import { t } from '../../i18n';
 import { api, queryKeys } from '../../lib/api';
@@ -24,6 +24,27 @@ export function AttachedCliNote({ cli }: { cli: StandingRequestDto['attachedCli'
     <p className="req-via standing-req-attached">
       <Terminal className="icon icon-sm" strokeWidth={1.5} aria-hidden />
       {t.standingRequest.alsoApplies(attachedHosts(cli))}
+    </p>
+  );
+}
+
+/** "<scope>, <reading/changes>, <after expiry>" of the standing approval a proposal would replace. */
+export function replacedSummaryText(s: StandingApprovalSummary): string {
+  const m = t.standing.summary;
+  return [
+    s.scope === 'all' ? m.all : s.scope === 'vaults' ? m.vaults(s.vaultCount) : m.list(s.secretCount),
+    s.allowUpdates ? m.withUpdates : m.readOnly,
+    s.afterExpiry === 'renew' ? m.afterRenew(s.renewDays) : m.afterAsk,
+  ].join(', ');
+}
+
+/** Note: approving overwrites the device's expired (possibly wider) standing approval. */
+export function ReplacesNote({ replaces }: { replaces: StandingApprovalSummary | null }) {
+  if (!replaces) return null;
+  return (
+    <p className="req-via standing-req-replaces">
+      <History className="icon icon-sm" strokeWidth={1.5} aria-hidden />
+      {t.standingRequest.replaces(replacedSummaryText(replaces))}
     </p>
   );
 }
@@ -82,6 +103,7 @@ export function StandingRequestCard({ request: r, now }: { request: StandingRequ
           {r.reason}
         </p>
         <AttachedCliNote cli={r.attachedCli} />
+        <ReplacesNote replaces={r.replaces} />
         <ProposalForm
           proposal={r.proposal}
           items={r.items}

@@ -2,7 +2,7 @@ import type { StandingRequestDto } from '@asm/shared';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { makeRequest, makeStandingRequest } from '../../test/fixtures';
+import { makeRequest, makeStandingRequest, makeStandingSummary } from '../../test/fixtures';
 import { renderApp } from '../../test/renderApp';
 import { appServer, query } from '../../test/server';
 import type { FetchCall } from '../../test/utils';
@@ -52,6 +52,20 @@ describe('StandingRequestCard', () => {
     expect(await screen.findByText('2 open')).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Main navigation' });
     await waitFor(() => expect(within(nav).getByLabelText(/2/)).toBeInTheDocument());
+  });
+
+  it('notes the expired standing approval it would replace; nothing when there is none', async () => {
+    const replaces = makeStandingSummary({ active: false, scope: 'list', secretCount: 5, afterExpiry: 'ask' });
+    server({ pending: [makeStandingRequest({ replaces })] });
+    renderApp('/requests');
+    const c = await card();
+    expect(c).toHaveTextContent('Replaces your expired standing approval (5 secrets, reading only, asks every time after expiry).');
+  });
+
+  it('shows no replace note without an expired standing approval', async () => {
+    server();
+    renderApp('/requests');
+    expect(await card()).not.toHaveTextContent('Replaces your expired standing approval');
   });
 
   it('with only a proposal open there is no "No open requests" message', async () => {

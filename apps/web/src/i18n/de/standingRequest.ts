@@ -9,6 +9,7 @@ export const standingRequest: Messages['standingRequest'] = {
   cardLabel: (device) => `Anfrage nach Dauerfreigabe von ${device}`,
   sentence: (host, project) => f(host, ' möchte eine Dauerfreigabe', project ? f(' für ', project) : null, '.'),
   alsoApplies: (hosts) => `Gilt auch für asm auf ${hosts}.`,
+  replaces: (summary) => `Ersetzt deine abgelaufene Dauerfreigabe (${summary}).`,
   readsOnly: 'Nur Lesen. Änderungen an Secrets brauchen weiter deine Freigabe. Ändern oder beenden kannst du das später unter Geräte.',
 
   form: {

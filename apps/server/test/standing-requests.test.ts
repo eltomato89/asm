@@ -5,7 +5,7 @@ import { revokeDevice } from '../src/devices/service.js';
 import { HttpError } from '../src/errors.js';
 import type { DeviceIdentity } from '../src/oauth/bearer.js';
 import type { RequestEvent } from '../src/requests/events.js';
-import { createRequest, expireDue } from '../src/requests/service.js';
+import { createRequest, decideRequest, expireDue } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
 import {
   createStandingRequest,
@@ -104,6 +104,21 @@ describe('createStandingRequest', () => {
     expect(t.propose().attachedCli).toEqual([{ name: 'laptop-cli', hostname: 'mbp' }]);
     // The attached CLI itself may not propose.
     expectHttp(() => t.propose({}, { id: cli.deviceId, userId: t.w.alice.id, kind: 'cli', name: 'laptop-cli' }), 403, 'standing_request_mcp_only');
+  });
+
+  it('eligibility: only an unlinked mcp device may propose (not_supported, consistent with create)', async () => {
+    const t = await setup();
+    const cli = pairDevice(t.w.ctx, { userId: t.w.alice.id, kind: 'cli', name: 'cli' });
+    const cliDev: DeviceIdentity = { id: cli.deviceId, userId: t.w.alice.id, kind: 'cli', name: 'cli' };
+    expect(standingRequestEligibility(t.w.ctx, cli.deviceId)).toEqual({ allowed: false, reason: 'not_supported', maxDays: 14 });
+    expectHttp(() => t.propose({}, cliDev), 403, 'standing_request_mcp_only');
+    t.w.db.$client.prepare('UPDATE devices SET linked_to_device_id = ? WHERE id = ?').run(t.dev.id, cli.deviceId);
+    expect(standingRequestEligibility(t.w.ctx, cli.deviceId)).toMatchObject({ allowed: false, reason: 'not_supported' });
+    expectHttp(() => t.propose({}, cliDev), 403, 'standing_request_mcp_only');
+    expect(standingRequestEligibility(t.w.ctx, 'dev_unknown')).toMatchObject({ allowed: false, reason: 'not_supported' });
+    // Checked before 'disabled' (it is the permanent reason).
+    expect(standingRequestEligibility({ ...t.w.ctx, standingRequestMaxDays: 0 }, cli.deviceId)).toMatchObject({ reason: 'not_supported' });
+    expect(standingRequestEligibility(t.w.ctx, t.dev.id)).toEqual({ allowed: true, maxDays: 14 });
   });
 
   it('validation: no all / allowUpdates / includeCreated, days and renewDays within the max, own active items only', async () => {
@@ -314,7 +329,91 @@ describe('decideStandingRequest', () => {
   });
 });
 
+describe('replaces (expired standing approval the approval would overwrite)', () => {
+  it('pending proposal shows the inactive standing approval; null when none, active, or decided', async () => {
+    const t = await setup();
+    expect(t.propose().replaces).toBeNull();
+    const t2 = await setup();
+    setStandingApproval(t2.w.ctx, t2.w.alice.id, t2.dev.id, StandingApprovalInputSchema.parse({
+      until: t2.w.clock.now() + DAY, scope: 'all', allowUpdates: true, afterExpiry: 'renew', renewDays: 3,
+    }));
+    t2.w.clock.advance(DAY);
+    const p = t2.propose();
+    expect(StandingRequestDtoSchema.parse(p).replaces).toEqual({
+      until: t2.w.clock.now(), active: false, scope: 'all', secretCount: 0, vaultCount: 0, allowUpdates: true, afterExpiry: 'renew', renewDays: 3,
+    });
+    const done = t2.decide(p.id, 'approve');
+    expect(done.replaces).toBeNull();
+  });
+});
+
 describe('cancellation', () => {
+  it('a renewal approval of an access request reactivates the standing approval and supersedes the open proposal', async () => {
+    const t = await setup();
+    setStandingApproval(t.w.ctx, t.w.alice.id, t.dev.id, StandingApprovalInputSchema.parse({
+      until: t.w.clock.now() + DAY, scope: 'all', afterExpiry: 'renew', renewDays: 4,
+    }));
+    t.w.clock.advance(DAY);
+    const p = t.propose();
+    const r = createRequest(t.w.ctx, { device: t.dev, secretId: t.s1.id, project: 'my-repo', reason: 'r', delivery: 'cli' });
+    expect(r).toMatchObject({ status: 'pending', renewal: { days: 4 } });
+    t.events.length = 0;
+    decideRequest(t.w.ctx, { requestId: r.id, userId: t.w.alice.id, decision: 'approve' });
+    expect(getStandingRequestDto(t.w.ctx, p.id)).toMatchObject({ status: 'cancelled', cause: 'superseded' });
+    expect(meta(auditRows(t.w.db, 'standing_request.cancelled').at(-1))).toEqual({ requestId: p.id, cause: 'superseded' });
+    await tick();
+    expect(t.events.some((e) => e.type === 'standing_request.updated' && e.data.id === p.id && e.data.status === 'cancelled')).toBe(true);
+    expectHttp(() => t.decide(p.id, 'approve'), 409, 'already_decided');
+  });
+
+  it('beforeDecide runs in the decision transaction: rolled back on rejection, committed with a system cancellation', async () => {
+    const t = await setup();
+    const p = t.propose();
+    const marks: string[] = [];
+    const mark = () => {
+      t.w.db.$client.prepare(`UPDATE standing_requests SET reason = reason || '!' WHERE id = ?`).run(p.id);
+      marks.push('x');
+    };
+    const reasonNow = () => (t.w.db.$client.prepare('SELECT reason FROM standing_requests WHERE id = ?').get(p.id) as { reason: string }).reason;
+    expectHttp(
+      () => decideStandingRequest(t.w.ctx, { id: p.id, userId: t.w.alice.id, decision: 'approve', settings: { ...p.proposal, days: 30 } }, {}, {}, mark),
+      400, 'not_narrower',
+    );
+    expect(marks).toHaveLength(1);
+    expect(reasonNow()).toBe('deploys every day');
+    // A failing beforeDecide aborts the decision.
+    expect(() =>
+      decideStandingRequest(t.w.ctx, { id: p.id, userId: t.w.alice.id, decision: 'deny' }, {}, {}, () => {
+        throw new HttpError(404, 'not_found');
+      }),
+    ).toThrow();
+    expect(getStandingRequestDto(t.w.ctx, p.id).status).toBe('pending');
+    // System cancellation: committed together with beforeDecide.
+    t.w.db.$client.prepare(`UPDATE devices SET status = 'revoked' WHERE id = ?`).run(t.dev.id);
+    t.events.length = 0;
+    expectHttp(() => decideStandingRequest(t.w.ctx, { id: p.id, userId: t.w.alice.id, decision: 'approve' }, {}, {}, mark), 409, 'device_inactive');
+    expect(reasonNow()).toBe('deploys every day!');
+    expect(getStandingRequestDto(t.w.ctx, p.id)).toMatchObject({ status: 'cancelled', cause: 'device_revoked' });
+    expect(auditRows(t.w.db, 'standing_request.cancelled')).toHaveLength(1);
+    expect(t.events.find((e) => e.type === 'standing_request.updated')).toMatchObject({ data: { status: 'cancelled' } });
+  });
+
+  it('inside a caller transaction that rolls back, no cancelled state is emitted', async () => {
+    const t = await setup();
+    const p = t.propose();
+    t.w.db.$client.prepare(`UPDATE devices SET status = 'revoked' WHERE id = ?`).run(t.dev.id);
+    t.events.length = 0;
+    expect(() =>
+      t.w.db.$client.transaction(() => {
+        t.decide(p.id, 'approve');
+      })(),
+    ).toThrow();
+    expect(t.events).toEqual([]);
+    await tick();
+    expect(getStandingRequestDto(t.w.ctx, p.id).status).toBe('pending');
+    expect(t.events.some((e) => e.type === 'standing_request.updated' && e.data.status === 'cancelled')).toBe(false);
+  });
+
   it('on device revocation (device_revoked)', async () => {
     const t = await setup();
     const p = t.propose();

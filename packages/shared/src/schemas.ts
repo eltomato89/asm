@@ -461,6 +461,11 @@ export const StandingRequestDtoSchema = z.strictObject({
   adjusted: z.boolean(),
   /** Why it ended without a user decision: 'device_revoked' | 'superseded' | 'disabled_by_admin' | … */
   cause: z.string().nullable(),
+  /**
+   * The device's existing, currently inactive (expired) standing approval that approving would replace — possibly wider than
+   * the proposal. null if none, if it is active, or once the proposal is no longer pending.
+   */
+  replaces: StandingApprovalSummarySchema.nullable(),
   /** Name of the deciding user (null while pending / system end). */
   decidedBy: z.string().nullable(),
   createdAt: z.number(),
@@ -489,6 +494,8 @@ export const StandingApproveSummaryDtoSchema = z.strictObject({
   expiresAt: z.number(),
   final: StandingProposalSchema.nullable(),
   adjusted: z.boolean(),
+  /** See StandingRequestDto.replaces. */
+  replaces: StandingApprovalSummarySchema.nullable(),
 });
 export type StandingApproveSummaryDto = z.infer<typeof StandingApproveSummaryDtoSchema>;
 

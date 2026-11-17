@@ -894,7 +894,7 @@ button { cursor: pointer; }
 @layer components {
   .req.req-standing { border-color: var(--amber-line); box-shadow: inset 2px 0 0 var(--amber-fill); }
   .req-standing .req-top .kind .icon { color: var(--amber); }
-  .standing-req-attached { margin-top: 8px; }
+  .standing-req-attached, .standing-req-replaces { margin-top: 8px; }
   .proposal-form { display: grid; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   .proposal-form .standing-sec + .standing-sec { padding-top: 12px; }
   .proposal-items label { flex-wrap: wrap; }

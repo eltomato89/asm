@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router';
 import { Check, ShieldCheck, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ApproveTimeBar } from '../components/approve/ApproveDetails';
-import { AttachedCliNote } from '../components/requests/StandingRequestCard';
+import { AttachedCliNote, ReplacesNote } from '../components/requests/StandingRequestCard';
 import { initialNarrowing, isValidNarrowing, ProposalForm } from '../components/standing/ProposalForm';
 import { Button } from '../components/ui/Button';
 import { Skeleton } from '../components/ui/Skeleton';
@@ -170,6 +170,7 @@ function Pending({ token, summary: s }: { token: string; summary: StandingApprov
           {s.reason}
         </p>
         <AttachedCliNote cli={s.attachedCli} />
+        <ReplacesNote replaces={s.replaces} />
       </div>
       <div className="consent-sec">
         <ProposalForm

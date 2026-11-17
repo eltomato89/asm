@@ -1,5 +1,5 @@
-import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
-import { callTool, loginWithPassword, pairCliDevice, pairMcpClient } from './helpers';
+import { expect, type APIRequestContext, type Page } from '@playwright/test';
+import { callTool, pairCliDevice, pairMcpClient, test } from './helpers';
 
 const PROJECT = 'e2e-link';
 const MAIN = 'claude@e2e-link';
@@ -28,8 +28,6 @@ const redeem = (request: APIRequestContext, token: string, grantId: string) =>
   request.post(`/api/grants/${grantId}/redeem`, { headers: { authorization: `Bearer ${token}` }, data: { hostname: 'e2e-host' } });
 
 test('linked devices: a CLI attached to Claude Code redeems its grants, another CLI gets wrong_device_group', async ({ page, request }) => {
-  await loginWithPassword(page);
-
   await page.goto('/secrets');
   await page.getByRole('button', { name: 'New secret' }).first().click();
   const form = page.getByRole('form', { name: 'Create secret' });

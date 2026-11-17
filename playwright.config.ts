@@ -1,5 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
-import { E2E_DATA_DIR, E2E_LOG_FILE, E2E_MASTER_KEY, E2E_ORIGIN, E2E_PORT } from './apps/web/e2e/env';
+import { ADMIN_STATE, E2E_DATA_DIR, E2E_LOG_FILE, E2E_MASTER_KEY, E2E_ORIGIN, E2E_PORT } from './apps/web/e2e/env';
 
 /**
  * End-to-end tests against the real built server (`pnpm e2e`). The web server builds everything once
@@ -20,10 +20,12 @@ export default defineConfig({
   projects: [
     { name: 'setup', testMatch: 'admin.setup.ts' },
     { name: 'passkey', testMatch: 'passkey.spec.ts', dependencies: ['setup'] },
-    { name: 'flow', testMatch: 'flow.spec.ts', dependencies: ['setup'] },
+    // Signed in via the session saved by `setup` (passkey and locale test the login themselves).
+    { name: 'flow', testMatch: 'flow.spec.ts', dependencies: ['setup'], use: { storageState: ADMIN_STATE } },
     { name: 'locale', testMatch: 'locale.spec.ts', dependencies: ['setup'] },
-    { name: 'standing', testMatch: 'standing.spec.ts', dependencies: ['setup'] },
-    { name: 'link', testMatch: 'link.spec.ts', dependencies: ['setup'] },
+    { name: 'standing', testMatch: 'standing.spec.ts', dependencies: ['setup'], use: { storageState: ADMIN_STATE } },
+    { name: 'link', testMatch: 'link.spec.ts', dependencies: ['setup'], use: { storageState: ADMIN_STATE } },
+    { name: 'standing-request', testMatch: 'standing-request.spec.ts', dependencies: ['setup'], use: { storageState: ADMIN_STATE } },
   ],
   webServer: {
     command: 'pnpm build && node apps/web/e2e/start-server.mjs',

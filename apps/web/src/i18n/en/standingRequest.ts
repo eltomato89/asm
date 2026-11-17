@@ -11,6 +11,8 @@ export const standingRequest = {
   sentence: (host: ReactNode, project: ReactNode | null) => f(host, ' wants standing access', project ? f(' for ', project) : null, '.'),
   /** Attached CLIs are covered by the approval too. */
   alsoApplies: (hosts: string) => `Also applies to asm on ${hosts}.`,
+  /** Approving overwrites the device's expired standing approval (which may have been wider). */
+  replaces: (summary: string) => `Replaces your expired standing approval (${summary}).`,
   readsOnly: 'Reading only. Changing a secret still needs your approval. You can change or end this later under Devices.',
 
   // Narrow-only form

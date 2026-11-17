@@ -101,6 +101,7 @@ export function makeStandingRequest(over: Partial<StandingRequestDto> = {}): Sta
     final: null,
     adjusted: false,
     cause: null,
+    replaces: null,
     decidedBy: null,
     createdAt: Date.now(),
     decidedAt: null,

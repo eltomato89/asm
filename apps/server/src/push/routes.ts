@@ -93,6 +93,7 @@ function toStandingSummary(dto: StandingRequestDto): StandingApproveSummaryDto {
     expiresAt: dto.expiresAt,
     final: dto.final,
     adjusted: dto.adjusted,
+    replaces: dto.replaces,
   };
 }
 
@@ -240,19 +241,18 @@ async function registerApproveApi(app: FastifyInstance, deps: PushDeps): Promise
     const body = StandingApproveDecisionInputSchema.parse(req.body);
     if (body.decision === 'approve') await requireUserVerification(t, body.response);
     try {
-      // Consume and decide atomically: a rejected narrowing (not_narrower) leaves the link usable.
-      const dto = db.$client.transaction(() => {
-        consumeToken(t);
-        return decideStandingRequest(
-          ctx,
-          {
-            id: t.requestId, userId: t.userId, decision: body.decision,
-            ...(body.decision === 'approve' && body.settings ? { settings: body.settings } : {}),
-          },
-          { ip: req.ip },
-          { via: 'push' },
-        );
-      })();
+      // Token consumption runs inside the decision's own transaction: a rejected decision (e.g. not_narrower) leaves the link
+      // usable, a system cancellation (e.g. standing_active) commits together with it. Events go out after that commit.
+      const dto = decideStandingRequest(
+        ctx,
+        {
+          id: t.requestId, userId: t.userId, decision: body.decision,
+          ...(body.decision === 'approve' && body.settings ? { settings: body.settings } : {}),
+        },
+        { ip: req.ip },
+        { via: 'push' },
+        () => consumeToken(t),
+      );
       return toStandingSummary(dto);
     } finally {
       retireIfDecided(t);

@@ -1,6 +1,6 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 import { ADMIN } from './env';
-import { callTool, loginWithPassword, pairMcpClient } from './helpers';
+import { callTool, pairMcpClient, test } from './helpers';
 
 const PROJECT = 'e2e-standing';
 const DEVICE = 'claude@e2e-standing';
@@ -22,8 +22,6 @@ async function confirmIfAsked(page: Page, done: Locator) {
 }
 
 test('standing approval: set in the UI → requests approved immediately → remove → pending again', async ({ page, request }) => {
-  await loginWithPassword(page);
-
   // A secret of its own, so this spec does not depend on the other specs' data.
   await page.goto('/secrets');
   await page.getByRole('button', { name: 'New secret' }).first().click();

@@ -1,4 +1,4 @@
-import { expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { test as base, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { ADMIN, E2E_LOG_FILE, E2E_ORIGIN } from './env';
@@ -155,3 +155,42 @@ export async function pairCliDevice(
     .toBe('ok');
   return accessToken!;
 }
+
+/** One MCP `tools/call` that is expected to fail (`isError: true`). Returns the error payload (`{ error, … }`). */
+export async function callToolError(request: APIRequestContext, token: string, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const res = await request.post('/mcp', {
+    headers: { authorization: `Bearer ${token}`, accept: 'application/json, text/event-stream' },
+    data: { jsonrpc: '2.0', id: ++rpcId, method: 'tools/call', params: { name, arguments: args } },
+  });
+  expect(res.status()).toBe(200);
+  const body = (await res.json()) as { result: { isError?: boolean; content: { text: string }[] } };
+  const payload = JSON.parse(body.result.content[0]!.text) as Record<string, unknown>;
+  expect(body.result.isError, JSON.stringify(payload)).toBe(true);
+  return payload;
+}
+
+/** Creates a secret in the UI (personal vault) and leaves its detail panel open. */
+export async function createSecretInUi(page: Page, opts: { title: string; env: string; value: string }): Promise<void> {
+  await page.goto('/secrets');
+  await page.getByRole('button', { name: 'New secret' }).first().click();
+  const form = page.getByRole('form', { name: 'Create secret' });
+  await form.getByLabel('Title').fill(opts.title);
+  await form.getByLabel('Env name').fill(opts.env);
+  await form.getByLabel('Enter value').fill(opts.value);
+  await form.getByRole('button', { name: 'Create secret' }).click();
+  await expect(page.getByRole('complementary', { name: `Secret ${opts.env}` })).toBeVisible();
+}
+
+/**
+ * `test` for the specs that start signed in (project `use.storageState` = the session saved by `setup`). The browser
+ * page carries the admin session; `request` stays a cookie-less client like a real agent or CLI (the built-in fixture
+ * would inherit the session cookie, and cookie-bearing API calls without an Origin are refused).
+ */
+export const test = base.extend({
+  request: async ({ playwright, baseURL }, use) => {
+    // Explicitly empty: the runner applies the project's `use.storageState` to new request contexts too.
+    const ctx = await playwright.request.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+    await use(ctx);
+    await ctx.dispose();
+  },
+});

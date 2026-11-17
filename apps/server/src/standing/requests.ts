@@ -20,6 +20,7 @@ import {
   ReasonSchema,
   StandingNarrowInputSchema,
   StandingProposalSchema,
+  type StandingApprovalSummary,
   type StandingNarrowInput,
   type StandingProposal,
   type StandingRequestDiff,
@@ -34,7 +35,14 @@ import { HttpError } from '../errors.js';
 import type { DeviceIdentity } from '../oauth/bearer.js';
 import { touchProject } from '../projects/service.js';
 import { canAccessVault } from '../vaults/service.js';
-import { DAY_MS, emitDeviceChanged, hasActiveStanding, writeStandingApproval } from './service.js';
+import {
+  DAY_MS,
+  emitDeviceChanged,
+  emitDeviceChangedAfterCommit,
+  hasActiveStanding,
+  standingSummaryForDevice,
+  writeStandingApproval,
+} from './service.js';
 
 /** A proposal stays pending for 30 minutes. */
 export const STANDING_REQUEST_TTL_MS = 30 * 60_000;
@@ -56,8 +64,11 @@ export type StandingRequestCancelCause = 'device_revoked' | 'superseded' | 'disa
 
 export type StandingRequestEligibility = {
   allowed: boolean;
-  /** Why a proposal is not allowed right now (absent when allowed). */
-  reason?: 'disabled' | 'active' | 'pending' | 'cooldown' | 'limit';
+  /**
+   * Why a proposal is not allowed right now (absent when allowed). 'not_supported': only an unlinked 'mcp' device may propose
+   * (an attached CLI uses its main device's standing approval).
+   */
+  reason?: 'not_supported' | 'disabled' | 'active' | 'pending' | 'cooldown' | 'limit';
   /** Id of the open proposal (reason 'pending'). */
   pendingId?: string;
   /** Epoch ms from which a new proposal is possible (reason 'cooldown' | 'limit'). */
@@ -148,6 +159,12 @@ function itemsOf(ctx: ServiceCtx, userId: string, p: StandingProposal): Standing
   return { vaults, secrets };
 }
 
+/** The device's standing approval while it is inactive (approving the proposal would overwrite it), else null. */
+function replacedStanding(ctx: ServiceCtx, deviceId: string): StandingApprovalSummary | null {
+  const s = standingSummaryForDevice(ctx, deviceId);
+  return s && !s.active ? s : null;
+}
+
 function toDto(ctx: ServiceCtx, r: Row): StandingRequestDto {
   const proposal = proposalOf(r);
   const decision = r.decision ? (JSON.parse(r.decision) as StandingRequestDecisionRecord) : null;
@@ -164,6 +181,7 @@ function toDto(ctx: ServiceCtx, r: Row): StandingRequestDto {
     final: decision?.final ?? null,
     adjusted: decision ? Object.keys(decision.diff).length > 0 : false,
     cause: r.cause,
+    replaces: r.status === 'pending' ? replacedStanding(ctx, r.device_id) : null,
     decidedBy: r.decided_by_name ?? null,
     createdAt: r.created_at,
     decidedAt: r.decided_at,
@@ -207,6 +225,10 @@ function emitAfterCommit(ctx: ServiceCtx, id: string): void {
 
 export function standingRequestEligibility(ctx: ServiceCtx, deviceId: string): StandingRequestEligibility {
   const max = maxDays(ctx);
+  const dev = ctx.db.$client.prepare('SELECT kind, linked_to_device_id FROM devices WHERE id = ?').get(deviceId) as
+    | { kind: string; linked_to_device_id: string | null }
+    | undefined;
+  if (!dev || dev.kind !== 'mcp' || dev.linked_to_device_id !== null) return { allowed: false, reason: 'not_supported', maxDays: max };
   if (max <= 0) return { allowed: false, reason: 'disabled', maxDays: 0 };
   if (hasActiveStanding(ctx, deviceId)) return { allowed: false, reason: 'active', maxDays: max };
   const { db } = ctx;
@@ -233,6 +255,7 @@ export function standingRequestEligibility(ctx: ServiceCtx, deviceId: string): S
 function eligibilityError(el: StandingRequestEligibility): HttpError {
   const iso = (ms: number | undefined) => new Date(ms ?? 0).toISOString();
   switch (el.reason) {
+    case 'not_supported': return new HttpError(403, 'standing_request_mcp_only');
     case 'disabled': return new HttpError(403, 'standing_requests_disabled');
     case 'active': return new HttpError(409, 'standing_active');
     case 'pending': return new HttpError(409, 'standing_request_pending', undefined, { request_id: el.pendingId ?? '' });
@@ -289,7 +312,8 @@ export function createStandingRequest(
       .prepare('SELECT user_id, kind, status, linked_to_device_id FROM devices WHERE id = ?')
       .get(device.id) as { user_id: string | null; kind: string; status: string; linked_to_device_id: string | null } | undefined;
     if (!dev || dev.user_id !== device.userId) throw new HttpError(404, 'not_found');
-    if (dev.kind !== 'mcp' || dev.linked_to_device_id !== null) throw new HttpError(403, 'standing_request_mcp_only');
+    // Same rule as standingRequestEligibility's 'not_supported' (checked first, before the device status).
+    if (dev.kind !== 'mcp' || dev.linked_to_device_id !== null) throw eligibilityError({ allowed: false, reason: 'not_supported', maxDays: 0 });
     if (dev.status !== 'approved') throw new HttpError(409, 'device_inactive');
     const now = ctx.clock.now();
     // An overdue (not yet swept) proposal would block the one-pending index.
@@ -397,6 +421,12 @@ export function decideStandingRequest(
   info: RequestInfo = {},
   /** Extra audit meta for the decision entry (e.g. `{ via: 'push' }`); never values. */
   auditMeta: Record<string, string> = {},
+  /**
+   * Runs first inside the decision transaction (e.g. consuming a push link token). It is rolled back together with the
+   * decision when the decision is rejected (not_narrower, invalid_*, empty_list, items_unavailable, expired, already_decided),
+   * and committed together with a system cancellation (device_inactive, standing_requests_disabled, standing_active).
+   */
+  beforeDecide?: () => void,
 ): StandingRequestDto {
   const { db } = ctx;
   const decision = DecisionSchema.parse(input.decision);
@@ -407,6 +437,7 @@ export function decideStandingRequest(
   const via = auditMeta.via ?? 'web';
 
   const result = db.$client.transaction((): { error: HttpError | null; approved: boolean } => {
+    beforeDecide?.();
     const row = loadRow(ctx, input.id)!;
     const now = ctx.clock.now();
     if (row.status === 'expired' || (row.status === 'pending' && row.expires_at <= now)) throw new HttpError(410, 'expired');
@@ -474,8 +505,14 @@ export function decideStandingRequest(
     return { error: null, approved: true };
   })();
 
-  emit(ctx, 'standing_request.updated', input.id);
-  emitDeviceChanged(ctx, first.user_id, first.device_id);
+  if (db.$client.inTransaction) {
+    // Called inside a caller's transaction: emit only once that has finished (the then-current state).
+    emitAfterCommit(ctx, input.id);
+    emitDeviceChangedAfterCommit(ctx, first.user_id, first.device_id);
+  } else {
+    emit(ctx, 'standing_request.updated', input.id);
+    emitDeviceChanged(ctx, first.user_id, first.device_id);
+  }
   if (result.error) throw result.error;
   return getStandingRequestDto(ctx, input.id);
 }

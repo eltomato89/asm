@@ -634,6 +634,7 @@ describe('standing approval proposals via push', () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers['cache-control']).toBe('no-store');
     const body = StandingApproveSummaryDtoSchema.parse(res.json());
+    expect(body.replaces).toBeNull();
     expect(body).toMatchObject({
       device: { name: 'alice-laptop' }, project: 'secret-project', reason: 'daily deploys', status: 'pending', expiresAt: t.sr.expiresAt,
       proposal: { scope: 'vaults', vaultIds: [t.personal, t.team.id], days: 7, afterExpiry: 'renew', renewDays: 7 }, final: null, adjusted: false,
@@ -689,10 +690,36 @@ describe('standing approval proposals via push', () => {
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ error: 'not_narrower' });
     expect(t.sStatus()).toBe('pending');
+    expect(t.db.$client.prepare('SELECT used_at FROM standing_approve_tokens').get()).toEqual({ used_at: null });
     expect((await t.api('GET', `/api/approve/standing/${t.token}`)).statusCode).toBe(200);
     await t.sOptions(t.token);
     const ok = await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice' } });
     expect(ok.json()).toMatchObject({ status: 'approved', adjusted: false });
+  });
+
+  it('approve after a standing approval became active → 409 standing_active; cancellation, audit and events committed, links dead', async () => {
+    const t = await proposal(['https://web.push.apple.com/a1', 'https://web.push.apple.com/a2']);
+    // Written directly (setStandingApproval would cancel the proposal itself).
+    t.db.$client
+      .prepare(
+        `INSERT INTO standing_approvals (device_id, user_id, until, granted_at, scope, include_created, allow_updates, after_expiry,
+           renew_days, expiry_audited, created_at, updated_at) VALUES (?, ?, ?, ?, 'all', 0, 0, 'ask', 7, 0, ?, ?)`,
+      )
+      .run(t.device.id, t.alice.id, t.clock.now() + DAY, t.clock.now(), t.clock.now(), t.clock.now());
+    const events: { type: string; data: { id?: string; status?: string } }[] = [];
+    t.ctx.events.subscribe(t.alice.id, (e) => events.push(e as never));
+    await t.sOptions(t.token);
+    const res = await t.sDecide(t.token, { decision: 'approve', response: { id: 'cred-alice' } });
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ error: 'standing_active' });
+    expect(t.db.$client.prepare('SELECT status, cause FROM standing_requests WHERE id = ?').get(t.sr.id)).toEqual({ status: 'cancelled', cause: 'superseded' });
+    expect(JSON.parse(auditRows(t.db, 'standing_request.cancelled')[0]!.meta as string)).toEqual({ requestId: t.sr.id, cause: 'superseded' });
+    await new Promise((r) => setTimeout(r, 0));
+    const updates = events.filter((e) => e.type === 'standing_request.updated');
+    expect(updates.length).toBeGreaterThan(0);
+    for (const u of updates) expect(u.data).toMatchObject({ id: t.sr.id, status: 'cancelled' });
+    expect(t.db.$client.prepare('SELECT count(*) AS n FROM standing_approve_tokens WHERE used_at IS NULL').get()).toEqual({ n: 0 });
+    expect((await t.api('GET', `/api/approve/standing/${t.tokens[1]}`)).statusCode).toBe(404);
   });
 
   it('deny without assertion (settings ignored); audited via push; links dead afterwards', async () => {

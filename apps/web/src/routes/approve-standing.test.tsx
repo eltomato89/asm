@@ -2,7 +2,7 @@ import type { StandingApproveSummaryDto } from '@asm/shared';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeStandingRequest } from '../test/fixtures';
+import { makeStandingRequest, makeStandingSummary } from '../test/fixtures';
 import { renderApp } from '../test/renderApp';
 import { mockFetch, type FetchCall } from '../test/utils';
 
@@ -29,6 +29,7 @@ function summary(over: Partial<StandingApproveSummaryDto> = {}): StandingApprove
     expiresAt: Date.now() + 120_000,
     final: null,
     adjusted: false,
+    replaces: null,
     ...over,
   };
 }
@@ -60,6 +61,16 @@ describe('standing approve page', () => {
     expect(screen.getByRole('button', { name: 'Approve with passkey' })).toBeEnabled();
     expect(screen.queryByRole('navigation', { name: 'Main navigation' })).toBeNull();
     expect(otherCalls(calls)).toEqual([]);
+  });
+
+  it('notes the expired standing approval it would replace', async () => {
+    const replaces = makeStandingSummary({ active: false, scope: 'all', allowUpdates: true, afterExpiry: 'renew', renewDays: 3 });
+    server(() => ({ body: summary({ replaces }) }));
+    renderApp(`/approve/standing/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1 });
+    expect(
+      screen.getByText('Replaces your expired standing approval (All secrets, reading and changes, asks once after expiry, then extends by 3 days).'),
+    ).toBeInTheDocument();
   });
 
   it('approves the narrowed proposal with a passkey (options → startAuthentication → decision)', async () => {

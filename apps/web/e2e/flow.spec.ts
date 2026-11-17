@@ -1,5 +1,5 @@
-import { expect, test } from '@playwright/test';
-import { callTool, loginWithPassword, pairMcpClient } from './helpers';
+import { expect } from '@playwright/test';
+import { callTool, pairMcpClient, test } from './helpers';
 
 const PROJECT = 'e2e-repo';
 const DEVICE = 'claude@e2e';
@@ -7,8 +7,6 @@ const V1 = 'ghp_e2e_first_value_0001';
 const V2 = 'ghp_e2e_rotated_value_0002';
 
 test('agent request → live card → approve; auto mode; update approval → history, reveal and restore', async ({ page, request }) => {
-  await loginWithPassword(page);
-
   // A human creates a secret.
   await page.goto('/secrets');
   await page.getByRole('button', { name: 'New secret' }).first().click();
