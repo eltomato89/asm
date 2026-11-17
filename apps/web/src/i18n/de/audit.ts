@@ -9,7 +9,7 @@ const forProject = (c: AuditCtx) => (c.project ? f(' für ', c.project) : null);
 
 export const audit: Messages['audit'] = {
   title: 'Audit-Log',
-  entries: (count, more) => `${count}${more ? '+' : ''} Einträge`,
+  entries: (n, count, more) => `${count}${more ? '+' : ''} ${n === 1 && !more ? 'Eintrag' : 'Einträge'}`,
   exportCsv: 'Export CSV',
   exported: 'CSV exportiert.',
   exportedTruncated: 'CSV exportiert, auf 10.000 Einträge gekürzt.',
@@ -36,7 +36,7 @@ export const audit: Messages['audit'] = {
   loadFailedBody: 'Lade die Seite neu.',
   emptyTitle: 'Keine Einträge für diese Filter',
   emptyBody: 'Ändere den Zeitraum oder setze die Filter zurück.',
-  loaded: (count) => `${count} Einträge geladen`,
+  loaded: (n, count) => `${count} ${n === 1 ? 'Eintrag' : 'Einträge'} geladen`,
   loadMore: 'Mehr laden',
   endOfLog: 'Ende des Protokolls',
   chain: {

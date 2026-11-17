@@ -64,7 +64,7 @@ button { cursor: pointer; }
   font-family: var(--font-mono); font-size: var(--fs-12); color: var(--text-2);
   white-space: nowrap;
 }
-.secret { /* ENV-Name im Fließtext */
+.secret { /* env name in running text */
   font-family: var(--font-mono); font-size: .92em; font-weight: 500;
   padding: 1px 5px; border-radius: var(--radius-sm);
   background: var(--sunken);
@@ -246,7 +246,7 @@ button { cursor: pointer; }
 .kbd-hint { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: var(--fs-12); color: var(--text-3); }
 .kbd-hint span { display: inline-flex; align-items: center; gap: 6px; }
 
-/* ---------- Aktivität ---------- */
+/* ---------- Activity ---------- */
 .feed { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 .feed li {
   display: grid; grid-template-columns: 6px 1fr auto auto; align-items: center; gap: 12px;
@@ -791,7 +791,7 @@ button { cursor: pointer; }
   .search input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
 }
 
-/* ---------- Freigabe per Push (öffentliche Seite /approve/:token) ---------- */
+/* ---------- Push approval (public page /approve/:token) ---------- */
 .approve-kind { margin: 0 0 10px; font-size: var(--fs-12); font-weight: 500; color: var(--amber); display: inline-flex; align-items: center; gap: 6px; }
 .approve .consent-head h1 { overflow-wrap: anywhere; }
 .approve .req-reason { margin: 0; }

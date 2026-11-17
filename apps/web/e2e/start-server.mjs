@@ -1,5 +1,5 @@
 // Starts the built server (apps/server/dist/main.js) with the temp data dir from the config and tees its log to
-// ASM_E2E_LOG_FILE, where the specs read the one-time setup token from the „ASM setup token: …“ line.
+// ASM_E2E_LOG_FILE, where the specs read the one-time setup token from the "ASM setup token: …" line.
 // Plain JS on purpose: runs with any Node 24 without type stripping. Configured via env by playwright.config.ts.
 import { spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, rmSync } from 'node:fs';

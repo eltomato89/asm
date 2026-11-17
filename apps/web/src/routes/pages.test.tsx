@@ -17,7 +17,7 @@ const auditRow = (over: Partial<AuditRow> = {}): AuditRow => ({
   vaultId: 'vlt_p',
   deviceId: 'dev_1',
   project: 'agent-secrets-manager',
-  reason: 'Migrationen gegen Staging ausführen',
+  reason: 'Run migrations against staging',
   ip: '192.168.178.10',
   meta: { requestId: 'req_01', kind: 'read' },
   prevHash: 'a'.repeat(64),
@@ -37,14 +37,14 @@ describe('audit page', () => {
     });
     const u = userEvent.setup();
     renderApp('/audit');
-    const row = await screen.findByRole('button', { name: /Du hast GITHUB_TOKEN für claude@mbp-office freigegeben/ });
+    const row = await screen.findByRole('button', { name: /You approved GITHUB_TOKEN for claude@mbp-office/ });
     expect(row).toHaveTextContent('request.approved');
     expect(row).toHaveTextContent('192.168.178.10');
     await u.click(row);
     expect(row).toHaveAttribute('aria-expanded', 'true');
-    const detail = screen.getByRole('region', { name: 'Details zu Eintrag 42' });
+    const detail = screen.getByRole('region', { name: 'Details for entry 42' });
     expect(within(detail).getByText('agent-secrets-manager')).toBeInTheDocument();
-    expect(within(detail).getByText('Migrationen gegen Staging ausführen')).toBeInTheDocument();
+    expect(within(detail).getByText('Run migrations against staging')).toBeInTheDocument();
     expect(within(detail).getAllByText('req_01').length).toBeGreaterThan(0);
     expect(within(detail).getByText('b'.repeat(64))).toBeInTheDocument();
   });
@@ -62,10 +62,10 @@ describe('audit page', () => {
     });
     const u = userEvent.setup();
     renderApp('/audit');
-    expect(await screen.findByText('Kette intakt')).toBeInTheDocument();
-    await u.click(await screen.findByRole('button', { name: 'Mehr laden' }));
-    expect(await screen.findByRole('button', { name: /claude@mbp-office fragt sec_1 für agent-secrets-manager an/ })).toBeInTheDocument();
-    await u.selectOptions(screen.getByLabelText(/Gerät/), 'dev_1');
+    expect(await screen.findByText('Chain intact')).toBeInTheDocument();
+    await u.click(await screen.findByRole('button', { name: 'Load more' }));
+    expect(await screen.findByRole('button', { name: /claude@mbp-office requested sec_1 for agent-secrets-manager/ })).toBeInTheDocument();
+    await u.selectOptions(screen.getByLabelText(/Device/), 'dev_1');
     await waitFor(() => expect(calls.some((c) => c.path === '/api/audit' && query(c).get('deviceId') === 'dev_1')).toBe(true));
     const last = calls.filter((c) => c.path === '/api/audit').at(-1)!;
     expect(query(last).get('from')).toBeTruthy();
@@ -80,25 +80,25 @@ describe('audit page', () => {
     });
     const u = userEvent.setup();
     const { router } = renderApp('/audit');
-    await u.click(await screen.findByRole('button', { name: 'Secret: Alle' }));
-    await u.type(screen.getByRole('searchbox', { name: 'Secret suchen' }), 'git');
+    await u.click(await screen.findByRole('button', { name: 'Secret: All' }));
+    await u.type(screen.getByRole('searchbox', { name: 'Search secrets' }), 'git');
     await u.click(await screen.findByRole('option', { name: /GITHUB_TOKEN/ }));
     await waitFor(() => expect(router.state.location.search).toMatchObject({ secretId: 'sec_1' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/api/audit' && query(c).get('secretId') === 'sec_1')).toBe(true));
     expect(await screen.findByRole('button', { name: 'Secret: GITHUB_TOKEN' })).toBeInTheDocument();
   });
 
-  it('shows „Kette unterbrochen bei #seq“ when the verification fails', async () => {
+  it('shows “Chain broken at #seq” when the verification fails', async () => {
     appServer((c) => (c.path === '/api/audit/verify' ? { body: { ok: false, brokenAtSeq: 17 } } : undefined));
     renderApp('/audit');
-    expect(await screen.findByText('Kette unterbrochen bei #17')).toBeInTheDocument();
+    expect(await screen.findByText('Chain broken at #17')).toBeInTheDocument();
   });
 
   it('hides the chain badge for non-admins', async () => {
     const { calls } = appServer(undefined, { me: { id: 'usr_1', username: 'jana', isAdmin: false } });
     renderApp('/audit');
-    await screen.findByText('Keine Einträge für diese Filter');
-    expect(screen.queryByText('Kette intakt')).toBeNull();
+    await screen.findByText('No entries for these filters');
+    expect(screen.queryByText('Chain intact')).toBeNull();
     expect(calls.some((c) => c.path === '/api/audit/verify')).toBe(false);
   });
 });
@@ -107,7 +107,7 @@ describe('connect page', () => {
   const assign = vi.fn();
   afterEach(() => assign.mockReset());
 
-  it('sends deny on „Verweigern“ and follows the redirect', async () => {
+  it('sends deny on “Deny” and follows the redirect', async () => {
     vi.stubGlobal('location', { ...window.location, assign, host: 'asm.local', origin: window.location.origin, href: window.location.href });
     const { calls } = appServer((c) => {
       if (c.path === '/api/oauth/consent/r1') return { body: { clientName: 'Claude Code', redirectHost: '127.0.0.1:52341', requestedAt: T0 } };
@@ -116,9 +116,9 @@ describe('connect page', () => {
     });
     const u = userEvent.setup();
     renderApp('/connect?req=r1');
-    expect(await screen.findByRole('heading', { name: 'Claude Code möchte sich mit ASM verbinden' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Claude Code wants to connect to ASM' })).toBeInTheDocument();
     expect(screen.getByText('127.0.0.1:52341')).toBeInTheDocument();
-    await u.click(screen.getByRole('button', { name: 'Verweigern' }));
+    await u.click(screen.getByRole('button', { name: 'Deny' }));
     await waitFor(() => expect(calls.find((c) => c.path === '/api/oauth/consent' && c.method === 'POST')?.body).toEqual({ req: 'r1', decision: 'deny' }));
     expect(assign).toHaveBeenCalledWith('http://127.0.0.1:52341/callback?error=access_denied');
   });
@@ -132,13 +132,13 @@ describe('connect page', () => {
     });
     const u = userEvent.setup();
     renderApp('/connect?req=r1');
-    const name = await screen.findByLabelText('Gerätename');
+    const name = await screen.findByLabelText('Device name');
     await waitFor(() => expect(name).toHaveValue('Claude Code'));
     await u.clear(name);
     await u.type(name, 'claude@mbp-office');
-    await u.click(screen.getByRole('button', { name: 'Freigeben' }));
+    await u.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ req: 'r1', decision: 'approve', deviceName: 'claude@mbp-office' }));
-    expect(await screen.findByRole('heading', { name: 'Verbunden' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Connected' })).toBeInTheDocument();
   });
 
   it('never follows a non-http(s) redirect', async () => {
@@ -150,15 +150,15 @@ describe('connect page', () => {
     });
     const u = userEvent.setup();
     renderApp('/connect?req=r1');
-    await u.click(await screen.findByRole('button', { name: 'Verweigern' }));
-    expect(await screen.findByText(/Rückleitung zum Client ist ungültig/)).toBeInTheDocument();
+    await u.click(await screen.findByRole('button', { name: 'Deny' }));
+    expect(await screen.findByText(/redirect back to the client is invalid/)).toBeInTheDocument();
     expect(assign).not.toHaveBeenCalled();
   });
 
   it('shows a friendly error for an unknown or expired request', async () => {
     appServer((c) => (c.path === '/api/oauth/consent/old' ? { status: 404, body: { error: 'unknown_request' } } : undefined));
     renderApp('/connect?req=old');
-    expect(await screen.findByRole('heading', { name: 'Kopplungsanfrage nicht gefunden' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Pairing request not found' })).toBeInTheDocument();
   });
 });
 
@@ -174,12 +174,12 @@ describe('activate page', () => {
     const input = await screen.findByLabelText('Code');
     await u.type(input, 'bcdfghjk');
     expect(input).toHaveValue('BCDF-GHJK');
-    await u.click(screen.getByRole('button', { name: 'Weiter' }));
-    expect(await screen.findByRole('heading', { name: 'asm-cli möchte sich mit ASM verbinden' })).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('heading', { name: 'asm-cli wants to connect to ASM' })).toBeInTheDocument();
     expect(query(calls.find((c) => c.path === '/api/devices/activate')!).get('user_code')).toBe('BCDF-GHJK');
-    await u.click(screen.getByRole('button', { name: 'Freigeben' }));
+    await u.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ user_code: 'BCDF-GHJK', decision: 'approve' }));
-    expect(await screen.findByRole('heading', { name: 'Verbunden' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Connected' })).toBeInTheDocument();
   });
 
   it('explains an invalid code', async () => {
@@ -187,8 +187,8 @@ describe('activate page', () => {
     const u = userEvent.setup();
     renderApp('/activate');
     await u.type(await screen.findByLabelText('Code'), 'BCDFGHJK');
-    await u.click(screen.getByRole('button', { name: 'Weiter' }));
-    expect(await screen.findByText(/ungültig oder abgelaufen/)).toBeInTheDocument();
+    await u.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByText(/invalid or has expired/)).toBeInTheDocument();
   });
 });
 
@@ -196,7 +196,7 @@ describe('projects page', () => {
   const projectA = { id: 'prj_a', slug: 'agent-secrets-manager', displayName: 'agent-secrets-manager', mergedInto: null, firstSeen: T0, lastSeen: T0 };
   const projectB = { id: 'prj_b', slug: 'asm', displayName: 'asm', mergedInto: null, firstSeen: T0, lastSeen: T0 };
 
-  it('detail lists secrets with last access and „Zusammenführen“ calls merge with the target id', async () => {
+  it('detail lists secrets with last access and “Merge” calls merge with the target id', async () => {
     const now = Date.now();
     const { calls } = appServer((c) => {
       if (c.path === '/api/projects' && c.method === 'GET') return { body: { items: [projectA, projectB] } };
@@ -215,17 +215,17 @@ describe('projects page', () => {
     });
     const u = userEvent.setup();
     renderApp('/projects?selected=prj_a');
-    const panel = await screen.findByRole('complementary', { name: 'Projekt agent-secrets-manager' });
-    const secrets = await within(panel).findByRole('region', { name: 'Genutzte Secrets' });
+    const panel = await screen.findByRole('complementary', { name: 'Project agent-secrets-manager' });
+    const secrets = await within(panel).findByRole('region', { name: 'Secrets used' });
     const item = within(secrets).getByText('GITHUB_TOKEN').closest('li')!;
-    expect(item).toHaveTextContent('vor 3 Min.');
-    expect(within(panel).getByRole('region', { name: 'Geräte' })).toHaveTextContent('claude@mbp-office');
+    expect(item).toHaveTextContent('3 min ago');
+    expect(within(panel).getByRole('region', { name: 'Devices' })).toHaveTextContent('claude@mbp-office');
     expect(calls.some((c) => c.path === '/api/audit' && query(c).get('project') === 'agent-secrets-manager')).toBe(true);
 
-    await u.click(within(panel).getByRole('button', { name: 'Zusammenführen mit …' }));
-    const dialog = await screen.findByRole('dialog', { name: /zusammenführen/ });
-    await u.selectOptions(within(dialog).getByLabelText('Zielprojekt'), 'prj_b');
-    await u.click(within(dialog).getByRole('button', { name: 'Zusammenführen' }));
+    await u.click(within(panel).getByRole('button', { name: 'Merge with …' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Merge / });
+    await u.selectOptions(within(dialog).getByLabelText('Target project'), 'prj_b');
+    await u.click(within(dialog).getByRole('button', { name: 'Merge' }));
     await waitFor(() => expect(calls.find((c) => c.path === '/api/projects/prj_a/merge')?.body).toEqual({ into: 'prj_b' }));
   });
 
@@ -238,11 +238,11 @@ describe('projects page', () => {
     });
     const u = userEvent.setup();
     renderApp('/projects?selected=prj_a');
-    const panel = await screen.findByRole('complementary', { name: 'Projekt agent-secrets-manager' });
-    await u.click(await within(panel).findByRole('button', { name: 'Zusammenführen mit …' }));
-    const dialog = await screen.findByRole('dialog', { name: /zusammenführen/ });
-    await u.click(within(dialog).getByRole('button', { name: 'Zusammenführen' }));
-    expect(await within(dialog).findByText(/Tresoren, auf die du keinen Zugriff hast/)).toBeInTheDocument();
+    const panel = await screen.findByRole('complementary', { name: 'Project agent-secrets-manager' });
+    await u.click(await within(panel).findByRole('button', { name: 'Merge with …' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Merge / });
+    await u.click(within(dialog).getByRole('button', { name: 'Merge' }));
+    expect(await within(dialog).findByText(/vaults you don't have access to/)).toBeInTheDocument();
   });
 });
 
@@ -250,25 +250,25 @@ describe('devices page', () => {
   it('renames inline and revokes after confirmation', async () => {
     const { calls } = appServer((c) => {
       if (c.path === '/api/devices' && c.method === 'GET') return { body: devices };
-      if (c.path === '/api/devices/dev_1' && c.method === 'PATCH') return { body: { ...devices.items[0], name: 'claude@neu' } };
+      if (c.path === '/api/devices/dev_1' && c.method === 'PATCH') return { body: { ...devices.items[0], name: 'claude@new' } };
       if (c.path === '/api/devices/dev_1/revoke') return { body: { ...devices.items[0], status: 'revoked' } };
       return undefined;
     });
     const u = userEvent.setup();
     renderApp('/devices');
-    const table = await screen.findByRole('table', { name: 'Geräte' });
+    const table = await screen.findByRole('table', { name: 'Devices' });
     expect(table).toHaveTextContent('claude@mbp-office');
     expect(table).toHaveTextContent('MCP');
-    expect(table).toHaveTextContent('aktiv');
-    await u.click(within(table).getByRole('button', { name: 'claude@mbp-office umbenennen' }));
-    const input = within(table).getByLabelText('Gerätename');
+    expect(table).toHaveTextContent('active');
+    await u.click(within(table).getByRole('button', { name: 'Rename claude@mbp-office' }));
+    const input = within(table).getByLabelText('Device name');
     await u.clear(input);
-    await u.type(input, 'claude@neu{Enter}');
-    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: 'claude@neu' }));
+    await u.type(input, 'claude@new{Enter}');
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: 'claude@new' }));
 
-    await u.click(within(table).getByRole('button', { name: 'Widerrufen' }));
-    const dialog = await screen.findByRole('dialog', { name: /widerrufen/ });
-    await u.click(within(dialog).getByRole('button', { name: 'Widerrufen' }));
+    await u.click(within(table).getByRole('button', { name: 'Revoke' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Revoke access for claude@mbp-office/ });
+    await u.click(within(dialog).getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/api/devices/dev_1/revoke' && c.method === 'POST')).toBe(true));
   });
 });
@@ -283,17 +283,17 @@ describe('vaults page', () => {
     });
     const u = userEvent.setup();
     renderApp('/vaults');
-    const form = await screen.findByRole('form', { name: 'Mitglied zu Arbeit hinzufügen' });
-    await u.type(within(form).getByLabelText('Benutzername'), 'nobody');
-    await u.click(within(form).getByRole('button', { name: 'Hinzufügen' }));
-    expect(await screen.findByText('Diesen Benutzernamen gibt es nicht.')).toBeInTheDocument();
-    await u.clear(within(form).getByLabelText('Benutzername'));
-    await u.type(within(form).getByLabelText('Benutzername'), 'mia');
-    await u.selectOptions(within(form).getByLabelText('Rolle'), 'owner');
-    await u.click(within(form).getByRole('button', { name: 'Hinzufügen' }));
+    const form = await screen.findByRole('form', { name: 'Add member to Work' });
+    await u.type(within(form).getByLabelText('Username'), 'nobody');
+    await u.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(await screen.findByText("This username doesn't exist.")).toBeInTheDocument();
+    await u.clear(within(form).getByLabelText('Username'));
+    await u.type(within(form).getByLabelText('Username'), 'mia');
+    await u.selectOptions(within(form).getByLabelText('Role'), 'owner');
+    await u.click(within(form).getByRole('button', { name: 'Add' }));
     await waitFor(() => expect(calls.filter((c) => c.method === 'POST').at(-1)?.body).toEqual({ username: 'mia', role: 'owner' }));
     // personal vault is read-only
-    expect(screen.queryByRole('form', { name: 'Mitglied zu Persönlich hinzufügen' })).toBeNull();
+    expect(screen.queryByRole('form', { name: 'Add member to Personal' })).toBeNull();
   });
 });
 
@@ -306,10 +306,10 @@ describe('settings page', () => {
     });
     const u = userEvent.setup();
     renderApp('/settings');
-    await u.click(await screen.findByRole('button', { name: 'Passkey MacBook entfernen' }));
-    const dialog = await screen.findByRole('dialog', { name: /entfernen/ });
-    await u.click(within(dialog).getByRole('button', { name: 'Entfernen' }));
-    expect(await screen.findByText(/einziger Anmeldeweg/)).toBeInTheDocument();
+    await u.click(await screen.findByRole('button', { name: 'Remove passkey MacBook' }));
+    const dialog = await screen.findByRole('dialog', { name: /^Remove passkey/ });
+    await u.click(within(dialog).getByRole('button', { name: 'Remove' }));
+    expect(await screen.findByText(/only way to sign in/)).toBeInTheDocument();
   });
 
   it('renames a passkey inline', async () => {
@@ -320,8 +320,8 @@ describe('settings page', () => {
     });
     const u = userEvent.setup();
     renderApp('/settings');
-    await u.click(await screen.findByRole('button', { name: 'Passkey MacBook umbenennen' }));
-    const input = screen.getByLabelText('Name des Passkeys');
+    await u.click(await screen.findByRole('button', { name: 'Rename passkey MacBook' }));
+    const input = screen.getByLabelText('Passkey name');
     await u.clear(input);
     await u.type(input, 'iPhone{Enter}');
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toEqual({ name: 'iPhone' }));
@@ -335,18 +335,18 @@ describe('settings page', () => {
     });
     const u = userEvent.setup();
     const { queryClient } = renderApp('/settings');
-    const form = await screen.findByRole('form', { name: 'Passwort ändern' });
-    await u.type(within(form).getByLabelText('Aktuelles Passwort'), 'falsch-falsch');
-    await u.type(within(form).getByLabelText('Neues Passwort'), 'ein-neues-langes-pw');
-    await u.type(within(form).getByLabelText('Neues Passwort wiederholen'), 'ein-neues-langes-pw');
-    await u.click(within(form).getByRole('button', { name: 'Passwort ändern' }));
-    expect(await within(form).findByText('Das aktuelle Passwort stimmt nicht.')).toBeInTheDocument();
-    await u.clear(within(form).getByLabelText('Aktuelles Passwort'));
-    await u.type(within(form).getByLabelText('Aktuelles Passwort'), 'richtig-richtig');
-    await u.click(within(form).getByRole('button', { name: 'Passwort ändern' }));
-    expect(await screen.findByText(/Passwort geändert/)).toBeInTheDocument();
-    expect(calls.filter((c) => c.path === '/api/auth/password').at(-1)?.body).toEqual({ currentPassword: 'richtig-richtig', newPassword: 'ein-neues-langes-pw' });
-    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state))).not.toContain('ein-neues-langes-pw');
+    const form = await screen.findByRole('form', { name: 'Change password' });
+    await u.type(within(form).getByLabelText('Current password'), 'wrong-wrong');
+    await u.type(within(form).getByLabelText('New password'), 'a-new-long-password');
+    await u.type(within(form).getByLabelText('Repeat new password'), 'a-new-long-password');
+    await u.click(within(form).getByRole('button', { name: 'Change password' }));
+    expect(await within(form).findByText('The current password is incorrect.')).toBeInTheDocument();
+    await u.clear(within(form).getByLabelText('Current password'));
+    await u.type(within(form).getByLabelText('Current password'), 'right-right');
+    await u.click(within(form).getByRole('button', { name: 'Change password' }));
+    expect(await screen.findByText(/Password changed/)).toBeInTheDocument();
+    expect(calls.filter((c) => c.path === '/api/auth/password').at(-1)?.body).toEqual({ currentPassword: 'right-right', newPassword: 'a-new-long-password' });
+    expect(JSON.stringify(queryClient.getMutationCache().getAll().map((m) => m.state))).not.toContain('a-new-long-password');
   });
 
   it('lists accounts for admins', async () => {
@@ -356,9 +356,9 @@ describe('settings page', () => {
         : undefined,
     );
     renderApp('/settings');
-    const table = await screen.findByRole('table', { name: 'Konten' });
+    const table = await screen.findByRole('table', { name: 'Accounts' });
     expect(table).toHaveTextContent('jana');
-    expect(table).toHaveTextContent('Passwort, 2 Passkeys');
+    expect(table).toHaveTextContent('Password, 2 passkeys');
   });
 
   it('admin disables and re-enables another account after confirming; no button for the own account', async () => {
@@ -386,30 +386,30 @@ describe('settings page', () => {
     });
     const u = userEvent.setup();
     renderApp('/settings');
-    const table = await screen.findByRole('table', { name: 'Konten' });
-    expect(within(table).queryByRole('button', { name: 'Konto jana deaktivieren' })).toBeNull();
-    await u.click(await within(table).findByRole('button', { name: 'Konto tom deaktivieren' }));
-    const dialog = await screen.findByRole('dialog', { name: /tom deaktivieren/ });
+    const table = await screen.findByRole('table', { name: 'Accounts' });
+    expect(within(table).queryByRole('button', { name: 'Disable account jana' })).toBeNull();
+    await u.click(await within(table).findByRole('button', { name: 'Disable account tom' }));
+    const dialog = await screen.findByRole('dialog', { name: /Disable account tom/ });
     expect(calls.some((c) => c.path.endsWith('/disable'))).toBe(false);
-    await u.click(within(dialog).getByRole('button', { name: 'Deaktivieren' }));
+    await u.click(within(dialog).getByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/api/admin/users/usr_2/disable' && c.method === 'POST')).toBe(true));
-    expect(await within(table).findByText('deaktiviert')).toBeInTheDocument();
-    await u.click(await within(table).findByRole('button', { name: 'Konto tom aktivieren' }));
-    const d2 = await screen.findByRole('dialog', { name: /tom aktivieren/ });
-    await u.click(within(d2).getByRole('button', { name: 'Aktivieren' }));
+    expect(await within(table).findByText('disabled')).toBeInTheDocument();
+    await u.click(await within(table).findByRole('button', { name: 'Enable account tom' }));
+    const d2 = await screen.findByRole('dialog', { name: /Enable account tom/ });
+    await u.click(within(d2).getByRole('button', { name: 'Enable' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/api/admin/users/usr_2/enable' && c.method === 'POST')).toBe(true));
-    await waitFor(() => expect(within(table).queryByText('deaktiviert')).toBeNull());
+    await waitFor(() => expect(within(table).queryByText('disabled')).toBeNull());
   });
 
   it('admin creates a user', async () => {
     const { calls } = appServer((c) => (c.path === '/api/admin/users' && c.method === 'POST' ? { status: 201, body: { id: 'usr_2', username: 'tom', isAdmin: false } } : c.path === '/api/admin/users' ? { body: { items: [] } } : undefined));
     const u = userEvent.setup();
     renderApp('/settings');
-    const form = await screen.findByRole('form', { name: 'Konto anlegen' });
-    await u.type(within(form).getByLabelText('Benutzername'), 'tom');
-    await u.type(within(form).getByLabelText('Startpasswort'), 'ein-langes-passwort');
-    await u.click(within(form).getByRole('button', { name: 'Konto anlegen' }));
-    await waitFor(() => expect(calls.find((c) => c.path === '/api/admin/users' && c.method === 'POST')?.body).toEqual({ username: 'tom', password: 'ein-langes-passwort', isAdmin: false }));
-    expect(await screen.findByText('Konto tom angelegt.')).toBeInTheDocument();
+    const form = await screen.findByRole('form', { name: 'Create account' });
+    await u.type(within(form).getByLabelText('Username'), 'tom');
+    await u.type(within(form).getByLabelText('Initial password'), 'a-long-password');
+    await u.click(within(form).getByRole('button', { name: 'Create account' }));
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/admin/users' && c.method === 'POST')?.body).toEqual({ username: 'tom', password: 'a-long-password', isAdmin: false }));
+    expect(await screen.findByText('Account tom created.')).toBeInTheDocument();
   });
 });

@@ -1,39 +1,39 @@
-# ASM – Beispiel für Docker Compose.
+# ASM – Docker Compose example.
 #
-# 1. Master-Key erzeugen (einmalig, sicher aufbewahren – ohne ihn sind alle Secrets verloren):
+# 1. Generate the master key (once; keep it safe – without it all secrets are lost):
 #      mkdir -p secrets && chmod 700 secrets
 #      docker run --rm asm node apps/server/dist/scripts/generate-key.js > secrets/asm_master_key
-#      chmod 600 secrets/asm_master_key && sudo chown 1000:1000 secrets/asm_master_key   # lesbar für User node (UID 1000)
-#    secrets/ ist in .gitignore/.dockerignore ausgeschlossen – nie committen, nie ins Image bauen.
-#    Liegt der Key außerhalb dieses Verzeichnisses, unten secrets.asm_master_key.file anpassen.
-# 2. ASM_PUBLIC_URL auf die öffentliche https-Adresse setzen, Reverse Proxy konfigurieren (siehe unten).
+#      chmod 600 secrets/asm_master_key && sudo chown 1000:1000 secrets/asm_master_key   # readable for user node (UID 1000)
+#    secrets/ is excluded via .gitignore/.dockerignore – never commit it, never bake it into the image.
+#    If the key lives outside this directory, adjust secrets.asm_master_key.file below.
+# 2. Set ASM_PUBLIC_URL to the public https address and configure a reverse proxy (see below).
 # 3. docker compose -f docker-compose.example.yml up -d
-# 4. Setup-Token aus dem Log holen: docker compose logs asm | grep "ASM setup token"
+# 4. Get the setup token from the log: docker compose logs asm | grep "ASM setup token"
 
 services:
   asm:
     image: asm
     # build: .
     restart: unless-stopped
-    # Kleiner Init-Prozess als PID 1: leitet SIGTERM an Node weiter (sauberes Herunterfahren) und räumt Zombies ab.
+    # Tiny init process as PID 1: forwards SIGTERM to Node (clean shutdown) and reaps zombies.
     init: true
     environment:
       ASM_PUBLIC_URL: https://asm.example.com
       ASM_MASTER_KEY_FILE: /run/secrets/asm_master_key
-      # Muss hinter einem Reverse Proxy gesetzt sein: sonst sieht ASM als Client-IP nur die IP des Proxys,
-      # und die Rate-Limits pro IP (Login, Setup, OAuth) treffen alle Nutzer gemeinsam. Nur setzen, wenn
-      # der Port ausschließlich über den Proxy erreichbar ist (X-Forwarded-For wird sonst fälschbar).
-      # Anzahl der Proxy-Hops (oder die Proxy-IPs/CIDRs). "true" vertraut jedem X-Forwarded-For-Eintrag.
+      # Required behind a reverse proxy: otherwise ASM only sees the proxy's IP as the client IP,
+      # and the per-IP rate limits (login, setup, OAuth) hit all users together. Only set it if the
+      # port is reachable exclusively through the proxy (otherwise X-Forwarded-For can be spoofed).
+      # Number of proxy hops (or the proxy IPs/CIDRs). "true" trusts every X-Forwarded-For entry.
       ASM_TRUST_PROXY: "1"
       # ASM_AUTO_MODE_MAX_MIN: "240"
-      # Push-Freigabe: von außen nur die Freigabe-Seite erlauben (siehe README).
+      # Push approval: allow only the approval page from outside (see README).
       # ASM_TRUSTED_NETWORKS: "192.168.0.0/16,100.64.0.0/10"
       # ASM_VAPID_SUBJECT: "mailto:admin@example.com"
     secrets:
       - asm_master_key
     volumes:
       - asm-data:/data
-    # Nur für den Proxy erreichbar; ohne Proxy-Netzwerk z. B. an localhost binden:
+    # Reachable for the proxy only; without a proxy network bind e.g. to localhost:
     ports:
       - "127.0.0.1:8080:8080"
     # --- Traefik (v2/v3) ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ services:
     #   - traefik.http.services.asm.loadbalancer.server.port=8080
     # networks: [proxy]
 
-  # --- Caddy (alternativ) ----------------------------------------------------------------------------
+  # --- Caddy (alternative) ---------------------------------------------------------------------------
   # caddy:
   #   image: caddy:2
   #   restart: unless-stopped
@@ -57,7 +57,7 @@ services:
   # Caddyfile:
   #   asm.example.com {
   #     reverse_proxy asm:8080 {
-  #       # SSE (Live-Anfragen) und MCP-Long-Polls nicht puffern
+  #       # don't buffer SSE (live requests) and MCP long polls
   #       flush_interval -1
   #     }
   #   }

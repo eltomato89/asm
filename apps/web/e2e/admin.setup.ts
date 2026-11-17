@@ -6,9 +6,9 @@ import { readSetupToken } from './helpers';
 setup('first admin via setup page', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveURL(/\/setup$/);
-  await page.getByLabel('Einrichtungs-Token').fill(readSetupToken());
-  await page.getByLabel('Benutzername').fill(ADMIN.username);
-  await page.getByLabel('Passwort').fill(ADMIN.password);
-  await page.getByRole('button', { name: 'Konto anlegen' }).click();
+  await page.getByLabel('Setup token').fill(readSetupToken());
+  await page.getByLabel('Username').fill(ADMIN.username);
+  await page.getByLabel('Password').fill(ADMIN.password);
+  await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page).toHaveURL(/\/login$/);
 });

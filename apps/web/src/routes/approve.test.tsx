@@ -21,7 +21,7 @@ const summary = (over: Partial<ApproveSummaryDto> = {}): ApproveSummaryDto => ({
   device: { name: 'claude@mbp-office' },
   secret: { title: 'GitHub', envName: 'GITHUB_TOKEN' },
   project: 'agent-secrets-manager',
-  reason: 'Release-Workflow pushen',
+  reason: 'Push the release workflow',
   delivery: 'cli',
   expiresAt: Date.now() + 120_000,
   status: 'pending',
@@ -56,7 +56,7 @@ describe('approve page', () => {
     renderApp(`/approve/${TOKEN}`);
     const h1 = await screen.findByRole('heading', { level: 1 });
     expect(h1).toHaveTextContent('claude@mbp-office wants GITHUB_TOKEN for agent-secrets-manager.');
-    expect(screen.getByText('Release-Workflow pushen')).toBeInTheDocument();
+    expect(screen.getByText('Push the release workflow')).toBeInTheDocument();
     expect(screen.getByText('via CLI handoff')).toBeInTheDocument();
     expect(screen.getByRole('progressbar', { name: 'Time remaining' })).toBeInTheDocument();
     expect(screen.getByText(/expires in/)).toHaveTextContent(/0[12]:\d\d/);

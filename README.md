@@ -316,5 +316,3 @@ speeds up subsequent builds). For arm64, add it to `platforms` in `docker.yml` a
   log, but not the deletion of the *last* entries: anyone with write access to the database can cut off the end
   without the chain check in the audit log noticing. For tamper-evident records, export the log regularly
   (CSV) or record the latest hash externally.
-- **No push notifications.** Web Push (VAPID) and approving directly from the notification are coming in
-  phase 2. Until then: keep the tab open (browser notifications can be enabled in the UI).

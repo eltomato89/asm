@@ -18,7 +18,7 @@ const forProject = (c: AuditCtx) => (c.project ? f(' for ', c.project) : null);
 
 export const audit = {
   title: 'Audit log',
-  entries: (count: string, more: boolean) => `${count}${more ? '+' : ''} entries`,
+  entries: (n: number, count: string, more: boolean) => `${count}${more ? '+' : ''} ${n === 1 && !more ? 'entry' : 'entries'}`,
   exportCsv: 'Export CSV',
   exported: 'CSV exported.',
   exportedTruncated: 'CSV exported, truncated to 10,000 entries.',
@@ -45,7 +45,7 @@ export const audit = {
   loadFailedBody: 'Reload the page.',
   emptyTitle: 'No entries for these filters',
   emptyBody: 'Change the time range or reset the filters.',
-  loaded: (count: string) => `${count} entries loaded`,
+  loaded: (n: number, count: string) => `${count} ${n === 1 ? 'entry' : 'entries'} loaded`,
   loadMore: 'Load more',
   endOfLog: 'End of log',
   chain: {

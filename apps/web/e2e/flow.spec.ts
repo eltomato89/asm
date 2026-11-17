@@ -11,13 +11,13 @@ test('agent request → live card → approve; auto mode; update approval → hi
 
   // A human creates a secret.
   await page.goto('/secrets');
-  await page.getByRole('button', { name: 'Neues Secret' }).first().click();
-  const form = page.getByRole('form', { name: 'Secret anlegen' });
-  await form.getByLabel('Titel').fill('GitHub Token');
-  await form.getByLabel('ENV-Name').fill('GITHUB_TOKEN');
-  await form.getByLabel('Beschreibung').fill('Deploy-Token für das e2e-Repo');
-  await form.getByLabel('Wert eingeben').fill(V1);
-  await form.getByRole('button', { name: 'Secret anlegen' }).click();
+  await page.getByRole('button', { name: 'New secret' }).first().click();
+  const form = page.getByRole('form', { name: 'Create secret' });
+  await form.getByLabel('Title').fill('GitHub Token');
+  await form.getByLabel('Env name').fill('GITHUB_TOKEN');
+  await form.getByLabel('Description').fill('Deploy token for the e2e repo');
+  await form.getByLabel('Enter value').fill(V1);
+  await form.getByRole('button', { name: 'Create secret' }).click();
   await expect(page.getByRole('complementary', { name: 'Secret GITHUB_TOKEN' })).toBeVisible();
 
   // The agent pairs via OAuth (consent in the browser) and asks for the secret.
@@ -28,14 +28,14 @@ test('agent request → live card → approve; auto mode; update approval → hi
 
   await page.goto('/');
   await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-  const created = await callTool(request, token, 'request_secret', { secret_id: secretId, project: PROJECT, reason: 'Release-Workflow testen' });
+  const created = await callTool(request, token, 'request_secret', { secret_id: secretId, project: PROJECT, reason: 'Test the release workflow' });
   expect(created.status).toBe('pending');
 
   // The card shows up live (SSE) and is approved with the keyboard shortcut.
-  const card = page.getByRole('article', { name: 'Anfrage GITHUB_TOKEN' });
+  const card = page.getByRole('article', { name: 'Request GITHUB_TOKEN' });
   await expect(card).toBeVisible();
   await expect(card).toContainText(DEVICE);
-  await expect(card).toContainText('Release-Workflow testen');
+  await expect(card).toContainText('Test the release workflow');
   await page.keyboard.press('a');
   await expect(card).toBeHidden();
   const outcome = await callTool(request, token, 'await_request', { request_id: created.request_id });
@@ -47,15 +47,15 @@ test('agent request → live card → approve; auto mode; update approval → hi
   const row = page.getByRole('button').filter({ hasText: 'request.approved' }).first();
   await expect(row).toBeVisible();
   await row.click();
-  const detail = page.getByRole('region', { name: /Details zu Eintrag/ });
+  const detail = page.getByRole('region', { name: /Details for entry/ });
   await expect(detail).toContainText(PROJECT);
-  await expect(detail).toContainText('Release-Workflow testen');
+  await expect(detail).toContainText('Test the release workflow');
 
   // Auto mode for 1 minute: the pill counts down. Then end it so the next request needs a decision again.
-  await page.getByRole('button', { name: 'Auto-Modus starten' }).click();
-  await page.getByLabel('Eigene Dauer in Minuten').fill('1');
-  await page.getByRole('button', { name: 'Starten', exact: true }).click();
-  const pill = page.getByRole('button', { name: /^Auto-Modus aktiv, noch/ });
+  await page.getByRole('button', { name: 'Start auto mode' }).click();
+  await page.getByLabel('Custom duration in minutes').fill('1');
+  await page.getByRole('button', { name: 'Start', exact: true }).click();
+  const pill = page.getByRole('button', { name: /^Auto mode active, / });
   await expect(pill).toBeVisible();
   const remaining = async () => {
     const [m, s] = (await pill.locator('.auto-time').innerText()).split(':').map(Number);
@@ -65,17 +65,17 @@ test('agent request → live card → approve; auto mode; update approval → hi
   expect(first).toBeLessThanOrEqual(60);
   await expect.poll(remaining, { timeout: 5_000 }).toBeLessThan(first);
   await pill.click();
-  await page.getByRole('button', { name: 'Beenden', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Auto-Modus starten' })).toBeVisible();
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Start auto mode' })).toBeVisible();
 
   // The agent proposes a new value; the change card is approved in the UI.
   await page.goto('/');
-  const update = await callTool(request, token, 'update_secret', { secret_id: secretId, project: PROJECT, reason: 'Token rotiert', value: V2 });
+  const update = await callTool(request, token, 'update_secret', { secret_id: secretId, project: PROJECT, reason: 'Token rotated', value: V2 });
   expect(update.status).toBe('pending');
-  const changeCard = page.getByRole('article', { name: 'Änderungsanfrage GITHUB_TOKEN' });
+  const changeCard = page.getByRole('article', { name: 'Change request GITHUB_TOKEN' });
   await expect(changeCard).toBeVisible();
-  await expect(changeCard).toContainText('Wert wird geändert');
-  await changeCard.getByRole('button', { name: /Freigeben/ }).click();
+  await expect(changeCard).toContainText('Value will change');
+  await changeCard.getByRole('button', { name: /Approve/ }).click();
   await expect(changeCard).toBeHidden();
   const updated = await callTool(request, token, 'await_request', { request_id: update.request_id });
   expect(updated.status).toBe('approved');
@@ -84,21 +84,21 @@ test('agent request → live card → approve; auto mode; update approval → hi
   await page.goto(`/secrets`);
   await page.getByRole('row').filter({ hasText: 'GITHUB_TOKEN' }).click();
   const panel = page.getByRole('complementary', { name: 'Secret GITHUB_TOKEN' });
-  await panel.getByRole('tab', { name: 'Verlauf' }).click();
-  const history = panel.getByRole('list', { name: 'Verlauf' });
+  await panel.getByRole('tab', { name: 'History' }).click();
+  const history = panel.getByRole('list', { name: 'History' });
   const v2 = history.locator('[data-entry="v2"]');
   await expect(v2).toContainText('Version 2');
   await expect(v2).toContainText(DEVICE);
   await expect(v2).toContainText(PROJECT);
-  await expect(v2).toContainText('Token rotiert');
+  await expect(v2).toContainText('Token rotated');
 
   const v1 = history.locator('[data-entry="v1"]');
-  await v1.getByRole('button', { name: 'Anzeigen' }).click();
-  await expect(v1.getByLabel('Wert von Version 1')).toHaveText(V1);
-  await v1.getByRole('button', { name: 'Wiederherstellen' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Wiederherstellen' }).click();
+  await v1.getByRole('button', { name: 'Reveal' }).click();
+  await expect(v1.getByLabel('Value of version 1')).toHaveText(V1);
+  await v1.getByRole('button', { name: 'Restore' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Restore' }).click();
   const v3 = history.locator('[data-entry="v3"]');
-  await expect(v3).toContainText('wiederhergestellt aus Version 1');
-  await v3.getByRole('button', { name: 'Anzeigen' }).click();
-  await expect(v3.getByLabel('Wert von Version 3')).toHaveText(V1);
+  await expect(v3).toContainText('restored from version 1');
+  await v3.getByRole('button', { name: 'Reveal' }).click();
+  await expect(v3.getByLabel('Value of version 3')).toHaveText(V1);
 });

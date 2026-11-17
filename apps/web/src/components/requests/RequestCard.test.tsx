@@ -10,8 +10,8 @@ describe('RequestCard', () => {
     renderWithProviders(<RequestCard request={makeRequest()} now={T0} onDecide={vi.fn()} />);
     const card = screen.getByRole('article');
     expect(card).toHaveTextContent('claude@mbp-office wants GITHUB_TOKEN for agent-secrets-manager.');
-    expect(within(card).getByText('Release-Workflow pushen').tagName).toBe('P');
-    expect(within(card).getByText('Release-Workflow pushen')).toHaveClass('req-reason');
+    expect(within(card).getByText('Push the release workflow').tagName).toBe('P');
+    expect(within(card).getByText('Push the release workflow')).toHaveClass('req-reason');
     expect(card).toHaveTextContent('via CLI handoff');
   });
 

@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { ADMIN, E2E_LOG_FILE, E2E_ORIGIN } from './env';
 
-/** The one-time setup token, parsed from the server log line „ASM setup token: …“. */
+/** The one-time setup token, parsed from the server log line "ASM setup token: …". */
 export function readSetupToken(): string {
   const m = /ASM setup token: ([A-Za-z0-9_-]+)/.exec(readFileSync(E2E_LOG_FILE, 'utf8'));
   if (!m?.[1]) throw new Error(`no setup token in ${E2E_LOG_FILE}`);
@@ -12,10 +12,10 @@ export function readSetupToken(): string {
 
 export async function loginWithPassword(page: Page, user = ADMIN): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Benutzername').fill(user.username);
-  await page.getByLabel('Passwort').fill(user.password);
-  await page.getByRole('button', { name: 'Anmelden', exact: true }).click();
-  await expect(page.getByRole('button', { name: `Konto ${user.username}` })).toBeVisible();
+  await page.getByLabel('Username').fill(user.username);
+  await page.getByLabel('Password').fill(user.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(page.getByRole('button', { name: `Account ${user.username}` })).toBeVisible();
 }
 
 /** Software authenticator via CDP (resident keys + user verification, auto-confirming every ceremony). */
@@ -64,8 +64,8 @@ export async function pairMcpClient(page: Page, request: APIRequestContext, devi
   await page.goto(authorize.toString());
   await expect(page).toHaveURL(/\/connect\?req=/);
   await expect(page.getByText('Claude Code').first()).toBeVisible();
-  await page.getByLabel('Gerätename').fill(deviceName);
-  await page.getByRole('button', { name: 'Freigeben' }).click();
+  await page.getByLabel('Device name').fill(deviceName);
+  await page.getByRole('button', { name: 'Approve' }).click();
   await expect.poll(() => callback?.toString()).toContain('code=');
   await page.unroute(`${new URL(redirectUri).origin}/**`);
   expect(callback!.searchParams.get('state')).toBe('e2e-state');

@@ -133,7 +133,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
     <div className="content-wide-inner">
       <div className="page-head">
         <h1>{t.audit.title}</h1>
-        <span className="meta num">{pages.data ? t.audit.entries(formatCount(rows.length), pages.hasNextPage) : ''}</span>
+        <span className="meta num">{pages.data ? t.audit.entries(rows.length, formatCount(rows.length), pages.hasNextPage) : ''}</span>
         <div className="actions">
           {me.data?.isAdmin ? <ChainBadge status={verify.data} loading={verify.isPending} failed={verify.isError} head={!anyFilter && range === 'all' ? rows[0]?.hash : undefined} /> : null}
           <Button onClick={() => void exportCsv()} disabled={exporting}>
@@ -242,7 +242,7 @@ export function AuditPage({ search }: { search: AuditSearch }) {
           })
         )}
         <div className="table-foot">
-          <span className="num">{pages.data ? t.audit.loaded(formatCount(rows.length)) : ''}</span>
+          <span className="num">{pages.data ? t.audit.loaded(rows.length, formatCount(rows.length)) : ''}</span>
           <div className="pager">
             {pages.hasNextPage ? (
               <Button onClick={() => void pages.fetchNextPage()} disabled={pages.isFetchingNextPage}>

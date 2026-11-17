@@ -7,10 +7,10 @@ export function makeRequest(over: Partial<AccessRequestDto> = {}): AccessRequest
     id: 'req_01',
     kind: 'read',
     status: 'pending',
-    secret: { id: 'sec_1', title: 'GitHub', envName: 'GITHUB_TOKEN', vaultId: 'vlt_p', vaultName: 'Persönlich' },
+    secret: { id: 'sec_1', title: 'GitHub', envName: 'GITHUB_TOKEN', vaultId: 'vlt_p', vaultName: 'Personal' },
     device: { id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp' },
     project: 'agent-secrets-manager',
-    reason: 'Release-Workflow pushen',
+    reason: 'Push the release workflow',
     delivery: 'cli',
     auto: false,
     decidedBy: null,
@@ -25,9 +25,9 @@ export function makeSecret(over: Partial<SecretMeta> = {}): SecretMeta {
   return {
     id: 'sec_1',
     vaultId: 'vlt_p',
-    vaultName: 'Persönlich',
+    vaultName: 'Personal',
     title: 'GitHub',
-    description: 'Token für Releases',
+    description: 'Token for releases',
     tags: ['ci'],
     envName: 'GITHUB_TOKEN',
     allowPlaintextToAgent: false,
@@ -42,7 +42,7 @@ export const ME = { id: 'usr_1', username: 'jana', isAdmin: true };
 
 export const VAULTS: { items: VaultDto[] } = {
   items: [
-    { id: 'vlt_p', name: 'Persönlich', personal: true, role: 'owner', members: [{ userId: 'usr_1', username: 'jana', role: 'owner' }], createdAt: 0 },
-    { id: 'vlt_w', name: 'Arbeit', personal: false, role: 'owner', members: [{ userId: 'usr_1', username: 'jana', role: 'owner' }, { userId: 'usr_2', username: 'tom', role: 'member' }], createdAt: 0 },
+    { id: 'vlt_p', name: 'Personal', personal: true, role: 'owner', members: [{ userId: 'usr_1', username: 'jana', role: 'owner' }], createdAt: 0 },
+    { id: 'vlt_w', name: 'Work', personal: false, role: 'owner', members: [{ userId: 'usr_1', username: 'jana', role: 'owner' }, { userId: 'usr_2', username: 'tom', role: 'member' }], createdAt: 0 },
   ],
 };
