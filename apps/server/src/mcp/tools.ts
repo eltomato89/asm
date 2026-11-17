@@ -19,6 +19,7 @@ import { getAutoMode } from '../requests/automode.js';
 import { grantIdForRequest, redeemGrant } from '../requests/grants.js';
 import { createRequest, createUpdateRequest, waitForRequest } from '../requests/service.js';
 import { archiveSecret, createSecret, searchSecrets } from '../secrets/service.js';
+import { standingSummaryForDevice } from '../standing/service.js';
 import { listVaultsForUser } from '../vaults/service.js';
 
 /** Per-HTTP-request context of a tool call. */
@@ -80,6 +81,12 @@ function requestOutcome(t: ToolContext, dto: AccessRequestDto): ToolPayload {
   const { status } = dto;
   if (status === 'pending') return { status, hint: 'Call await_request again' };
   if (status !== 'approved') return { status, ...denialCause(t, dto.id) };
+  const outcome = approvedOutcome(t, dto);
+  return dto.autoSource ? { ...outcome, approved_by: dto.autoSource === 'standing' ? 'standing_approval' : 'auto_mode' } : outcome;
+}
+
+function approvedOutcome(t: ToolContext, dto: AccessRequestDto): ToolPayload {
+  const { status } = dto;
   if (dto.kind === 'update') {
     const row = t.ctx.db.$client.prepare('SELECT current_version FROM secrets WHERE id = ?').get(dto.secret.id) as { current_version: number } | undefined;
     return { status, version: row?.current_version ?? null };
@@ -107,16 +114,28 @@ function requestOutcome(t: ToolContext, dto: AccessRequestDto): ToolPayload {
   };
 }
 
-/** Result of request_secret / update_secret: the request plus, if already decided (auto mode), its outcome. */
+const RENEWAL_HINT =
+  "This device's standing approval has expired. Ask the user to approve this request in ASM (approving renews the standing approval), " +
+  'then call await_request with this request_id';
+
+/** Result of request_secret / update_secret: the request plus, if already decided (auto mode, standing approval), its outcome. */
 function requestCreated(t: ToolContext, dto: AccessRequestDto): ToolPayload {
   const base = { request_id: dto.id, status: dto.status, expires_at: iso(dto.expiresAt) };
-  if (dto.status === 'pending') return { ...base, hint: 'Ask the user to approve it in ASM, then call await_request with this request_id' };
+  if (dto.status === 'pending') {
+    return { ...base, hint: dto.renewal ? RENEWAL_HINT : 'Ask the user to approve it in ASM, then call await_request with this request_id' };
+  }
   try {
     return { ...base, ...requestOutcome(t, dto) };
   } catch (err) {
     if (err instanceof ToolError) throw new ToolError({ ...base, ...err.payload });
     throw err;
   }
+}
+
+/** This device's standing approval for whoami (no secret ids). */
+function standingApproval(t: ToolContext): ToolPayload | null {
+  const s = standingSummaryForDevice(t.ctx, t.device.id);
+  return s ? { active: s.active, until: iso(s.until), covers_updates: s.allowUpdates, scope: s.scope } : null;
 }
 
 // ---------- tools ----------
@@ -165,7 +184,8 @@ export const TOOLS = [
   tool({
     name: 'request_secret',
     description:
-      'Request access to a secret. The user approves or denies it in ASM (or it is approved immediately in auto mode). ' +
+      'Request access to a secret. The user approves or denies it in ASM (or it is approved immediately in auto mode or by a ' +
+      'standing approval for this device; approved_by then says which). ' +
       'Returns request_id and status; while pending, call await_request. Prefer delivery "cli" (default): you get a one-time grant to use with ' +
       '`asm run --grant <id> -- <command>` (injects the env var) or `asm write --grant <id> <file>`, so the value never enters your context. ' +
       'Use delivery "plaintext" only if strictly necessary and allowed for the secret — the value then lands in the transcript. ' +
@@ -228,7 +248,8 @@ export const TOOLS = [
     name: 'update_secret',
     description:
       "Propose a change to a secret's metadata and/or value. Needs the user's approval: returns request_id with status \"pending\"; " +
-      `call await_request for the result (approved → new version). Give value or generate only to change the value. ${VALUE_HINT} ` +
+      'call await_request for the result (approved → new version). Approved immediately (approved_by) in auto mode or if this ' +
+      `device's standing approval also covers changes. Give value or generate only to change the value. ${VALUE_HINT} ` +
       `${NEVER_LEAK} Always pass the git repo / working-folder name as project and a concrete reason.`,
     schema: z.strictObject({
       secret_id: secretId,
@@ -275,7 +296,9 @@ export const TOOLS = [
   }),
   tool({
     name: 'whoami',
-    description: 'Show which device and user this connection acts as and whether auto mode (automatic approval of requests) is active. Always pass project.',
+    description:
+      'Show which device and user this connection acts as, whether auto mode (automatic approval of requests) is active, and ' +
+      "this device's standing approval (automatic approval for this device until a date; null if none). Always pass project.",
     schema: z.strictObject({ project }),
     run: (t) => {
       const user = t.ctx.db.$client.prepare('SELECT id, username FROM users WHERE id = ?').get(t.device.userId) as { id: string; username: string };
@@ -283,6 +306,7 @@ export const TOOLS = [
         device: { id: t.device.id, name: t.device.name, kind: t.device.kind },
         user: { id: user.id, username: user.username },
         auto_mode: getAutoMode(t.ctx, t.device.userId),
+        standing_approval: standingApproval(t),
       };
     },
   }),

@@ -23,4 +23,9 @@ export const errors: Messages['errors'] = {
   valueTooLarge: 'Der Wert ist größer als 64 KiB.',
   forbidden: 'Dafür fehlen dir die Rechte.',
   notFound: 'Nicht gefunden. Lade die Seite neu.',
+  invalidUntil: 'Wähle ein Enddatum im erlaubten Zeitraum.',
+  invalidRenewDays: 'Die Verlängerung liegt außerhalb des erlaubten Bereichs.',
+  secretNotFound: 'Eines der ausgewählten Secrets gibt es nicht mehr, oder du hast keinen Zugriff mehr darauf.',
+  deviceNotActive: 'Dieses Gerät ist nicht mehr aktiv.',
+  standingDisabled: 'Dauerfreigaben sind auf diesem Server abgeschaltet.',
 };

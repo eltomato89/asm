@@ -4,9 +4,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { revokeDevice } from '../src/devices/service.js';
+import { issueTokens } from '../src/oauth/token.js';
 import { enableAutoMode } from '../src/requests/automode.js';
 import { decideRequest } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
+import { setStandingApproval } from '../src/standing/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, allKeys, auditRows, pairDevice, world } from './helpers/fixtures.js';
 
 const MIN = 60_000;
@@ -322,6 +324,7 @@ describe('mcp: read requests', () => {
     expect(r.data.grant_id).toMatch(/^grt_/);
     expect(r.data.instructions).toBe(INSTRUCTIONS(r.data.grant_id as string));
     expect(r.data).not.toHaveProperty('value');
+    expect(r.data.approved_by).toBe('auto_mode');
   });
 
   it('auto mode + plaintext: request_secret returns the value once (audited); await_request → value_already_delivered', async () => {
@@ -430,9 +433,51 @@ describe('mcp: create, update, archive, vaults, whoami', () => {
       device: { id: dev.deviceId, name: 'alice-laptop', kind: 'mcp' },
       user: { id: w.alice.id, username: 'alice' },
       auto_mode: { active: false, enabledUntil: null, defaultDurationMin: 30, vaultIds: null },
+      standing_approval: null,
     });
     const project = w.db.$client.prepare("SELECT last_seen FROM projects WHERE slug = 'foo'").get();
     expect(project).toBeDefined();
+  });
+});
+
+describe('mcp: standing approval', () => {
+  const DAY = 24 * 60 * MIN;
+  const stand = (t: Awaited<ReturnType<typeof setup>>, input: Record<string, unknown> = {}) =>
+    setStandingApproval(t.w.ctx, t.w.alice.id, t.dev.deviceId, { until: t.w.clock.now() + 7 * DAY, scope: 'all', ...input } as never, {});
+
+  it('whoami shows the standing approval (no secret ids)', async () => {
+    const t = await setup();
+    stand(t, { scope: 'list', secretIds: [t.secret.id], allowUpdates: true });
+    const me = await t.call('whoami', P);
+    expect(me.data.standing_approval).toEqual({
+      active: true, until: new Date(t.w.clock.now() + 7 * DAY).toISOString(), covers_updates: true, scope: 'list',
+    });
+    expect(me.text).not.toContain(t.secret.id);
+  });
+
+  it('request_secret is approved immediately with approved_by standing_approval; manual approvals carry no approved_by', async () => {
+    const t = await setup();
+    const manual = await t.call('request_secret', { secret_id: t.secret.id, reason: 'deploy', ...P });
+    t.approve(manual.data.request_id as string);
+    const done = await t.call('await_request', { request_id: manual.data.request_id });
+    expect(done.data.status).toBe('approved');
+    expect(done.data).not.toHaveProperty('approved_by');
+
+    stand(t);
+    const r = await t.call('request_secret', { secret_id: t.secret.id, reason: 'deploy', ...P });
+    expect(r.data).toMatchObject({ status: 'approved', approved_by: 'standing_approval' });
+    expect(r.data.grant_id).toMatch(/^grt_/);
+    expect(r.text).not.toContain(SECRET_VALUE);
+  });
+
+  it('expired with renew: pending with a renewal hint', async () => {
+    const t = await setup();
+    stand(t, { until: t.w.clock.now() + DAY, afterExpiry: 'renew', renewDays: 3 });
+    t.w.clock.advance(DAY);
+    const c = await t.connect(issueTokens(t.w.ctx, t.dev.deviceId).accessToken); // the original access token has expired
+    const r = await t.call('request_secret', { secret_id: t.secret.id, reason: 'deploy', ...P }, c);
+    expect(r.data.status).toBe('pending');
+    expect(r.data.hint).toMatch(/standing approval has expired/);
   });
 });
 

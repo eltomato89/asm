@@ -72,6 +72,7 @@ function toSummary(dto: AccessRequestDto): ApproveSummaryDto {
     ...(dto.valueChanged !== undefined ? { valueChanged: dto.valueChanged } : {}),
     expiresAt: dto.expiresAt,
     status: dto.status,
+    ...(dto.renewal ? { renewal: dto.renewal } : {}),
   };
 }
 
@@ -128,7 +129,7 @@ async function registerApproveApi(app: FastifyInstance, deps: PushDeps): Promise
 
   app.get('/api/approve/:token', async (req) => {
     const t = resolveToken(tokenParams.parse(req.params).token);
-    return toSummary(getRequestDto(db, t.requestId));
+    return toSummary(getRequestDto(ctx, t.requestId));
   });
 
   app.post('/api/approve/:token/options', async (req) => {

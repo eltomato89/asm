@@ -21,6 +21,14 @@ import { HttpError, ValidationError } from '../errors.js';
 import type { DeviceIdentity } from '../oauth/bearer.js';
 import { recordUsage, touchProject } from '../projects/service.js';
 import { applySecretChange, generateValue, loadAccessible, same, SNAPSHOT_FIELDS, type GenerateSpec } from '../secrets/service.js';
+import {
+  emitDeviceChanged,
+  expireStandingApprovals,
+  removeForLostVault,
+  renewalDays,
+  renewOnApproval,
+  standingCoverage,
+} from '../standing/service.js';
 import { canAccessVault } from '../vaults/service.js';
 import { expireAutoModes, isAutoApproved } from './automode.js';
 import type { RequestEvent } from './events.js';
@@ -86,22 +94,35 @@ type RequestRow = {
   title: string; env_name: string | null; vault_id: string; vault_name: string;
   device_name: string; device_kind: 'mcp' | 'cli'; device_status: string; decided_by_name: string | null;
   allow_plaintext_to_agent: number; current_version: number;
+  /** The device's current standing approval (LEFT JOIN; null if none). */
+  sa_until: number | null; sa_granted_at: number | null; sa_after_expiry: 'ask' | 'renew' | null; sa_renew_days: number | null;
 };
 
 const REQUEST_SELECT = `
   SELECT r.*, s.title, s.env_name, s.vault_id, v.name AS vault_name, s.allow_plaintext_to_agent, s.current_version,
-         d.name AS device_name, d.kind AS device_kind, d.status AS device_status, u.username AS decided_by_name
+         d.name AS device_name, d.kind AS device_kind, d.status AS device_status, u.username AS decided_by_name,
+         sa.until AS sa_until, sa.granted_at AS sa_granted_at, sa.after_expiry AS sa_after_expiry, sa.renew_days AS sa_renew_days
     FROM access_requests r
     JOIN secrets s ON s.id = r.secret_id
     JOIN vaults v ON v.id = s.vault_id
     JOIN devices d ON d.id = r.device_id
-    LEFT JOIN users u ON u.id = r.decided_by`;
+    LEFT JOIN users u ON u.id = r.decided_by
+    LEFT JOIN standing_approvals sa ON sa.device_id = r.device_id`;
 
 function loadRow(db: Db, requestId: string): RequestRow | undefined {
   return db.$client.prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(requestId) as RequestRow | undefined;
 }
 
-function toDto(r: RequestRow): AccessRequestDto {
+/** Pending renewal request whose approval would currently extend the device's standing approval. */
+function renewalOf(ctx: ServiceCtx, r: RequestRow): AccessRequestDto['renewal'] {
+  if (r.standing_renewal !== 1 || r.status !== 'pending' || r.sa_until === null) return null;
+  const days = renewalDays(ctx, {
+    until: r.sa_until, granted_at: r.sa_granted_at!, after_expiry: r.sa_after_expiry!, renew_days: r.sa_renew_days!,
+  });
+  return days === null ? null : { days };
+}
+
+function toDto(ctx: ServiceCtx, r: RequestRow): AccessRequestDto {
   const dto: AccessRequestDto = {
     id: r.id,
     kind: r.kind,
@@ -121,9 +142,8 @@ function toDto(r: RequestRow): AccessRequestDto {
     createdAt: r.created_at,
     decidedAt: r.decided_at,
     expiresAt: r.expires_at,
-    autoSource: r.auto_source,
-    // TODO(WP1): {days} for pending standing renewals (needs ctx for the cap).
-    renewal: null,
+    autoSource: r.auto_source ?? (r.auto === 1 ? 'automode' : null),
+    renewal: renewalOf(ctx, r),
   };
   if (r.kind === 'update') {
     const pm = r.proposed_meta ? (JSON.parse(r.proposed_meta) as ProposedMeta) : { diff: {}, valueChanged: false };
@@ -133,10 +153,10 @@ function toDto(r: RequestRow): AccessRequestDto {
   return dto;
 }
 
-export function getRequestDto(db: Db, requestId: string): AccessRequestDto {
-  const row = loadRow(db, requestId);
+export function getRequestDto(ctx: ServiceCtx, requestId: string): AccessRequestDto {
+  const row = loadRow(ctx.db, requestId);
   if (!row) throw new HttpError(404, 'not_found');
-  return toDto(row);
+  return toDto(ctx, row);
 }
 
 /** The user's own requests (as device owner), newest first, max 100. `pending` hides overdue-but-unswept ones. */
@@ -145,7 +165,7 @@ export function listRequests(ctx: ServiceCtx, userId: string, status: 'pending' 
   const rows = ctx.db.$client
     .prepare(`${REQUEST_SELECT} WHERE r.user_id = @userId ${pendingOnly} ORDER BY r.created_at DESC, r.id DESC LIMIT ${LIST_LIMIT}`)
     .all({ userId, now: ctx.clock.now() }) as RequestRow[];
-  return rows.map(toDto);
+  return rows.map((r) => toDto(ctx, r));
 }
 
 // ---------- events ----------
@@ -153,7 +173,7 @@ export function listRequests(ctx: ServiceCtx, userId: string, status: 'pending' 
 function emitRequest(ctx: ServiceCtx, type: 'request.created' | 'request.updated', requestId: string): void {
   const row = loadRow(ctx.db, requestId);
   if (!row) return;
-  const event: RequestEvent = { type, data: toDto(row) };
+  const event: RequestEvent = { type, data: toDto(ctx, row) };
   ctx.events.emit(row.user_id, event);
 }
 
@@ -178,7 +198,7 @@ function emitSnapshotsAfterCommit(ctx: ServiceCtx, requestIds: string[]): void {
   for (const id of requestIds) {
     const row = loadRow(ctx.db, id);
     if (!row) continue;
-    const event: RequestEvent = { type: 'request.updated', data: toDto(row) };
+    const event: RequestEvent = { type: 'request.updated', data: toDto(ctx, row) };
     afterCommit(ctx, () => ctx.events.emit(row.user_id, event));
   }
 }
@@ -255,7 +275,11 @@ function systemDeny(ctx: ServiceCtx, r: RequestRow, cause: SystemCause): boolean
   return true;
 }
 
-/** Inserts a new request and auto-approves it if the owner's auto mode covers the vault. */
+/**
+ * Inserts a new request and settles it: (1) the device's standing approval covers it → auto-approved (source 'standing');
+ * (2) the owner's auto mode covers the vault → auto-approved (source 'automode'); (3) the standing approval has expired with
+ * after_expiry 'renew' → pending renewal request (approving it extends the standing approval); (4) otherwise pending.
+ */
 function insertAndSettle(
   ctx: ServiceCtx,
   r: {
@@ -283,16 +307,24 @@ function insertAndSettle(
   };
   const common = { secretId: r.secretId, vaultId: r.vaultId, deviceId: r.device.id, project: r.project, reason: r.reason };
 
-  if (!isAutoApproved(ctx, r.device.userId, r.vaultId)) {
-    appendAudit(db, ctx.clock, { actorType: 'device', actorId: r.device.id, event: 'request.created', ip: info.ip, meta: auditMeta, ...common });
+  const coverage = standingCoverage(ctx, { deviceId: r.device.id, userId: r.device.userId, secretId: r.secretId, vaultId: r.vaultId, kind: r.kind });
+  const source = coverage === 'covered' ? 'standing' : isAutoApproved(ctx, r.device.userId, r.vaultId) ? 'automode' : null;
+  if (source === null) {
+    const renewal = coverage === 'renewal';
+    if (renewal) db.$client.prepare('UPDATE access_requests SET standing_renewal = 1 WHERE id = ?').run(r.id);
+    appendAudit(db, ctx.clock, {
+      actorType: 'device', actorId: r.device.id, event: 'request.created', ip: info.ip, meta: renewal ? { ...auditMeta, renewal: true } : auditMeta, ...common,
+    });
     return;
   }
   try {
     // Savepoint: a failed apply rolls back only the approval, not the inserted request.
     db.$client.transaction(() => {
-      db.$client.prepare(`UPDATE access_requests SET status = 'approved', auto = 1, auto_source = 'automode', decided_at = ? WHERE id = ?`).run(now, r.id);
+      db.$client
+        .prepare(`UPDATE access_requests SET status = 'approved', auto = 1, auto_source = ?, decided_at = ? WHERE id = ?`)
+        .run(source, now, r.id);
       applyOrFail(() => applyApproval(ctx, loadRow(db, r.id)!));
-      appendAudit(db, ctx.clock, { actorType: 'system', actorId: null, event: 'request.auto_approved', meta: auditMeta, ...common });
+      appendAudit(db, ctx.clock, { actorType: 'system', actorId: null, event: 'request.auto_approved', meta: { ...auditMeta, via: source }, ...common });
     })();
   } catch (err) {
     if (!(err instanceof ApplyFailed)) throw err;
@@ -329,7 +361,7 @@ export function createRequest(ctx: ServiceCtx, input: CreateRequestInput, info: 
     );
   })();
   emitRequest(ctx, 'request.created', id);
-  return notifyIfPending(ctx, getRequestDto(ctx.db, id));
+  return notifyIfPending(ctx, getRequestDto(ctx, id));
 }
 
 export type CreateUpdateRequestInput = {
@@ -379,7 +411,7 @@ export function createUpdateRequest(ctx: ServiceCtx, input: CreateUpdateRequestI
     );
   })();
   emitRequest(ctx, 'request.created', id);
-  return notifyIfPending(ctx, getRequestDto(ctx.db, id));
+  return notifyIfPending(ctx, getRequestDto(ctx, id));
 }
 
 /**
@@ -418,8 +450,9 @@ export function decideRequest(
     }
   }
 
+  let renewed = false;
   try {
-    decideTxn(ctx, row, decision, userId, info, auditMeta);
+    renewed = decideTxn(ctx, row, decision, userId, info, auditMeta);
   } catch (err) {
     if (!(err instanceof ApplyFailed)) throw err;
     // The change was rolled back; record the failed approval as a denial in a second transaction.
@@ -428,15 +461,17 @@ export function decideRequest(
     throw new HttpError(409, 'apply_failed', undefined, { cause: err.errorCode });
   }
   emitRequest(ctx, 'request.updated', requestId);
-  return getRequestDto(db, requestId);
+  if (renewed) emitDeviceChanged(ctx, row.user_id, row.device_id);
+  return getRequestDto(ctx, requestId);
 }
 
+/** Returns whether the approval renewed the device's standing approval. */
 function decideTxn(
   ctx: ServiceCtx, row: RequestRow, decision: 'approve' | 'deny', userId: string, info: RequestInfo, auditMeta: Record<string, string>,
-): void {
+): boolean {
   const { db } = ctx;
   const requestId = row.id;
-  db.$client.transaction(() => {
+  return db.$client.transaction((): boolean => {
     const now = ctx.clock.now();
     const status = decision === 'approve' ? 'approved' : 'denied';
     const res = db.$client
@@ -455,11 +490,16 @@ function decideTxn(
       throw new HttpError(409, 'already_decided');
     }
     if (decision === 'approve') applyOrFail(() => applyApproval(ctx, row));
+    // Denying a renewal request leaves the standing approval expired.
+    const renewed =
+      decision === 'approve' && row.standing_renewal === 1 &&
+      renewOnApproval(ctx, { requestId, deviceId: row.device_id, userId }, info, auditMeta);
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: userId, event: decision === 'approve' ? 'request.approved' : 'request.denied',
       secretId: row.secret_id, vaultId: row.vault_id, deviceId: row.device_id, project: row.project, reason: row.reason, ip: info.ip,
-      meta: { ...auditMeta, requestId, kind: row.kind },
+      meta: { ...auditMeta, requestId, kind: row.kind, ...(renewed ? { renewed: 'true' } : {}) },
     });
+    return renewed;
   })();
 }
 
@@ -505,7 +545,7 @@ export async function waitForRequest(
       if (settled) return;
       cleanup();
       try {
-        resolve(getRequestDto(ctx.db, requestId));
+        resolve(getRequestDto(ctx, requestId));
       } catch (err) {
         if (snapshot && err instanceof HttpError && err.code === 'not_found') resolve(snapshot);
         else reject(err);
@@ -519,7 +559,7 @@ export async function waitForRequest(
     signal?.addEventListener('abort', onAbort, { once: true });
     // Subscribe before checking the status so no transition is missed.
     const unsubscribe = ctx.events.subscribe(row.user_id, (e) => {
-      if (e.type !== 'automode.changed' && e.data.id === requestId && e.data.status !== 'pending') finish(e.data);
+      if ((e.type === 'request.created' || e.type === 'request.updated') && e.data.id === requestId && e.data.status !== 'pending') finish(e.data);
     });
     timer = setTimeout(() => finish(), timeout);
     const cur = ctx.db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(requestId) as { status: RequestStatus } | undefined;
@@ -527,7 +567,7 @@ export async function waitForRequest(
   });
 }
 
-/** Marks overdue pending requests expired (audit request.expired) and turns off elapsed auto modes. */
+/** Marks overdue pending requests expired (audit request.expired), turns off elapsed auto modes and audits elapsed standing approvals. */
 export function expireDue(ctx: ServiceCtx): void {
   const { db } = ctx;
   const now = ctx.clock.now();
@@ -553,6 +593,7 @@ export function expireDue(ctx: ServiceCtx): void {
   db.$client.prepare('DELETE FROM grants WHERE expires_at <= ? OR uses_left <= 0').run(now);
   for (const id of expired) emitRequest(ctx, 'request.updated', id);
   expireAutoModes(ctx);
+  for (const s of expireStandingApprovals(ctx)) emitDeviceChanged(ctx, s.userId, s.deviceId);
 }
 
 /** Archive hook (runs inside the archive transaction): deny open requests (cause 'archived') and delete the secret's grants. */
@@ -576,7 +617,10 @@ export function cancelOpenForDevice(ctx: ServiceCtx, deviceId: string): void {
   emitAfterCommit(ctx, rows.filter((r) => systemDeny(ctx, r, 'device_inactive')).map((r) => r.id));
 }
 
-/** Member-removal hook (runs inside the removal transaction): deny the user's open requests for the vault, delete their grants. */
+/**
+ * Member-removal hook (runs inside the removal transaction): deny the user's open requests for the vault, delete their grants,
+ * and drop the vault's secrets from the user's standing approval lists.
+ */
 export function revokeForRemovedMember(ctx: ServiceCtx, vaultId: string, userId: string): void {
   const rows = ctx.db.$client
     .prepare(`${REQUEST_SELECT} WHERE r.user_id = ? AND s.vault_id = ? AND r.status = 'pending'`)
@@ -585,6 +629,7 @@ export function revokeForRemovedMember(ctx: ServiceCtx, vaultId: string, userId:
   ctx.db.$client
     .prepare('DELETE FROM grants WHERE user_id = ? AND secret_id IN (SELECT id FROM secrets WHERE vault_id = ?)')
     .run(userId, vaultId);
+  removeForLostVault(ctx, vaultId, userId);
   emitAfterCommit(ctx, changed);
 }
 

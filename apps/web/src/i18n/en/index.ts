@@ -17,7 +17,8 @@ import { auth } from './auth';
 import { connect } from './connect';
 import { devices } from './devices';
 import { settings } from './settings';
+import { standing } from './standing';
 
-export const en = { common, nav, errors, time, layout, autoMode, palette, reauth, secrets, vaults, projects, requests, approve, audit, auth, connect, devices, settings };
+export const en = { common, nav, errors, time, layout, autoMode, palette, reauth, secrets, vaults, projects, requests, approve, audit, auth, connect, devices, settings, standing };
 
 export type Messages = typeof en;

@@ -83,7 +83,7 @@ describe('requests: read', () => {
     expect(dto).toMatchObject({
       kind: 'read', status: 'pending', auto: false, project: 'my-app', reason: 'deploy', delivery: 'cli',
       secret: { id: secret.id, title: 'Stripe Key', envName: 'STRIPE_KEY' }, device: { id: mcp.id, name: 'alice-mcp', kind: 'mcp' },
-      expiresAt: w.clock.now() + 5 * MIN, decidedBy: null,
+      expiresAt: w.clock.now() + 5 * MIN, decidedBy: null, autoSource: null, renewal: null,
     });
     expect(auditRows(w.db, 'request.created')[0]).toMatchObject({ actor_type: 'device', device_id: mcp.id, secret_id: secret.id, vault_id: secret.vaultId, project: 'my-app' });
     expect(w.db.$client.prepare('SELECT slug FROM projects').all()).toEqual([{ slug: 'my-app' }]);
@@ -98,7 +98,7 @@ describe('requests: read', () => {
 
     const ok = await w.req(w.alice, 'POST', `/api/requests/${dto.id}/decision`, { decision: 'approve' });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ status: 'approved', auto: false, decidedBy: { type: 'user', id: w.alice.id, name: 'alice' } });
+    expect(ok.json()).toMatchObject({ status: 'approved', auto: false, autoSource: null, decidedBy: { type: 'user', id: w.alice.id, name: 'alice' } });
     const grants = w.db.$client.prepare('SELECT * FROM grants').all() as { id: string; uses_left: number; expires_at: number; request_id: string }[];
     expect(grants).toHaveLength(1);
     expect(grants[0]).toMatchObject({ uses_left: 1, expires_at: w.clock.now() + 15 * MIN, request_id: dto.id });
@@ -461,7 +461,7 @@ describe('requests: update', () => {
     const { w, secret, mcp } = await setup();
     enableAutoMode(w.ctx, w.alice.id, 30);
     const dto = createUpdateRequest(w.ctx, { device: mcp, secretId: secret.id, project: 'p', reason: 'r', value: 'auto-new' });
-    expect(dto).toMatchObject({ status: 'approved', auto: true, decidedBy: null });
+    expect(dto).toMatchObject({ status: 'approved', auto: true, autoSource: 'automode', decidedBy: null });
     expect(openVersion(w.ctx, secret.id, 2).plaintext).toBe('auto-new');
     expect(w.db.$client.prepare('SELECT proposed_value_sealed AS s FROM access_requests').get()).toEqual({ s: null });
     expect(auditRows(w.db, 'request.auto_approved')[0]).toMatchObject({ actor_type: 'system', vault_id: secret.vaultId, secret_id: secret.id, device_id: mcp.id });

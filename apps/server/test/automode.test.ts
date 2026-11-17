@@ -72,9 +72,10 @@ describe('auto mode', () => {
     expect(auditRows(w.db, 'automode.enabled')[0]).toMatchObject({ actor_type: 'user', actor_id: w.alice.id });
 
     const r = read();
-    expect(r).toMatchObject({ status: 'approved', auto: true, decidedBy: null });
+    expect(r).toMatchObject({ status: 'approved', auto: true, autoSource: 'automode', renewal: null, decidedBy: null });
     expect(grantIdForRequest(w.db, r.id, dev.id)).not.toBeNull();
     expect(auditRows(w.db, 'request.auto_approved')[0]).toMatchObject({ actor_type: 'system', secret_id: secret.id, vault_id: secret.vaultId });
+    expect(JSON.parse(String(auditRows(w.db, 'request.auto_approved')[0]!.meta))).toMatchObject({ via: 'automode' });
     expect(auditRows(w.db, 'request.created')).toHaveLength(0);
     expect(w.db.$client.prepare('SELECT count(*) AS n FROM project_usage').get()).toEqual({ n: 1 });
 
@@ -108,7 +109,7 @@ describe('auto mode', () => {
     enableAutoMode(w.ctx, w.alice.id, 30);
     failApply.next = true;
     const r = createUpdateRequest(w.ctx, { device: dev, secretId: secret.id, project: 'p', reason: 'r', value: 'new-v' });
-    expect(r).toMatchObject({ status: 'denied', auto: false, decidedBy: { type: 'system' } });
+    expect(r).toMatchObject({ status: 'denied', auto: false, autoSource: null, decidedBy: { type: 'system' } });
     expect(listVersions(w.db, w.alice.id, secret.id)).toHaveLength(1);
     expect(w.db.$client.prepare('SELECT proposed_value_sealed AS s FROM access_requests').get()).toEqual({ s: null });
     expect(auditRows(w.db, 'request.auto_approved')).toHaveLength(0);

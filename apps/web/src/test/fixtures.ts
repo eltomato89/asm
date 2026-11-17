@@ -1,4 +1,4 @@
-import type { AccessRequestDto, SecretMeta, VaultDto } from '@asm/shared';
+import type { AccessRequestDto, DeviceDto, SecretMeta, StandingApprovalSummary, VaultDto } from '@asm/shared';
 
 export const T0 = Date.UTC(2026, 10, 16, 14, 0, 0);
 
@@ -19,6 +19,34 @@ export function makeRequest(over: Partial<AccessRequestDto> = {}): AccessRequest
     createdAt: T0,
     decidedAt: null,
     expiresAt: T0 + 300_000,
+    ...over,
+  };
+}
+
+export function makeDevice(over: Partial<DeviceDto> = {}): DeviceDto {
+  return {
+    id: 'dev_1',
+    name: 'claude@mbp-office',
+    kind: 'mcp',
+    hostname: 'mbp-office',
+    status: 'approved',
+    lastUsedAt: T0 - 60_000,
+    createdAt: T0 - 86_400_000,
+    standingApproval: null,
+    ...over,
+  };
+}
+
+/** Active standing approval summary, 7 days from T0, all secrets. */
+export function makeStandingSummary(over: Partial<StandingApprovalSummary> = {}): StandingApprovalSummary {
+  return {
+    until: T0 + 7 * 86_400_000,
+    active: true,
+    scope: 'all',
+    secretCount: 0,
+    allowUpdates: false,
+    afterExpiry: 'ask',
+    renewDays: 7,
     ...over,
   };
 }

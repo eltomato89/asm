@@ -13,6 +13,7 @@ const TABLES = [
   'users', 'passkeys', 'sessions', 'vaults', 'vault_members', 'secrets', 'secret_versions',
   'secrets_fts', 'devices', 'oauth_clients', 'oauth_codes', 'device_codes', 'tokens',
   'access_requests', 'grants', 'projects', 'project_usage', 'auto_mode', 'audit_log',
+  'standing_approvals', 'standing_approval_secrets',
 ];
 
 function seed(db: Db) {
@@ -93,6 +94,65 @@ describe('openDb', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it('migration 0004 backfills auto_source for auto-approved requests and defaults standing_renewal to 0', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'asm-mig-'));
+    try {
+      const src = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
+      const upTo3 = join(dir, 'migrations');
+      cpSync(src, upTo3, { recursive: true });
+      const journalPath = join(upTo3, 'meta', '_journal.json');
+      const journal = JSON.parse(readFileSync(journalPath, 'utf8')) as { entries: { tag: string }[] };
+      journal.entries = journal.entries.filter((e) => e.tag < '0004');
+      writeFileSync(journalPath, JSON.stringify(journal));
+      const file = join(dir, 'asm.db');
+      const raw = new Database(file);
+      migrate(drizzle(raw, { schema }), { migrationsFolder: upTo3 });
+      raw.prepare("INSERT INTO users (id, username, is_admin, created_at) VALUES ('usr_1', 'alice', 1, 1)").run();
+      raw.prepare("INSERT INTO vaults (id, name, created_at) VALUES ('vlt_1', 'V', 1)").run();
+      raw
+        .prepare(
+          `INSERT INTO secrets (id, vault_id, title, description, tags, env_name, current_version, created_by_type, created_by_id, created_at, updated_at)
+           VALUES ('sec_1', 'vlt_1', 'T', '', '[]', NULL, 1, 'user', 'usr_1', 1, 1)`,
+        )
+        .run();
+      raw.prepare("INSERT INTO devices (id, user_id, name, kind, status, created_at) VALUES ('dev_1', 'usr_1', 'd', 'mcp', 'approved', 1)").run();
+      const ins = raw.prepare(
+        `INSERT INTO access_requests (id, kind, secret_id, device_id, user_id, project, reason, delivery, status, auto, created_at, expires_at)
+         VALUES (?, 'read', 'sec_1', 'dev_1', 'usr_1', 'p', 'r', 'cli', ?, ?, 1, 2)`,
+      );
+      ins.run('req_auto', 'approved', 1);
+      ins.run('req_manual', 'approved', 0);
+      ins.run('req_pending', 'pending', 0);
+      raw.close();
+
+      const db = openDb(file);
+      const rows = db.$client.prepare('SELECT id, auto_source, standing_renewal FROM access_requests ORDER BY id').all();
+      expect(rows).toEqual([
+        { id: 'req_auto', auto_source: 'automode', standing_renewal: 0 },
+        { id: 'req_manual', auto_source: null, standing_renewal: 0 },
+        { id: 'req_pending', auto_source: null, standing_renewal: 0 },
+      ]);
+      db.$client.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('standing approval rows cascade with the device and the secret', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    insertSecret(db);
+    db.$client.prepare("INSERT INTO devices (id, user_id, name, kind, status, created_at) VALUES ('dev_1', 'usr_1', 'd', 'mcp', 'approved', 1)").run();
+    db.insert(schema.standingApprovals).values({ deviceId: 'dev_1', userId: 'usr_1', until: 10, grantedAt: 1, scope: 'list', createdAt: 1, updatedAt: 1 }).run();
+    db.insert(schema.standingApprovalSecrets).values({ deviceId: 'dev_1', secretId: 'sec_1', addedBy: 'user', addedAt: 1 }).run();
+    const n = (t: string) => (db.$client.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
+    db.$client.prepare("DELETE FROM secrets WHERE id = 'sec_1'").run();
+    expect(n('standing_approval_secrets')).toBe(0);
+    expect(n('standing_approvals')).toBe(1);
+    db.$client.prepare("DELETE FROM devices WHERE id = 'dev_1'").run();
+    expect(n('standing_approvals')).toBe(0);
   });
 
   it('survives VACUUM with correct secret_id', () => {

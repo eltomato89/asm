@@ -58,7 +58,7 @@ export async function world(
   opts.beforeReady?.(t);
   const alice = await addUser(t, 'alice', true);
   const bob = await addUser(t, 'bob');
-  const req = (user: TestUser | undefined, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
+  const req = (user: TestUser | undefined, method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: unknown) =>
     t.app.inject({
       method,
       url,

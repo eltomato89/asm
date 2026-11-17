@@ -2,7 +2,7 @@ import { FileText, FolderClosed, Terminal } from 'lucide-react';
 import type { ApproveSummaryDto } from '@asm/shared';
 import { t } from '../../i18n';
 import { formatCountdown } from '../../lib/time';
-import { diffValue } from '../requests/RequestCard';
+import { diffValue, RenewalNote } from '../requests/RequestCard';
 
 export const secretName = (s: ApproveSummaryDto) => s.secret.envName ?? s.secret.title;
 
@@ -14,7 +14,7 @@ export function ApproveSentence({ summary: s }: { summary: ApproveSummaryDto }) 
 }
 
 /** Reason in italics, metadata diff for updates (never values) and the delivery hint. */
-export function ApproveDetails({ summary: s }: { summary: ApproveSummaryDto }) {
+export function ApproveDetails({ summary: s, now = Date.now() }: { summary: ApproveSummaryDto; now?: number }) {
   const isUpdate = s.kind === 'update';
   const diff = Object.entries(s.metaDiff ?? {});
   return (
@@ -23,6 +23,7 @@ export function ApproveDetails({ summary: s }: { summary: ApproveSummaryDto }) {
         <span className="q">{t.requests.reason}</span>
         {s.reason}
       </p>
+      {s.renewal ? <RenewalNote days={s.renewal.days} now={now} /> : null}
       {isUpdate && (diff.length > 0 || s.valueChanged) ? (
         <dl className="req-diff">
           {diff.map(([field, d]) => {

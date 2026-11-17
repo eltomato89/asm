@@ -19,6 +19,7 @@ import type { Db } from '../db/client.js';
 import { secrets, secretVersions, type MetaSnapshot } from '../db/schema.js';
 import { HttpError, ValidationError } from '../errors.js';
 import { recordUsage, touchProject, type Project } from '../projects/service.js';
+import { addCreatedSecret } from '../standing/service.js';
 import { canAccessVault, personalVaultId } from '../vaults/service.js';
 
 // ---------- types ----------
@@ -300,6 +301,8 @@ export function createSecret(ctx: ServiceCtx, actor: Actor, input: CreateSecretI
     appendAudit(db, ctx.clock, {
       ...auditActor(actor), event: 'secret.created', secretId: id, vaultId, project: project?.slug, reason: data.reason, ip: info.ip, meta: { version: 1 },
     });
+    // A list-scoped standing approval with include_created also covers secrets the device creates itself.
+    if (actor.type === 'device') addCreatedSecret(ctx, actor.deviceId, id);
   })();
   return getSecretMeta(db, actor.userId, id);
 }

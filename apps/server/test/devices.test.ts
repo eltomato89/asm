@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { newId } from '@asm/shared';
+import { DeviceDtoSchema, newId } from '@asm/shared';
 import { devices } from '../src/db/schema.js';
 import { issueTokens } from '../src/oauth/token.js';
 import { addBearerProbe, allKeys, auditRows, bearer, pairDevice, world } from './helpers/fixtures.js';
@@ -17,8 +17,12 @@ describe('devices API', () => {
     expect(res.statusCode).toBe(200);
     const items = res.json().items;
     expect(items).toEqual([
-      { id: a.deviceId, name: 'Claude Laptop', kind: 'mcp', hostname: null, status: 'approved', lastUsedAt: null, createdAt: w.clock.now() },
+      {
+        id: a.deviceId, name: 'Claude Laptop', kind: 'mcp', hostname: null, status: 'approved', lastUsedAt: null, createdAt: w.clock.now(),
+        standingApproval: null,
+      },
     ]);
+    for (const it of items) DeviceDtoSchema.parse(it);
     const keys = allKeys(res.json());
     for (const k of ['token', 'tokenHash', 'token_hash', 'accessToken', 'refreshToken']) expect(keys.has(k)).toBe(false);
     expect(res.body).not.toContain(a.accessToken);
@@ -30,7 +34,7 @@ describe('devices API', () => {
     const a = pairDevice(w.ctx, { userId: w.alice.id, kind: 'mcp' });
     const ok = await w.req(w.alice, 'PATCH', `/api/devices/${a.deviceId}`, { name: '  Arbeits-Laptop ' });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toMatchObject({ id: a.deviceId, name: 'Arbeits-Laptop' });
+    expect(DeviceDtoSchema.parse(ok.json())).toMatchObject({ id: a.deviceId, name: 'Arbeits-Laptop' });
     expect((await w.req(w.bob, 'PATCH', `/api/devices/${a.deviceId}`, { name: 'x' })).statusCode).toBe(404);
     expect((await w.req(w.alice, 'PATCH', `/api/devices/${a.deviceId}`, { name: '' })).statusCode).toBe(400);
     expect((await w.req(w.alice, 'PATCH', `/api/devices/${a.deviceId}`, { name: 'x'.repeat(101) })).statusCode).toBe(400);

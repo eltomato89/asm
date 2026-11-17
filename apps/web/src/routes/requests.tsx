@@ -131,7 +131,7 @@ function DecidedRequests() {
                   )}{' '}
                   <span className="muted">
                     {t.requests.status[status]}
-                    {r.auto ? t.requests.automatically : r.decidedBy?.type === 'system' ? t.requests.bySystem : ''}
+                    {r.auto ? (r.autoSource === 'standing' ? t.requests.viaStanding : t.requests.automatically) : r.decidedBy?.type === 'system' ? t.requests.bySystem : ''}
                   </span>
                 </span>
                 <MonoChip>{`request.${r.auto ? 'auto_approved' : status}`}</MonoChip>

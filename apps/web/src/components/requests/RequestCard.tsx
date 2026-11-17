@@ -1,9 +1,9 @@
 import type { AccessRequestDto, RequestMetaDiff } from '@asm/shared';
-import { FileText, FolderClosed, Terminal } from 'lucide-react';
+import { FileText, FolderClosed, RefreshCw, Terminal } from 'lucide-react';
 import { forwardRef } from 'react';
 import { cx } from '../../lib/cx';
 import { t } from '../../i18n';
-import { formatAbsolute, formatShortTime } from '../../lib/format';
+import { formatAbsolute, formatDay, formatShortTime } from '../../lib/format';
 import { Button } from '../ui/Button';
 import { Kbd } from '../ui/Kbd';
 
@@ -70,6 +70,7 @@ export const RequestCard = forwardRef<HTMLElement, Props>(function RequestCard({
           <span className="q">{t.requests.reason}</span>
           {r.reason}
         </p>
+        {r.renewal ? <RenewalNote days={r.renewal.days} now={now} /> : null}
         {isUpdate && (diff.length > 0 || r.valueChanged) ? (
           <dl className="req-diff">
             {diff.map(([field, d]) => (
@@ -132,6 +133,16 @@ export const RequestCard = forwardRef<HTMLElement, Props>(function RequestCard({
     </article>
   );
 });
+
+/** "Standing approval expired. Approving extends it by N days (until <date>)." */
+export function RenewalNote({ days, now }: { days: number; now: number }) {
+  return (
+    <p className="req-renewal">
+      <RefreshCw className="icon icon-sm" strokeWidth={1.5} aria-hidden />
+      {t.requests.renewal(days, formatDay(now + days * 86_400_000))}
+    </p>
+  );
+}
 
 function DiffRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (

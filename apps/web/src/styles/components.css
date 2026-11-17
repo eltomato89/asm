@@ -803,3 +803,61 @@ button { cursor: pointer; }
 @media (max-width: 760px) {
   .consent .timebar { padding-left: 20px; padding-right: 20px; }
 }
+
+/* ---------- Standing approval: renewal note on request cards and the approve page (WP4) ---------- */
+.req-renewal { margin: 8px 0 0; font-size: var(--fs-13); color: var(--amber); display: flex; align-items: flex-start; gap: 6px; max-width: 70ch; }
+.req-renewal .icon { flex: none; margin-top: 2px; }
+.approve .req-renewal { margin-top: 12px; }
+/* ---------- end standing approval (WP4) ---------- */
+
+/* ---------- Standing approval (devices page, WP3) ---------- */
+@layer components {
+  .device-status, .device-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .device-actions { gap: 4px; flex-wrap: nowrap; }
+
+  .dialog:has(.standing-form) { max-width: 520px; top: 6vh; max-height: 88vh; overflow-y: auto; }
+  .standing-form { display: grid; gap: 18px; }
+  .standing-status { margin: 0; font-size: var(--fs-13); color: var(--text-2); }
+  .standing-sec { display: grid; gap: 8px; justify-items: start; }
+  .standing-sec + .standing-sec { padding-top: 16px; border-top: 1px solid var(--line); }
+  .standing-sec h3 { margin: 0; font-size: var(--fs-13); font-weight: 500; }
+  .standing-sec .help { margin: 0; font-size: var(--fs-12); color: var(--text-3); }
+  .standing-sec .field-error { margin: 0; }
+  .standing-inline { display: inline-flex; align-items: center; gap: 8px; font-size: var(--fs-12); color: var(--text-2); }
+  .standing-inline input {
+    height: 28px; padding: 0 8px;
+    border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
+    background: var(--surface); color: var(--text);
+    font-family: var(--font-mono); font-size: var(--fs-12); outline: 0;
+  }
+  .standing-inline input:focus { border-color: var(--text-2); }
+  .standing-inline input[aria-invalid="true"] { border-color: var(--danger); }
+  .standing-inline .standing-num { width: 56px; }
+  .standing-after { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .standing-list { display: grid; gap: 12px; width: 100%; }
+  .standing-note { margin: 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); font-size: var(--fs-13); color: var(--text-2); }
+  .standing-note strong { display: block; color: var(--text); font-weight: 500; margin-bottom: 4px; }
+  .standing-note p { margin: 0; }
+  .standing-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .standing-actions-end { display: flex; gap: 8px; margin-left: auto; }
+
+  /* The picker opens from inside a dialog (z-index 91). */
+  .multi-picker-pop { z-index: 95; }
+  .multi-picker { display: grid; gap: 8px; justify-items: start; width: 100%; }
+  .pick-none { margin: 0; font-size: var(--fs-12); }
+  .pick-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+  .pick-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 26px; padding: 0 2px 0 8px;
+    border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface);
+    font-size: var(--fs-12); color: var(--text);
+  }
+  .pick-chip .mono { font-size: var(--fs-12); }
+  .pick-chip.is-archived > :first-child { text-decoration: line-through; color: var(--text-3); }
+  .pick-chip-src { padding: 0 4px; border-radius: var(--radius-sm); background: var(--sunken); color: var(--text-3); font-size: var(--fs-11); cursor: help; }
+  .pick-chip button { display: inline-grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-3); cursor: pointer; }
+  .pick-chip button:hover { background: var(--hover); color: var(--text); }
+  .pick-opt { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+  .pick-check { display: inline-grid; place-items: center; width: 14px; height: 14px; flex: none; color: var(--text); }
+}
+/* ---------- end standing approval ---------- */

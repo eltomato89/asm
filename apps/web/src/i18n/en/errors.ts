@@ -21,4 +21,9 @@ export const errors = {
   valueTooLarge: 'The value is larger than 64 KiB.',
   forbidden: "You don't have permission to do that.",
   notFound: 'Not found. Reload the page.',
+  invalidUntil: 'Pick an end date within the allowed range.',
+  invalidRenewDays: 'The extension is outside the allowed range.',
+  secretNotFound: "One of the selected secrets no longer exists or you've lost access to it.",
+  deviceNotActive: 'This device is no longer active.',
+  standingDisabled: 'Standing approvals are turned off on this server.',
 };

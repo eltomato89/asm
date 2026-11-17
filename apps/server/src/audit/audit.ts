@@ -13,6 +13,8 @@ export type AuditEvent =
   | 'secret.revealed' | 'secret.version_revealed' | 'secret.version_restored'
   | 'secret.archived' | 'secret.unarchived'
   | 'automode.enabled' | 'automode.disabled'
+  | 'standing_approval.set' | 'standing_approval.removed' | 'standing_approval.renewed' | 'standing_approval.expired'
+  | 'standing_approval.secret_added'
   | 'vault.member_added' | 'vault.member_removed';
 
 export type AuditActorType = 'user' | 'device' | 'system';

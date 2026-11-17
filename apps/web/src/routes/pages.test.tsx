@@ -25,7 +25,7 @@ const auditRow = (over: Partial<AuditRow> = {}): AuditRow => ({
   ...over,
 });
 
-const devices = { items: [{ id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp', hostname: 'mbp-office', status: 'approved', lastUsedAt: T0, createdAt: T0 }] };
+const devices = { items: [{ id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp', hostname: 'mbp-office', status: 'approved', lastUsedAt: T0, createdAt: T0, standingApproval: null }] };
 
 describe('audit page', () => {
   it('row reads as a sentence and expands to show project and reason', async () => {
@@ -270,6 +270,76 @@ describe('devices page', () => {
     const dialog = await screen.findByRole('dialog', { name: /^Revoke access for claude@mbp-office/ });
     await u.click(within(dialog).getByRole('button', { name: 'Revoke' }));
     await waitFor(() => expect(calls.some((c) => c.path === '/api/devices/dev_1/revoke' && c.method === 'POST')).toBe(true));
+  });
+});
+
+describe('devices page: standing approval', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+  const summary = (over: Record<string, unknown> = {}) => ({
+    until: Date.now() + 20 * DAY,
+    active: true,
+    scope: 'all',
+    secretCount: 0,
+    allowUpdates: false,
+    afterExpiry: 'ask',
+    renewDays: 7,
+    ...over,
+  });
+  const device = (id: string, name: string, over: Record<string, unknown> = {}) => ({
+    id,
+    name,
+    kind: 'cli',
+    hostname: null,
+    status: 'approved',
+    lastUsedAt: null,
+    createdAt: T0,
+    standingApproval: null,
+    ...over,
+  });
+
+  it('shows the standing approval state and the action only for active devices', async () => {
+    const list = {
+      items: [
+        device('dev_a', 'trusted', { standingApproval: summary() }),
+        device('dev_b', 'ending', { standingApproval: summary({ until: Date.now() + 2 * DAY, scope: 'list', secretCount: 3, allowUpdates: true }) }),
+        device('dev_c', 'lapsed', { standingApproval: summary({ until: Date.now() - DAY, active: false, afterExpiry: 'renew', renewDays: 14 }) }),
+        device('dev_d', 'plain'),
+        device('dev_e', 'waiting', { status: 'pending' }),
+        device('dev_f', 'gone', { status: 'revoked' }),
+      ],
+    };
+    appServer((c) => (c.path === '/api/devices' && c.method === 'GET' ? { body: list } : undefined));
+    renderApp('/devices');
+    const table = await screen.findByRole('table', { name: 'Devices' });
+    const row = (name: string) => within(table).getByText(name).closest('tr')!;
+
+    const trusted = within(row('trusted')).getByText(/^Trusted until /);
+    expect(trusted).toHaveClass('badge-ok');
+    expect(trusted).toHaveAttribute('title', expect.stringContaining('All secrets · reading only · asks every time after expiry'));
+    const ending = within(row('ending')).getByText(/^Trusted until /);
+    expect(ending).toHaveClass('badge-amber');
+    expect(ending.getAttribute('title')).toContain('3 secrets · reading and changes');
+    const lapsed = within(row('lapsed')).getByText('Standing approval expired');
+    expect(lapsed).not.toHaveClass('badge-ok');
+    expect(lapsed).not.toHaveClass('badge-amber');
+    expect(lapsed.getAttribute('title')).toContain('extends by 14 days');
+    expect(row('plain')).not.toHaveTextContent(/Trusted until|Standing approval expired/);
+
+    for (const name of ['trusted', 'ending', 'lapsed', 'plain']) {
+      expect(within(row(name)).getByRole('button', { name: `Standing approval for ${name}` })).toHaveTextContent('Standing approval…');
+    }
+    expect(within(row('waiting')).queryByRole('button', { name: /Standing approval/ })).toBeNull();
+    expect(within(row('waiting')).getByRole('button', { name: 'Revoke' })).toBeInTheDocument();
+    expect(within(row('gone')).queryByRole('button', { name: /Standing approval/ })).toBeNull();
+  });
+
+  it('opens the dialog for the device', async () => {
+    appServer((c) => (c.path === '/api/devices' && c.method === 'GET' ? { body: { items: [device('dev_a', 'trusted')] } } : undefined));
+    const u = userEvent.setup();
+    renderApp('/devices');
+    await u.click(await screen.findByRole('button', { name: 'Standing approval for trusted' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Standing approval for trusted' });
+    expect(await within(dialog).findByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 });
 

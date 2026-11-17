@@ -1,5 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { formatDay } from '../../lib/format';
 import { makeRequest, T0 } from '../../test/fixtures';
 import { mockFetch, renderWithProviders } from '../../test/utils';
 import { RequestCard } from './RequestCard';
@@ -31,6 +32,20 @@ describe('RequestCard', () => {
     expect(screen.getByRole('article')).toHaveTextContent('expires in 4:00');
     rerender(<RequestCard request={makeRequest()} now={T0 + 225_000} onDecide={vi.fn()} />);
     expect(bar().firstElementChild).toHaveStyle({ width: '25%' });
+  });
+
+  it('renewal request explains that approving extends the expired standing approval', () => {
+    renderWithProviders(<RequestCard request={makeRequest({ renewal: { days: 7 } })} now={T0} onDecide={vi.fn()} />);
+    expect(screen.getByRole('article')).toHaveTextContent(
+      `Standing approval expired. Approving extends it by 7 days (until ${formatDay(T0 + 7 * 86_400_000)}).`,
+    );
+  });
+
+  it('shows no renewal note for ordinary requests; singular for one day', () => {
+    const { rerender } = renderWithProviders(<RequestCard request={makeRequest()} now={T0} onDecide={vi.fn()} />);
+    expect(screen.getByRole('article')).not.toHaveTextContent('Standing approval');
+    rerender(<RequestCard request={makeRequest({ renewal: { days: 1 } })} now={T0} onDecide={vi.fn()} />);
+    expect(screen.getByRole('article')).toHaveTextContent('extends it by 1 day (until');
   });
 
   it('update card shows the metadata diff "Title: old → new" and "Value will change"', () => {

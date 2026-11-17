@@ -87,6 +87,20 @@ describe('approve page', () => {
     expect(screen.getByText('agent-secrets-manager')).toBeInTheDocument();
   });
 
+  it('shows the renewal note when approving extends an expired standing approval', async () => {
+    server(() => ({ body: summary({ renewal: { days: 30 } }) }));
+    renderApp(`/approve/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.getByText(/^Standing approval expired\. Approving extends it by 30 days \(until .+\)\.$/)).toBeInTheDocument();
+  });
+
+  it('shows no renewal note for an ordinary request', async () => {
+    server(() => ({ body: summary({ renewal: null }) }));
+    renderApp(`/approve/${TOKEN}`);
+    await screen.findByRole('heading', { level: 1 });
+    expect(screen.queryByText(/Standing approval expired/)).not.toBeInTheDocument();
+  });
+
   it('renders redacted diff fields without values', async () => {
     server(() => ({
       body: summary({

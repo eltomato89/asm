@@ -44,6 +44,8 @@ export const requests: Messages['requests'] = {
   viaCli: 'via CLI-Übergabe',
   deny: 'Verweigern',
   approve: 'Freigeben',
+  renewal: (days, until) =>
+    `Dauerfreigabe abgelaufen. Mit dieser Freigabe wird sie um ${days} ${days === 1 ? 'Tag' : 'Tage'} verlängert (bis ${until}).`,
   timeLeft: 'Verbleibende Zeit',
   expiresIn: 'läuft ab in',
 
@@ -62,5 +64,6 @@ export const requests: Messages['requests'] = {
     expired: 'abgelaufen',
   },
   automatically: ', automatisch',
+  viaStanding: ', per Dauerfreigabe',
   bySystem: ', vom System',
 };

@@ -44,6 +44,9 @@ export const requests = {
   viaCli: 'via CLI handoff',
   deny: 'Deny',
   approve: 'Approve',
+  /** Pending request after a standing approval expired (after-expiry mode "renew"). */
+  renewal: (days: number, until: string) =>
+    `Standing approval expired. Approving extends it by ${days} ${days === 1 ? 'day' : 'days'} (until ${until}).`,
   timeLeft: 'Time remaining',
   expiresIn: 'expires in',
 
@@ -66,5 +69,6 @@ export const requests = {
     expired: 'expired',
   },
   automatically: ', automatically',
+  viaStanding: ', via standing approval',
   bySystem: ', by the system',
 };

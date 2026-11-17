@@ -24,6 +24,12 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
 - **Freigaben.** Jede Anfrage (Abruf oder Änderung) wartet auf deine Entscheidung (`A` / `D` in der UI) und
   verfällt nach 5 Minuten. Der **Auto-Modus** gibt für eine begrenzte Zeit (Standard 30 min, maximal
   `ASM_AUTO_MODE_MAX_MIN`) und für gewählte Tresore automatisch frei – jede Auto-Freigabe steht im Audit-Log.
+- **Dauerfreigabe pro Gerät.** Einem einzelnen Gerät für Tage statt Minuten vertrauen (Geräte → „Dauerfreigabe…“):
+  bis zu einem Datum deiner Wahl (höchstens `ASM_STANDING_APPROVAL_MAX_DAYS`, Standard 90), für alle Secrets oder
+  eine Auswahl, optional inklusive der Secrets, die das Gerät selbst anlegt. Abrufe sind abgedeckt, Änderungen nur,
+  wenn du sie zusätzlich erlaubst. Nach Ablauf fragt ASM entweder wieder jedes Mal, oder einmal – und deine Freigabe
+  verlängert die Dauerfreigabe um eine voreingestellte Anzahl Tage. Jede automatische Freigabe steht als „per
+  Dauerfreigabe“ im Audit-Log; Widerrufen des Geräts entfernt sie.
 - **Was Agenten dürfen.** Secrets anlegen (sofort), ändern (nur mit Freigabe), archivieren (sofort, mit Grund).
   Nie löschen, nie reaktivieren.
 - **Archiv statt Löschen.** Archivierte Secrets tauchen in Suchen nicht mehr auf und lassen sich weder abrufen
@@ -37,7 +43,7 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
 - **Konten deaktivieren.** Admins können Konten in den Einstellungen deaktivieren (Offboarding): Die Person wird
   abgemeldet, kann sich nicht mehr anmelden, und alle ihre Geräte werden widerrufen.
 - **Verschlüsselung.** AES-256-GCM, pro Secret ein eigener Schlüssel, der mit dem Master-Key verschlüsselt ist.
-  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus) verlangen eine Anmeldung, die höchstens
+  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus, Dauerfreigabe setzen) verlangen eine Anmeldung, die höchstens
   10 Minuten alt ist. Anmeldung mit Passwort oder Passkey.
 
 ## Setup (Docker)
@@ -74,6 +80,7 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
 | `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master-Key (base64, 32 Byte) als Datei bzw. direkt. Fehlt er, beendet sich der Server mit Fehler. | – |
 | `ASM_TRUST_PROXY` | Hinter einem Reverse Proxy: Anzahl der Proxy-Hops (meist `1`) oder kommagetrennte IPs/CIDRs der Proxys. `true` vertraut jedem `X-Forwarded-For`-Eintrag (fälschbar, Warnung im Log) und ist zusammen mit `ASM_TRUSTED_NETWORKS` verboten. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximale Dauer des Auto-Modus. | `240` |
+| `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximale Dauer einer Dauerfreigabe pro Gerät in Tagen (höchstens `3650`). Begrenzt auch Verlängerungen; ein kleinerer Wert verkürzt bestehende Dauerfreigaben. `0` schaltet die Funktion ab. | `90` |
 | `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
 | `PORT` | HTTP-Port. | `8080` |
 | `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |

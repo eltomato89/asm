@@ -26,6 +26,11 @@ export function errorText(e: unknown, fallback: string): string {
   if (isApiError(e, 'not_archived')) return m.notArchived;
   if (isApiError(e, 'no_changes')) return m.noChanges;
   if (isApiError(e, 'value_too_large')) return m.valueTooLarge;
+  if (isApiError(e, 'invalid_until')) return m.invalidUntil;
+  if (isApiError(e, 'invalid_renew_days')) return m.invalidRenewDays;
+  if (isApiError(e, 'secret_not_found')) return m.secretNotFound;
+  if (isApiError(e, 'device_inactive')) return m.deviceNotActive;
+  if (isApiError(e, 'standing_disabled')) return m.standingDisabled;
   if (isApiError(e, 'forbidden') || isApiError(e, 'not_owner')) return m.forbidden;
   if (isApiError(e, 'not_found')) return m.notFound;
   return fallback;

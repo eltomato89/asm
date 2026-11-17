@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { t } from '../../i18n';
 import type { AuditCtx } from '../../i18n/en/audit';
 import type { AuditRow } from '../../lib/api';
+import { formatAbsolute, formatDay } from '../../lib/format';
 import type { Names } from '../../lib/names';
 
 export type Tone = 'ok' | 'danger' | 'amber' | 'neutral';
@@ -24,6 +25,11 @@ const TONES: Record<string, Tone> = {
   'auth.login_failed': 'danger',
   'automode.enabled': 'amber',
   'automode.disabled': 'amber',
+  'standing_approval.set': 'amber',
+  'standing_approval.removed': 'amber',
+  'standing_approval.renewed': 'amber',
+  'standing_approval.expired': 'amber',
+  'standing_approval.secret_added': 'amber',
 };
 
 const Host = ({ children }: { children: ReactNode }) => <span className="host">{children}</span>;
@@ -31,6 +37,9 @@ const Sec = ({ children }: { children: ReactNode }) => <span className="secret">
 const Proj = ({ children }: { children: ReactNode }) => <span className="proj">{children}</span>;
 
 const shortId = (id: string) => (id.length > 14 ? `${id.slice(0, 12)}…` : id);
+const num = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : typeof v === 'string' && v && Number.isFinite(Number(v)) ? Number(v) : undefined);
+/** Day of a timestamp in meta, with the exact time as tooltip. */
+const Day = ({ ts }: { ts: number | undefined }) => (ts === undefined ? <>?</> : <time dateTime={new Date(ts).toISOString()} title={formatAbsolute(ts)}>{formatDay(ts)}</time>);
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v ? v : typeof v === 'number' ? String(v) : undefined);
 
 /** Readable sentence for an audit row ("claude@mbp received GITHUB_TOKEN for asm automatically"). */
@@ -53,11 +62,27 @@ export function describeAudit(r: AuditRow, names: Names): Described {
 
   switch (r.event) {
     case 'request.created':
-      return s(ev.requestCreated(c, meta.kind === 'update'));
+      return s(ev.requestCreated(c, meta.kind === 'update'), meta.renewal === true || meta.renewal === 'true' ? w.renewalRequest : undefined);
     case 'request.approved':
-      return s(ev.requestApproved(c));
+      return s(ev.requestApproved(c), meta.renewed === true || meta.renewed === 'true' ? w.renewedStanding : undefined);
     case 'request.auto_approved':
-      return s(ev.requestAutoApproved(c, <span className="muted">{w.automatically}</span>));
+      return s(ev.requestAutoApproved(c, <span className="muted">{meta.via === 'standing' ? w.automaticallyStanding : w.automatically}</span>));
+    case 'standing_approval.set': {
+      const count = num(meta.secretCount);
+      const scope = <span className="muted">{meta.scope === 'list' && count !== undefined ? w.secretCount(count) : w.allSecrets}</span>;
+      const changed = meta.previous !== undefined && meta.previous !== null;
+      const after = meta.afterExpiry === 'renew' ? w.thenRenew(str(meta.renewDays) ?? null) : w.thenAsk;
+      const note = meta.allowUpdates === true || meta.allowUpdates === 'true' ? `${w.withUpdates}; ${after}` : after;
+      return s(ev.standingSet(c, <Day ts={num(meta.until)} />, scope, changed), note);
+    }
+    case 'standing_approval.removed':
+      return meta.cause === 'device_revoked' || r.actorType === 'system' ? s(ev.standingRemovedRevoked(c), w.deviceRevoked) : s(ev.standingRemoved(c));
+    case 'standing_approval.renewed':
+      return s(ev.standingRenewed(c, str(meta.days) ?? '?', <Day ts={num(meta.until)} />), meta.via === 'push' ? w.viaPush : undefined);
+    case 'standing_approval.expired':
+      return s(ev.standingExpired(c), meta.afterExpiry === 'renew' ? w.thenRenew(str(meta.renewDays) ?? null) : meta.afterExpiry === 'ask' ? w.thenAsk : undefined);
+    case 'standing_approval.secret_added':
+      return s(ev.standingSecretAdded(c));
     case 'request.denied':
       if (r.actorType === 'system') return s(ev.requestDeniedBySystem(c), str(meta.cause));
       return s(ev.requestDenied(c));
@@ -119,7 +144,7 @@ export function describeAudit(r: AuditRow, names: Names): Described {
 }
 
 export const toneDot = (t: Tone) => (t === 'neutral' ? 'dot' : `dot dot-${t}`);
-export const isAutoEvent = (event: string) => event.includes('auto');
+export const isAutoEvent = (event: string) => event.includes('auto') || event.startsWith('standing_approval.');
 
 /** All event codes the server writes (filter options). */
 export const AUDIT_EVENTS = [
@@ -128,6 +153,7 @@ export const AUDIT_EVENTS = [
   'secret.created', 'secret.updated', 'secret.deleted', 'secret.revealed', 'secret.version_revealed', 'secret.version_restored',
   'secret.archived', 'secret.unarchived', 'secret.searched',
   'automode.enabled', 'automode.disabled',
+  'standing_approval.set', 'standing_approval.removed', 'standing_approval.renewed', 'standing_approval.expired', 'standing_approval.secret_added',
   'auth.login', 'auth.login_failed',
   'device.pair_requested', 'device.approved', 'device.denied', 'device.revoked',
   'vault.member_added', 'vault.member_removed',

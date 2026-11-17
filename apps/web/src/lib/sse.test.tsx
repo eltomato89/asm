@@ -125,6 +125,42 @@ describe('useEvents', () => {
     expect(qc.getQueryState(queryKeys.automode)?.isInvalidated).toBe(true);
   });
 
+  it('device.changed invalidates the devices queries (incl. standing approval), not the requests', () => {
+    const qc = makeQueryClient();
+    qc.setQueryData(queryKeys.devices, { items: [] });
+    qc.setQueryData(queryKeys.standingApproval('dev_1'), { standingApproval: null, maxDays: 90 });
+    qc.setQueryData(queryKeys.requests('pending'), { items: [] });
+    render(
+      <QueryClientProvider client={qc}>
+        <Probe />
+      </QueryClientProvider>,
+    );
+    const seen: string[] = [];
+    const off = subscribeEvents((e) => seen.push(e.type));
+    act(() => last().emit('device.changed', { deviceId: 'dev_1' }));
+    off();
+    expect(qc.getQueryState(queryKeys.devices)?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKeys.standingApproval('dev_1'))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(queryKeys.requests('pending'))?.isInvalidated).toBe(false);
+    expect(seen).toEqual(['device.changed']);
+  });
+
+  it('refreshes devices after reconnecting', () => {
+    vi.useFakeTimers();
+    const qc = makeQueryClient();
+    qc.setQueryData(queryKeys.devices, { items: [] });
+    render(
+      <QueryClientProvider client={qc}>
+        <Probe />
+      </QueryClientProvider>,
+    );
+    act(() => last().onerror?.());
+    act(() => vi.advanceTimersByTime(1000));
+    expect(qc.getQueryState(queryKeys.devices)?.isInvalidated).toBe(false);
+    act(() => last().onopen?.());
+    expect(qc.getQueryState(queryKeys.devices)?.isInvalidated).toBe(true);
+  });
+
   it('useEventSubscription subscribes once and always calls the latest handler', () => {
     const qc = makeQueryClient();
     const seen: string[] = [];

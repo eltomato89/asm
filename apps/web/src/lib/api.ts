@@ -9,7 +9,7 @@ import type {
   PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
-import type { ApproveSummaryDto, PushSubscriptionDto, PushSubscribeInput } from '@asm/shared';
+import type { ApproveSummaryDto, DeviceDto, PushSubscriptionDto, PushSubscribeInput, StandingApprovalInputRaw, StandingApprovalResponse } from '@asm/shared';
 
 export { ApiError };
 
@@ -112,15 +112,7 @@ export type SecretWrite = {
   value?: string;
   generate?: GenerateInput;
 };
-export type DeviceDto = {
-  id: string;
-  name: string;
-  kind: 'mcp' | 'cli';
-  hostname: string | null;
-  status: 'pending' | 'approved' | 'denied' | 'revoked';
-  lastUsedAt: number | null;
-  createdAt: number;
-};
+export type { DeviceDto };
 export type AuditRow = {
   seq: number;
   id: string;
@@ -208,6 +200,11 @@ export const api = {
   devices: () => get<{ items: DeviceDto[] }>('/api/devices'),
   renameDevice: (deviceId: string, name: string) => patch<DeviceDto>(`/api/devices/${id(deviceId)}`, { name }),
   revokeDevice: (deviceId: string) => post<DeviceDto>(`/api/devices/${id(deviceId)}/revoke`),
+  standingApproval: (deviceId: string) => get<StandingApprovalResponse>(`/api/devices/${id(deviceId)}/standing-approval`),
+  /** Full replace; needs recent auth (sessionFetch opens the ReauthDialog on `reauth_required`). */
+  setStandingApproval: (deviceId: string, body: StandingApprovalInputRaw) =>
+    client.request<StandingApprovalResponse>('PUT', `/api/devices/${id(deviceId)}/standing-approval`, { body }),
+  removeStandingApproval: (deviceId: string) => sendMaybeEmpty<StandingApprovalResponse>('DELETE', `/api/devices/${id(deviceId)}/standing-approval`),
 
   audit: (filter: AuditFilter) => get<AuditPage>('/api/audit', filter),
   verifyAudit: () => get<ChainStatus>('/api/audit/verify'),
@@ -265,6 +262,8 @@ export const queryKeys = {
   projectsAll: ['projects'] as const,
   project: (projectId: string) => ['projects', projectId] as const,
   devices: ['devices'] as const,
+  /** Under the devices prefix, so invalidating `devices` refreshes it too. */
+  standingApproval: (deviceId: string) => ['devices', 'standing', deviceId] as const,
   auditAll: ['audit'] as const,
   audit: (filter: AuditFilter) => ['audit', filter] as const,
   auditVerify: ['audit-verify'] as const,

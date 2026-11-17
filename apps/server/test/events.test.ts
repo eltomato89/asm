@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createRequest } from '../src/requests/service.js';
+import { StandingApprovalInputSchema } from '@asm/shared';
+import { createRequest, waitForRequest } from '../src/requests/service.js';
 import { RequestEvents } from '../src/requests/events.js';
 import { createSecret } from '../src/secrets/service.js';
+import { setStandingApproval } from '../src/standing/service.js';
 import { pairDevice, world } from './helpers/fixtures.js';
 
 type Stream = { text: () => string; ended: () => boolean; close: () => void; status: number; contentType: string | null };
@@ -51,7 +53,47 @@ describe('RequestEvents', () => {
   });
 });
 
+describe('waitForRequest', () => {
+  it('ignores device.changed events and resolves only on the request transition', async () => {
+    const w = await world();
+    const secret = createSecret(w.ctx, w.alice.actor, { title: 'K', value: 'v' });
+    const { deviceId } = pairDevice(w.ctx, { userId: w.alice.id, kind: 'mcp', name: 'agent' });
+    const r = createRequest(w.ctx, { device: { id: deviceId, userId: w.alice.id, kind: 'mcp', name: 'agent' }, secretId: secret.id, project: 'p', reason: 'r', delivery: 'cli' });
+    let done = false;
+    const p = waitForRequest(w.ctx, r.id, deviceId, 200).then((dto) => {
+      done = true;
+      return dto;
+    });
+    w.ctx.events.emit(w.alice.id, { type: 'device.changed', data: { deviceId } });
+    await new Promise((res) => setTimeout(res, 20));
+    expect(done).toBe(false);
+    expect((await p).status).toBe('pending');
+  });
+});
+
 describe('SSE /api/events', () => {
+  it('forwards device.changed to the owner', async () => {
+    const w = await world();
+    await w.app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = w.app.server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    const a = await openStream(base, w.alice.cookie);
+    const b = await openStream(base, w.bob.cookie);
+    try {
+      const { deviceId } = pairDevice(w.ctx, { userId: w.alice.id, kind: 'mcp', name: 'agent' });
+      setStandingApproval(w.ctx, w.alice.id, deviceId, StandingApprovalInputSchema.parse({ until: w.clock.now() + 86_400_000, scope: 'all' }), {});
+      await until(() => a.text().includes('event: device.changed'));
+      const frame = a.text().split('\n\n').find((f) => f.startsWith('event: device.changed'))!;
+      expect(JSON.parse(frame.split('\n').find((l) => l.startsWith('data: '))!.slice(6))).toEqual({ deviceId });
+      await new Promise((res) => setTimeout(res, 50));
+      expect(b.text()).not.toContain('device.changed');
+    } finally {
+      await w.app.close();
+      a.close();
+      b.close();
+    }
+  });
+
   it('stream ends once its session is gone (logout) and delivers nothing further', async () => {
     const w = await world();
     await w.app.listen({ port: 0, host: '127.0.0.1' });

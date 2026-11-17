@@ -25,6 +25,12 @@ browser. By default the value never reaches the agent, only the process it start
 - **Approvals.** Every request (read or change) waits for your decision (`A` / `D` in the UI) and expires
   after 5 minutes. **Auto mode** approves automatically for a limited time (default 30 min, at most
   `ASM_AUTO_MODE_MAX_MIN`) and for selected vaults – every auto-approval is recorded in the audit log.
+- **Standing approval per device.** Trust a single device for days instead of minutes (Devices → "Standing
+  approval…"): until a date you pick (at most `ASM_STANDING_APPROVAL_MAX_DAYS`, default 90), for all secrets or a
+  selected list, optionally including the secrets the device creates itself. Reads are covered; changes only if you
+  also allow them. After the expiry, ASM either asks every time again, or asks once and extends the standing approval
+  by a preset number of days when you approve. Every automatic approval is recorded as "via standing approval"; revoking
+  the device removes it.
 - **What agents may do.** Create secrets (immediately), change them (only with approval), archive them (immediately,
   with a reason). Never delete, never restore.
 - **Archive instead of delete.** Archived secrets no longer show up in searches and can be neither read nor
@@ -38,7 +44,7 @@ browser. By default the value never reaches the agent, only the process it start
 - **Deactivating accounts.** Admins can deactivate accounts in Settings (offboarding): the person is
   signed out, can no longer sign in, and all their devices are revoked.
 - **Encryption.** AES-256-GCM, with a separate key per secret that is encrypted with the master key.
-  Sensitive actions (reveal a value, pair a device, auto mode) require a sign-in no older than
+  Sensitive actions (reveal a value, pair a device, auto mode, setting a standing approval) require a sign-in no older than
   10 minutes. Sign in with password or passkey.
 
 ## Setup (Docker)
@@ -75,6 +81,7 @@ Add more users under "Settings". You can also add a passkey there.
 | `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master key (base64, 32 bytes) as a file or inline. If missing, the server exits with an error. | – |
 | `ASM_TRUST_PROXY` | Behind a reverse proxy: number of proxy hops (usually `1`) or comma-separated IPs/CIDRs of the proxies. `true` trusts every `X-Forwarded-For` entry (spoofable, logs a warning) and is not allowed together with `ASM_TRUSTED_NETWORKS`. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximum duration of auto mode. | `240` |
+| `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximum duration of a standing approval per device, in days (at most `3650`). Also caps renewals; lowering it shortens existing standing approvals. `0` turns the feature off. | `90` |
 | `ASM_DATA_DIR` | Data directory (`asm.db`). | `/data` |
 | `PORT` | HTTP port. | `8080` |
 | `ASM_CLI_DIR` | Directory containing the CLI bundle (`asm.mjs`, `asm.json`) for `/cli/install.sh`. | Image: `/app/cli` |

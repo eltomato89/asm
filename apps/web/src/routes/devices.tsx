@@ -3,6 +3,8 @@ import { Link } from '@tanstack/react-router';
 import { Pencil } from 'lucide-react';
 import { useState, type KeyboardEvent } from 'react';
 import { RelativeTime } from '../components/RelativeTime';
+import { StandingApprovalDialog } from '../components/devices/StandingApprovalDialog';
+import { StandingBadge } from '../components/devices/StandingBadge';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button, IconButton } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -23,6 +25,7 @@ const STATUS_TONE: Record<DeviceDto['status'], BadgeTone> = {
 export function DevicesPage() {
   const devices = useQuery({ queryKey: queryKeys.devices, queryFn: api.devices });
   const [revoking, setRevoking] = useState<DeviceDto | null>(null);
+  const [standingFor, setStandingFor] = useState<DeviceDto | null>(null);
   const qc = useQueryClient();
   const toast = useToast();
 
@@ -96,20 +99,32 @@ export function DevicesPage() {
                 <Td className="col-host">{d.hostname ? <span className="host">{d.hostname}</span> : <span className="faint">–</span>}</Td>
                 <Td>{d.lastUsedAt ? <RelativeTime ts={d.lastUsedAt} className="faint" /> : <span className="faint">{t.devices.never}</span>}</Td>
                 <Td>
-                  <Badge tone={STATUS_TONE[d.status]}>{t.devices.status[d.status]}</Badge>
+                  <span className="device-status">
+                    <Badge tone={STATUS_TONE[d.status]}>{t.devices.status[d.status]}</Badge>
+                    {d.status === 'approved' && d.standingApproval ? <StandingBadge summary={d.standingApproval} /> : null}
+                  </span>
                 </Td>
                 <Td className="r">
-                  {d.status === 'approved' || d.status === 'pending' ? (
-                    <Button variant="ghost" onClick={() => setRevoking(d)}>
-                      {t.devices.revoke}
-                    </Button>
-                  ) : null}
+                  <span className="device-actions">
+                    {d.status === 'approved' ? (
+                      <Button variant="ghost" aria-label={t.standing.openAria(d.name)} onClick={() => setStandingFor(d)}>
+                        {t.standing.open}
+                      </Button>
+                    ) : null}
+                    {d.status === 'approved' || d.status === 'pending' ? (
+                      <Button variant="ghost" onClick={() => setRevoking(d)}>
+                        {t.devices.revoke}
+                      </Button>
+                    ) : null}
+                  </span>
                 </Td>
               </Tr>
             ))}
           </TBody>
         </Table>
       )}
+
+      <StandingApprovalDialog device={standingFor} onOpenChange={(v) => !v && setStandingFor(null)} />
 
       <ConfirmDialog
         open={revoking !== null}

@@ -15,6 +15,7 @@ import type { PushSender } from '../src/push/service.js';
 import { enableAutoMode } from '../src/requests/automode.js';
 import { createRequest, createUpdateRequest, decideRequest } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
+import { setStandingApproval } from '../src/standing/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, ORIGIN, allKeys, auditRows, pairDevice, world, type TestUser } from './helpers/fixtures.js';
 import { TEST_KEY } from './helpers/testApp.js';
 
@@ -499,6 +500,42 @@ describe('push endpoint allowlist', () => {
     await new Promise((r) => setTimeout(r, 10));
     expect(t.push.sender).not.toHaveBeenCalled();
     expect(t.db.$client.prepare('SELECT count(*) AS n FROM approve_tokens').get()).toEqual({ n: 0 });
+  });
+});
+
+describe('standing approval renewal via push', () => {
+  const DAY = 24 * 60 * MIN;
+
+  async function renewal() {
+    const t = await setup();
+    await t.subscribe(t.alice, 'https://web.push.apple.com/a1');
+    setStandingApproval(t.ctx, t.alice.id, t.device.id, { until: t.clock.now() + DAY, scope: 'all', afterExpiry: 'renew', renewDays: 4 } as never, {});
+    t.clock.advance(DAY);
+    const r = t.read();
+    const [token] = t.tokensOf(r.id);
+    return { ...t, r, token: token! };
+  }
+
+  it('summary carries the renewal; covered requests send no push', async () => {
+    const t = await renewal();
+    expect(t.r).toMatchObject({ status: 'pending', renewal: { days: 4 } });
+    const res = await t.api('GET', `/api/approve/${t.token}`);
+    expect(ApproveSummaryDtoSchema.parse(res.json())).toMatchObject({ status: 'pending', renewal: { days: 4 } });
+  });
+
+  it('approving via the push link renews (audited via push); afterwards requests are covered without push', async () => {
+    const t = await renewal();
+    await t.options(t.token);
+    const res = await t.decide(t.token, { decision: 'approve', response: { id: 'cred-alice' } });
+    expect(res.statusCode).toBe(200);
+    const renewed = auditRows(t.db, 'standing_approval.renewed');
+    expect(renewed).toHaveLength(1);
+    expect(renewed[0]).toMatchObject({ actor_type: 'user', actor_id: t.alice.id, device_id: t.device.id });
+    expect(JSON.parse(renewed[0]!.meta as string)).toMatchObject({ via: 'push', requestId: t.r.id, days: 4, until: t.clock.now() + 4 * DAY });
+    const sentBefore = t.push.sent.length;
+    expect(t.read()).toMatchObject({ status: 'approved', autoSource: 'standing' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(t.push.sent).toHaveLength(sentBefore);
   });
 });
 

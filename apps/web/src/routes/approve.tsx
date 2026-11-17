@@ -179,7 +179,7 @@ export function ApprovePage({ token }: { token: string }) {
         </h1>
         {s.secret.envName && s.secret.title && s.secret.title !== s.secret.envName ? <p className="approve-title">{s.secret.title}</p> : null}
       </div>
-      <ApproveDetails summary={s} />
+      <ApproveDetails summary={s} now={now} />
       <ApproveTimeBar left={left} total={firstSeen.current} />
       <div className="consent-actions">
         <Button onClick={() => decide.mutate('deny')} disabled={busy}>

@@ -5,11 +5,12 @@ import { queryKeys } from './api';
 
 export type ServerEvent =
   | { type: 'request.created' | 'request.updated'; data: AccessRequestDto }
-  | { type: 'automode.changed'; data: AutoModeDto };
+  | { type: 'automode.changed'; data: AutoModeDto }
+  | { type: 'device.changed'; data: { deviceId: string } };
 
 type Listener = (e: ServerEvent) => void;
 
-const EVENT_TYPES = ['request.created', 'request.updated', 'automode.changed'] as const;
+const EVENT_TYPES = ['request.created', 'request.updated', 'automode.changed', 'device.changed'] as const;
 export const SSE_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000];
 
 const listeners = new Set<Listener>();
@@ -38,7 +39,8 @@ export function useEventSubscription(fn: Listener): void {
 
 /**
  * Opens the SSE stream /api/events, reconnects with exponential backoff and feeds the query cache:
- * request events invalidate request lists, automode.changed replaces the auto mode state.
+ * request events invalidate request lists, automode.changed replaces the auto mode state,
+ * device.changed (standing approval set/renewed/expired, …) invalidates the devices queries.
  */
 export function useEvents(): void {
   const qc = useQueryClient();
@@ -51,6 +53,7 @@ export function useEvents(): void {
 
     const dispatch = (event: ServerEvent) => {
       if (event.type === 'automode.changed') qc.setQueryData(queryKeys.automode, event.data);
+      else if (event.type === 'device.changed') void qc.invalidateQueries({ queryKey: queryKeys.devices });
       else void qc.invalidateQueries({ queryKey: queryKeys.requestsAll });
       for (const fn of [...listeners]) {
         try {
@@ -69,6 +72,7 @@ export function useEvents(): void {
           // Events may have been missed while disconnected.
           void qc.invalidateQueries({ queryKey: queryKeys.requestsAll });
           void qc.invalidateQueries({ queryKey: queryKeys.automode });
+          void qc.invalidateQueries({ queryKey: queryKeys.devices });
         }
         attempt = 0;
       };

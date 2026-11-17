@@ -22,6 +22,7 @@ export default defineConfig({
     { name: 'passkey', testMatch: 'passkey.spec.ts', dependencies: ['setup'] },
     { name: 'flow', testMatch: 'flow.spec.ts', dependencies: ['setup'] },
     { name: 'locale', testMatch: 'locale.spec.ts', dependencies: ['setup'] },
+    { name: 'standing', testMatch: 'standing.spec.ts', dependencies: ['setup'] },
   ],
   webServer: {
     command: 'pnpm build && node apps/web/e2e/start-server.mjs',

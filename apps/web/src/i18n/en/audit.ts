@@ -102,6 +102,16 @@ export const audit = {
     automatically: 'automatically',
     minutes: (n: string) => `(${n} minutes)`,
     createdByAgent: 'newly created by an agent',
+    automaticallyStanding: 'automatically (standing approval)',
+    allSecrets: '(all secrets)',
+    secretCount: (n: number) => `(${n} ${n === 1 ? 'secret' : 'secrets'})`,
+    withUpdates: 'changes allowed too',
+    thenAsk: 'afterwards, every request asks again',
+    thenRenew: (days: string | null) => (days ? `the next request asks once to extend it by ${days} days` : 'the next request asks once to extend it'),
+    deviceRevoked: 'device revoked',
+    renewalRequest: 'standing approval expired',
+    renewedStanding: 'standing approval extended',
+    viaPush: 'via push',
   },
   events: {
     requestCreated: (c: AuditCtx, update: boolean) => f(c.device, ' requested ', c.secret, forProject(c), update ? ' (change)' : ''),
@@ -132,6 +142,16 @@ export const audit = {
     deviceDenied: (c: AuditCtx, client: ReactNode | null) => f(c.subject, ' denied the pairing request', client ? f(' from ', client) : null),
     revokedBySystem: (c: AuditCtx) => f('Access for ', c.device, ' was revoked'),
     revoked: (c: AuditCtx) => f(c.subject, ' revoked access for ', c.device),
+    standingSet: (c: AuditCtx, until: ReactNode, scope: ReactNode, changed: boolean) =>
+      changed
+        ? f(c.subject, ' changed the standing approval for ', c.device, ', now until ', until, ' ', scope)
+        : f(c.subject, ' set a standing approval for ', c.device, ' until ', until, ' ', scope),
+    standingRemoved: (c: AuditCtx) => f(c.subject, ' removed the standing approval for ', c.device),
+    standingRemovedRevoked: (c: AuditCtx) => f('The standing approval for ', c.device, ' was removed'),
+    standingRenewed: (c: AuditCtx, days: string, until: ReactNode) =>
+      f(c.subject, ' extended the standing approval for ', c.device, ' by ', days, ' days, until ', until),
+    standingExpired: (c: AuditCtx) => f('The standing approval for ', c.device, ' expired'),
+    standingSecretAdded: (c: AuditCtx) => f(c.device, ' created ', c.secret, ', which was added to its standing approval'),
     memberAdded: (c: AuditCtx, who: ReactNode, vault: ReactNode) => f(c.subject, ' added ', who, ' to the vault ', vault),
     memberRemoved: (c: AuditCtx, who: ReactNode, vault: ReactNode) => f(c.subject, ' removed ', who, ' from the vault ', vault),
   },

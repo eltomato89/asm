@@ -142,7 +142,7 @@
             <div>
               <h3 class="text-2xl font-semibold tracking-tight">Every request waits for you.</h3>
               <p class="mt-3 text-text-2">Requests arrive live with the device, the project and the reason. Changes an agent proposes to a secret wait the same way. Anything you leave unanswered expires after five minutes.</p>
-              <p class="mt-3 text-text-2">Working through a long task? Auto mode approves for a limited time and only for the vaults you pick, and every automatic approval lands in the audit log.</p>
+              <p class="mt-3 text-text-2">Working through a long task? Auto mode approves for a limited time and only for the vaults you pick. A standing approval trusts a single device for days. Every automatic approval lands in the audit log.</p>
             </div>
             <figure class="shot">
               <picture>
@@ -191,6 +191,10 @@
             <li class="border-t pt-4">
               <h3 class="font-semibold">Auto mode</h3>
               <p class="mt-1.5 text-[14px] text-text-2">Approves automatically for a limited time (30 minutes by default) and only for the vaults you select.</p>
+            </li>
+            <li class="border-t pt-4">
+              <h3 class="font-semibold">Standing approval</h3>
+              <p class="mt-1.5 text-[14px] text-text-2">Trust one device for days, for all secrets or a list. When it expires, ASM asks again, or asks once and extends it.</p>
             </li>
             <li class="border-t pt-4">
               <h3 class="font-semibold">Approve from your phone</h3>
@@ -248,7 +252,7 @@ run        <span class="text-text">asm run --grant &lt;id&gt; -- &lt;command&gt;
             </div>
             <div>
               <dt class="font-semibold">Every request needs a decision</dt>
-              <dd class="mt-1 text-text-2">Reads and changes wait for you and expire after five minutes. Auto mode is the only exception, limited in time and to the vaults you choose.</dd>
+              <dd class="mt-1 text-text-2">Reads and changes wait for you and expire after five minutes. Auto mode and standing approvals are the only exceptions, both limited in time and in scope.</dd>
             </div>
             <div>
               <dt class="font-semibold">Archive instead of delete</dt>

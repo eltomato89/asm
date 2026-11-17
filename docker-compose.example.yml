@@ -26,6 +26,8 @@ services:
       # Number of proxy hops (or the proxy IPs/CIDRs). "true" trusts every X-Forwarded-For entry.
       ASM_TRUST_PROXY: "1"
       # ASM_AUTO_MODE_MAX_MIN: "240"
+      # Standing approval per device: maximum days (0 turns the feature off).
+      # ASM_STANDING_APPROVAL_MAX_DAYS: "90"
       # Push approval: allow only the approval page from outside (see README).
       # ASM_TRUSTED_NETWORKS: "192.168.0.0/16,100.64.0.0/10"
       # ASM_VAPID_SUBJECT: "mailto:admin@example.com"

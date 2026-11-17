@@ -89,6 +89,16 @@ export const audit: Messages['audit'] = {
     automatically: 'automatisch',
     minutes: (n) => `(${n} Minuten)`,
     createdByAgent: 'neu von Agent angelegt',
+    automaticallyStanding: 'automatisch (Dauerfreigabe)',
+    allSecrets: '(alle Secrets)',
+    secretCount: (n) => `(${n} ${n === 1 ? 'Secret' : 'Secrets'})`,
+    withUpdates: 'auch Änderungen erlaubt',
+    thenAsk: 'danach wird wieder jedes Mal gefragt',
+    thenRenew: (days) => (days ? `die nächste Anfrage fragt einmal und verlängert sie um ${days} Tage` : 'die nächste Anfrage fragt einmal und verlängert sie'),
+    deviceRevoked: 'Gerät widerrufen',
+    renewalRequest: 'Dauerfreigabe abgelaufen',
+    renewedStanding: 'Dauerfreigabe verlängert',
+    viaPush: 'per Push',
   },
   events: {
     requestCreated: (c, update) => f(c.device, ' fragt ', c.secret, forProject(c), ' an', update ? ' (Änderung)' : ''),
@@ -119,6 +129,15 @@ export const audit: Messages['audit'] = {
     deviceDenied: (c, client) => f(c.subject, ' ', hat(c), ' die Kopplung ', client ? f('von ', client, ' ') : null, 'verweigert'),
     revokedBySystem: (c) => f('Der Zugriff von ', c.device, ' wurde widerrufen'),
     revoked: (c) => f(c.subject, ' ', hat(c), ' den Zugriff von ', c.device, ' widerrufen'),
+    standingSet: (c, until, scope, changed) =>
+      changed
+        ? f(c.subject, ' ', hat(c), ' die Dauerfreigabe für ', c.device, ' geändert, jetzt bis ', until, ' ', scope)
+        : f(c.subject, ' ', hat(c), ' ', c.device, ' eine Dauerfreigabe bis ', until, ' erteilt ', scope),
+    standingRemoved: (c) => f(c.subject, ' ', hat(c), ' die Dauerfreigabe für ', c.device, ' entfernt'),
+    standingRemovedRevoked: (c) => f('Die Dauerfreigabe für ', c.device, ' wurde entfernt'),
+    standingRenewed: (c, days, until) => f(c.subject, ' ', hat(c), ' die Dauerfreigabe für ', c.device, ' um ', days, ' Tage verlängert, bis ', until),
+    standingExpired: (c) => f('Die Dauerfreigabe für ', c.device, ' ist abgelaufen'),
+    standingSecretAdded: (c) => f(c.device, ' hat ', c.secret, ' angelegt; es wurde zur Dauerfreigabe hinzugefügt'),
     memberAdded: (c, who, vault) => f(c.subject, ' ', hat(c), ' ', who, ' zum Tresor ', vault, ' hinzugefügt'),
     memberRemoved: (c, who, vault) => f(c.subject, ' ', hat(c), ' ', who, ' aus dem Tresor ', vault, ' entfernt'),
   },
