@@ -20,7 +20,7 @@ describe('devices API', () => {
     expect(items).toEqual([
       {
         id: a.deviceId, name: 'Claude Laptop', kind: 'mcp', hostname: null, status: 'approved', lastUsedAt: null, createdAt: w.clock.now(),
-        standingApproval: null, defaultVault: { id: personalVaultId(w.db, w.alice.id), name: 'Personal', personal: true },
+        standingApproval: null, defaultVault: { id: personalVaultId(w.db, w.alice.id), name: 'Personal', personal: true }, linkedTo: null,
       },
     ]);
     for (const it of items) DeviceDtoSchema.parse(it);

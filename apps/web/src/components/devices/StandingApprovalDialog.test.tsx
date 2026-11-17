@@ -24,6 +24,7 @@ const DEVICE: DeviceDto = {
   createdAt: 0,
   standingApproval: null,
   defaultVault: { id: 'vlt_p', name: 'Personal', personal: true },
+  linkedTo: null,
 };
 const PATH = '/api/devices/dev_1/standing-approval';
 

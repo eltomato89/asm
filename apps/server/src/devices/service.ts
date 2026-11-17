@@ -1,5 +1,6 @@
 import { newId, type DeviceDto } from '@asm/shared';
 import { and, eq, isNull } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import { appendAudit } from '../audit/audit.js';
 import { deleteGrantsForDevice } from '../requests/grants.js';
 import { cancelOpenForDevice } from '../requests/service.js';
@@ -14,6 +15,9 @@ export type DeviceStatus = DeviceDto['status'];
 /** Public device view (never contains token material), incl. a standing approval summary. */
 export type { DeviceDto };
 
+/** Self-join target for `linkedTo` (the main device an attached CLI belongs to). */
+const mainDevice = alias(devices, 'main_device');
+
 const dtoColumns = {
   id: devices.id,
   name: devices.name,
@@ -22,7 +26,13 @@ const dtoColumns = {
   status: devices.status,
   lastUsedAt: devices.lastUsedAt,
   createdAt: devices.createdAt,
+  linkedId: mainDevice.id,
+  linkedName: mainDevice.name,
 };
+
+function baseDto<R extends { linkedId: string | null; linkedName: string | null }>({ linkedId, linkedName, ...rest }: R) {
+  return { ...rest, linkedTo: linkedId !== null && linkedName !== null ? { id: linkedId, name: linkedName } : null };
+}
 
 export function createDevice(
   ctx: ServiceCtx,
@@ -41,16 +51,22 @@ export function listDevices(ctx: ServiceCtx, userId: string): DeviceDto[] {
   return ctx.db
     .select(dtoColumns)
     .from(devices)
+    .leftJoin(mainDevice, eq(mainDevice.id, devices.linkedToDeviceId))
     .where(eq(devices.userId, userId))
     .orderBy(devices.createdAt, devices.id)
     .all()
-    .map((d) => ({ ...d, standingApproval: standing.get(d.id) ?? null, defaultVault: deviceDefaultVault(ctx.db, d.id) }));
+    .map((d) => ({ ...baseDto(d), standingApproval: standing.get(d.id) ?? null, defaultVault: deviceDefaultVault(ctx.db, d.id) }));
 }
 
 function getOwnDevice(ctx: ServiceCtx, userId: string, deviceId: string): DeviceDto {
-  const row = ctx.db.select(dtoColumns).from(devices).where(and(eq(devices.id, deviceId), eq(devices.userId, userId))).get();
+  const row = ctx.db
+    .select(dtoColumns)
+    .from(devices)
+    .leftJoin(mainDevice, eq(mainDevice.id, devices.linkedToDeviceId))
+    .where(and(eq(devices.id, deviceId), eq(devices.userId, userId)))
+    .get();
   if (!row) throw new HttpError(404, 'not_found');
-  return { ...row, standingApproval: standingSummaryForDevice(ctx, deviceId), defaultVault: deviceDefaultVault(ctx.db, deviceId) };
+  return { ...baseDto(row), standingApproval: standingSummaryForDevice(ctx, deviceId), defaultVault: deviceDefaultVault(ctx.db, deviceId) };
 }
 
 export function renameDevice(ctx: ServiceCtx, userId: string, deviceId: string, name: string): DeviceDto {

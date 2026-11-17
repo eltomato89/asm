@@ -238,8 +238,49 @@ export const DeviceDtoSchema = z.strictObject({
    * Null only for devices without an owner (e.g. pending).
    */
   defaultVault: z.strictObject({ id: z.string(), name: z.string(), personal: z.boolean() }).nullable(),
+  /**
+   * Main device this CLI is attached to (standing approval + default vault come from it). Null when not attached.
+   * For an attached CLI, `standingApproval` / `defaultVault` reflect the main device's settings.
+   */
+  linkedTo: z.strictObject({ id: z.string(), name: z.string() }).nullable(),
 });
 export type DeviceDto = z.infer<typeof DeviceDtoSchema>;
+
+/** PUT /api/devices/:id/link body: attach this CLI to an approved 'mcp' main device of the same user. */
+export const DeviceLinkInputSchema = z.strictObject({
+  mainDeviceId: z.string().min(1).max(100),
+});
+export type DeviceLinkInput = z.infer<typeof DeviceLinkInputSchema>;
+
+/**
+ * Revoke body (optional). For a main device: `attached` 'revoke' (default) also revokes its attached CLIs,
+ * 'detach' only detaches them.
+ */
+export const DeviceRevokeInputSchema = z.strictObject({
+  attached: z.enum(['revoke', 'detach']).optional(),
+});
+export type DeviceRevokeInput = z.infer<typeof DeviceRevokeInputSchema>;
+
+export const LinkCandidateSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  lastUsedAt: z.number().nullable(),
+  createdAt: z.number(),
+  /** Number of approved CLIs already attached. */
+  attachedCount: z.number().int(),
+});
+export type LinkCandidate = z.infer<typeof LinkCandidateSchema>;
+
+/** GET /api/devices/activate response: what is being paired, plus main devices it could be attached to. */
+export const ActivationInfoSchema = z.strictObject({
+  name: z.string(),
+  hostname: z.string().nullable(),
+  requestedAt: z.number(),
+  linkCandidates: z.array(LinkCandidateSchema),
+  /** Preselected candidate (only when exactly one exists), else null. */
+  suggestedLinkId: z.string().nullable(),
+});
+export type ActivationInfo = z.infer<typeof ActivationInfoSchema>;
 
 /** PUT /api/devices/:id/default-vault body. `vaultId` null = reset to the owner's personal vault. */
 export const DeviceDefaultVaultInputSchema = z.strictObject({

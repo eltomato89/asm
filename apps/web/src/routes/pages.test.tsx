@@ -25,7 +25,7 @@ const auditRow = (over: Partial<AuditRow> = {}): AuditRow => ({
   ...over,
 });
 
-const devices = { items: [{ id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp', hostname: 'mbp-office', status: 'approved', lastUsedAt: T0, createdAt: T0, standingApproval: null, defaultVault: { id: 'vlt_p', name: 'Personal', personal: true } }] };
+const devices = { items: [{ id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp', hostname: 'mbp-office', status: 'approved', lastUsedAt: T0, createdAt: T0, standingApproval: null, defaultVault: { id: 'vlt_p', name: 'Personal', personal: true }, linkedTo: null }] };
 
 describe('audit page', () => {
   it('row reads as a sentence and expands to show project and reason', async () => {
@@ -352,6 +352,7 @@ describe('devices page: standing approval', () => {
     createdAt: T0,
     standingApproval: null,
     defaultVault: { id: 'vlt_p', name: 'Personal', personal: true },
+    linkedTo: null,
     ...over,
   });
 

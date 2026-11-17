@@ -257,16 +257,28 @@ export function removeStandingApproval(ctx: ServiceCtx, userId: string, deviceId
 
 // ---------- hooks (run inside the caller's transaction) ----------
 
-/** Device revocation (inside revokeDevice's transaction): delete the standing approval (audit removed, cause device_revoked). */
-export function deleteForRevokedDevice(ctx: ServiceCtx, deviceId: string): boolean {
+/**
+ * Deletes the device's standing approval (inside the caller's transaction): audit `standing_approval.removed` with
+ * `meta.cause` (`device_revoked` on revocation, `device_linked` when a CLI is attached to a main device). Actor is the user
+ * when `actorUserId` is given, else the system. Returns whether a standing approval existed. Caller emits device.changed.
+ */
+export function deleteStandingForDevice(
+  ctx: ServiceCtx, deviceId: string, cause: 'device_revoked' | 'device_linked', actorUserId?: string,
+): boolean {
   const prev = loadStanding(ctx, deviceId);
   if (!prev) return false;
   ctx.db.$client.prepare('DELETE FROM standing_approvals WHERE device_id = ?').run(deviceId);
   appendAudit(ctx.db, ctx.clock, {
-    actorType: 'system', actorId: null, event: 'standing_approval.removed', deviceId,
-    meta: { cause: 'device_revoked', previous: auditSnapshot(prev, ctx.standingMaxDays) },
+    ...(actorUserId ? { actorType: 'user' as const, actorId: actorUserId } : { actorType: 'system' as const, actorId: null }),
+    event: 'standing_approval.removed', deviceId,
+    meta: { cause, previous: auditSnapshot(prev, ctx.standingMaxDays) },
   });
   return true;
+}
+
+/** Device revocation (inside revokeDevice's transaction): delete the standing approval (audit removed, cause device_revoked). */
+export function deleteForRevokedDevice(ctx: ServiceCtx, deviceId: string): boolean {
+  return deleteStandingForDevice(ctx, deviceId, 'device_revoked');
 }
 
 export type StandingCoverage = 'covered' | 'renewal' | null;

@@ -1,4 +1,4 @@
-import { blob, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { type AnySQLiteColumn, blob, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 const bool = (name: string) => integer(name, { mode: 'boolean' });
 const bytes = (name: string) => blob(name, { mode: 'buffer' });
@@ -100,18 +100,30 @@ export const secretVersions = sqliteTable(
   (t) => [primaryKey({ columns: [t.secretId, t.version] })],
 );
 
-export const devices = sqliteTable('devices', {
-  id: text('id').primaryKey(),
-  userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
-  name: text('name').notNull(),
-  kind: text('kind', { enum: ['mcp', 'cli'] }).notNull(),
-  hostname: text('hostname'),
-  status: text('status', { enum: ['pending', 'approved', 'denied', 'revoked'] }).notNull(),
-  // NULL = the owner's personal vault (resolved at read time).
-  defaultVaultId: text('default_vault_id').references(() => vaults.id, { onDelete: 'set null' }),
-  lastUsedAt: ts('last_used_at'),
-  createdAt: ts('created_at').notNull(),
-});
+export const devices = sqliteTable(
+  'devices',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').references(() => users.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    kind: text('kind', { enum: ['mcp', 'cli'] }).notNull(),
+    hostname: text('hostname'),
+    status: text('status', { enum: ['pending', 'approved', 'denied', 'revoked'] }).notNull(),
+    // NULL = the owner's personal vault (resolved at read time).
+    defaultVaultId: text('default_vault_id').references(() => vaults.id, { onDelete: 'set null' }),
+    /**
+     * Set on an approved 'cli' device attached to an approved 'mcp' main device
+     * of the same user (no chains). Standing approval + default vault then come
+     * from the main device; grants of the group are only redeemable within it.
+     */
+    linkedToDeviceId: text('linked_to_device_id').references((): AnySQLiteColumn => devices.id, {
+      onDelete: 'set null',
+    }),
+    lastUsedAt: ts('last_used_at'),
+    createdAt: ts('created_at').notNull(),
+  },
+  (t) => [index('devices_linked_to_idx').on(t.linkedToDeviceId)],
+);
 
 export const oauthClients = sqliteTable('oauth_clients', {
   id: text('id').primaryKey(),
