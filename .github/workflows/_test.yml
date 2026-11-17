@@ -27,7 +27,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/setup
         with:
-          node-version: 22
+          node-version: "22.12"
       - run: node --version
       - run: pnpm --filter @asm/shared build
       - run: pnpm --filter @asm/cli test

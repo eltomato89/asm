@@ -8,7 +8,7 @@ curl -fsSL https://asm.example/cli/install.sh | sh
 asm login https://asm.example
 ```
 
-Die CLI-Version passt immer zur Server-Version. Voraussetzung auf dem Client: Node ≥ 22.
+Die CLI-Version passt immer zur Server-Version. Voraussetzung auf dem Client: Node ≥ 22.12.
 
 ## Entscheidungen (vom Nutzer gewählt: Option 1)
 - **Ein Bundle:** `apps/cli` + `@asm/shared` werden mit esbuild zu einer einzigen ESM-Datei `asm.mjs` (Shebang `#!/usr/bin/env node`, Version als Build-Konstante) gebündelt. Daneben ein Manifest `asm.json` `{ version, sha256, size }`.
@@ -18,7 +18,7 @@ Die CLI-Version passt immer zur Server-Version. Voraussetzung auf dem Client: No
   - Fehlt beides → klare Fehlermeldung mit Hinweis auf `--insecure-store` (Datei 0600, wie bisher).
   - Bestehende Speicherorte bleiben kompatibel: Service `asm`, Account = Server-Host, Inhalt JSON `{accessToken, refreshToken, expiresAt}`.
 - **Server-Routen (öffentlich, ohne Login – die CLI ist nicht geheim):**
-  - `GET /cli/install.sh` – POSIX-sh-Skript, Server-URL (`ASM_PUBLIC_URL`) eingesetzt. Prüft Node ≥ 22, lädt `asm.mjs`, prüft SHA-256 gegen `/cli/asm.json`, installiert nach `${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm` (chmod 755), gibt PATH-Hinweis und nächsten Schritt `asm login <url>` aus.
+  - `GET /cli/install.sh` – POSIX-sh-Skript, Server-URL (`ASM_PUBLIC_URL`) eingesetzt. Prüft Node ≥ 22.12, lädt `asm.mjs`, prüft SHA-256 gegen `/cli/asm.json`, installiert nach `${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm` (chmod 755), gibt PATH-Hinweis und nächsten Schritt `asm login <url>` aus.
   - `GET /cli/asm.mjs` – das Bundle (`text/javascript`, `cache-control: no-cache`, ETag).
   - `GET /cli/asm.json` – Manifest.
   - Fehlt das Bundle (Dev/Tests) → 404 `{error:'cli_not_available'}`; Pfade unter `/cli/` fallen nicht in den SPA-Fallback.

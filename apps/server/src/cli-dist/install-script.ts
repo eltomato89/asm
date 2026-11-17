@@ -14,7 +14,7 @@ export function renderInstallScript(origin: string): string {
 #   curl -fsSL ${origin}/cli/install.sh | sh
 # Installs \${ASM_HOME:-$HOME/.local/share/asm}/asm.mjs and links \${ASM_INSTALL_DIR:-$HOME/.local/bin}/asm to it
 # (the .mjs extension makes Node load it as ESM regardless of version or surrounding package.json).
-# Needs Node.js >= 22 and curl or wget. Never uses sudo. Uninstall: remove both.
+# Needs Node.js >= 22.12 and curl or wget. Never uses sudo. Uninstall: remove both.
 set -eu
 
 main() {
@@ -28,10 +28,15 @@ main() {
   [ ! -d "$INSTALL_DIR/asm" ] || die "$INSTALL_DIR/asm is a directory (or a link to one); remove it or set ASM_INSTALL_DIR."
   [ ! -d "$ASM_DIR/asm.mjs" ] || die "$ASM_DIR/asm.mjs is a directory; remove it or set ASM_HOME."
 
-  command -v node >/dev/null 2>&1 || die "Node.js >= 22 is required, but 'node' was not found in PATH."
-  NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0)
-  case "$NODE_MAJOR" in ''|*[!0-9]*) NODE_MAJOR=0 ;; esac
-  [ "$NODE_MAJOR" -ge 22 ] || die "Node.js >= 22 is required (found $(node --version 2>/dev/null || echo unknown))."
+  command -v node >/dev/null 2>&1 || die "Node.js >= 22.12 is required, but 'node' was not found in PATH."
+  NODE_VER=$(node -p 'process.versions.node.split(".").slice(0, 2).join(" ")' 2>/dev/null || echo "0 0")
+  set -- $NODE_VER
+  NODE_MAJOR=\${1:-0}
+  NODE_MINOR=\${2:-0}
+  case "$NODE_MAJOR$NODE_MINOR" in ''|*[!0-9]*) NODE_MAJOR=0; NODE_MINOR=0 ;; esac
+  if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 12 ]; }; then
+    die "Node.js >= 22.12 is required (found $(node --version 2>/dev/null || echo unknown))."
+  fi
 
   if command -v curl >/dev/null 2>&1; then
     fetch() { curl -fsSL -o "$2" "$1"; }

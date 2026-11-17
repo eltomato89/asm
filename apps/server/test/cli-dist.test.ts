@@ -269,16 +269,31 @@ describe('install.sh end to end', () => {
     }
   });
 
-  it('refuses Node.js older than 22', async () => {
-    const { script } = await serve(makeCliDir());
+  async function runWithFakeNode(script: string, pOut: string, version: string) {
     const home = mkdtempSync(join(tmpdir(), 'asm-home-'));
     const fakeBin = join(home, 'fakebin');
     mkdirSync(fakeBin);
-    writeFileSync(join(fakeBin, 'node'), '#!/bin/sh\ncase "$1" in -p) echo 20 ;; --version) echo v20.0.0 ;; esac\n');
+    writeFileSync(join(fakeBin, 'node'), `#!/bin/sh\ncase "$1" in -p) echo ${pOut} ;; --version) echo v${version} ;; esac\n`);
     chmodSync(join(fakeBin, 'node'), 0o755);
     const r = await runSh(script, { PATH: `${fakeBin}:${SYSTEM_PATH}`, HOME: home, ASM_INSTALL_DIR: join(home, 'bin') });
-    expect(r.code).not.toBe(0);
-    expect(r.stderr).toContain('Node.js >= 22 is required (found v20.0.0)');
-    expect(readdirSync(home)).toEqual(['fakebin']);
+    return { r, home };
+  }
+
+  it('refuses Node.js older than 22.12', async () => {
+    const { script } = await serve(makeCliDir());
+    for (const [pOut, version] of [['20 0', '20.0.0'], ['22 11', '22.11.0']] as const) {
+      const { r, home } = await runWithFakeNode(script, pOut, version);
+      expect(r.code, version).not.toBe(0);
+      expect(r.stderr, version).toContain(`Node.js >= 22.12 is required (found v${version})`);
+      expect(readdirSync(home), version).toEqual(['fakebin']);
+    }
+  });
+
+  it('accepts Node.js 22.12 and newer', async () => {
+    const { script } = await serve(makeCliDir());
+    for (const [pOut, version] of [['22 12', '22.12.0'], ['24 0', '24.0.0']] as const) {
+      const { r } = await runWithFakeNode(script, pOut, version);
+      expect(r.stderr, version).not.toContain('is required');
+    }
   });
 });

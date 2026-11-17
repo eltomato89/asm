@@ -166,7 +166,7 @@ vorschlagen und archivieren. `asm mcp-config` gibt den passenden Befehl für dei
 
 ## CLI
 
-Installation direkt vom eigenen ASM-Server (Voraussetzung: Node ≥ 22, dazu `curl` oder `wget`; kein sudo,
+Installation direkt vom eigenen ASM-Server (Voraussetzung: Node ≥ 22.12, dazu `curl` oder `wget`; kein sudo,
 kein GitHub- oder npm-Zugang nötig):
 
 ```sh
