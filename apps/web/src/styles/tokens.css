@@ -1,4 +1,4 @@
-/* ASM design tokens — ported 1:1 from the approved mockups (docs/mockups/styles.css).
+/* ASM design tokens — ported 1:1 from the approved design mockups.
    Warm stone neutrals, amber as the only signal colour, green/red only for outcomes.
    Spacing unit 4 px, radius 6 px (chips 4 px), 1 px hairlines; shadows only on overlays.
    Theme: prefers-color-scheme, overridden by data-theme="light|dark" on <html>. */
