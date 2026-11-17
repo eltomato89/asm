@@ -114,6 +114,7 @@ describe('approve page', () => {
     renderApp(`/approve/${TOKEN}`);
     await u.click(await loaded('Approve with passkey'));
     expect(await screen.findByRole('heading', { level: 1, name: 'Approved' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open ASM' })).toHaveAttribute('href', '/');
     expect(webauthn.startAuthentication).toHaveBeenCalledWith({ optionsJSON: expect.objectContaining({ challenge: 'ch-1' }) });
     const decision = calls.find((c) => c.path === `${BASE}/decision`);
     expect(decision?.body).toEqual({ decision: 'approve', response: expect.objectContaining({ id: 'cred-1' }) });
@@ -136,6 +137,8 @@ describe('approve page', () => {
     expect(calls.find((c) => c.path === `${BASE}/decision`)?.body).toEqual({ decision: 'deny' });
     expect(calls.some((c) => c.path === `${BASE}/options`)).toBe(false);
     expect(webauthn.startAuthentication).not.toHaveBeenCalled();
+    // In the installed web app there is no window to close: a link leads back into the app.
+    expect(screen.getByRole('link', { name: 'Open ASM' })).toHaveAttribute('href', '/');
   });
 
   it.each([404, 410])('shows one neutral message for %i', async (status) => {
@@ -143,6 +146,7 @@ describe('approve page', () => {
     renderApp(`/approve/${TOKEN}`);
     expect(await screen.findByRole('heading', { level: 1, name: 'This request is no longer valid.' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Approve with passkey' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Open ASM' })).toHaveAttribute('href', '/');
   });
 
   it('treats an elapsed expiry as no longer valid', async () => {

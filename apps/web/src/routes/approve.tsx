@@ -1,5 +1,6 @@
 import { startAuthentication } from '@simplewebauthn/browser';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { Link } from '@tanstack/react-router';
 import { Check, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { ApproveDetails, ApproveSentence, ApproveTimeBar, secretName } from '../components/approve/ApproveDetails';
@@ -34,6 +35,17 @@ const FINAL_CODES = ['already_decided', 'expired', 'not_found', 'device_inactive
 /** Face ID on iPhone/iPad, a generic passkey everywhere else. */
 const approveLabel = () => (isIOS() ? t.approve.withFaceId : t.approve.withPasskey);
 
+/** Way back into the app after a decision; in the installed web app there is no window to close. */
+function OpenAppLink() {
+  return (
+    <p className="approve-result-actions">
+      <Link to="/" className="btn btn-primary">
+        {t.approve.openApp}
+      </Link>
+    </p>
+  );
+}
+
 /** Final/neutral states share one frame with the page title as h1 (like the open request). */
 function ApproveResult({ icon, title, children }: { icon?: 'ok' | 'no'; title: string; children: React.ReactNode }) {
   return (
@@ -54,6 +66,7 @@ function Gone() {
   return (
     <ApproveResult title={t.approve.goneTitle}>
       <p>{t.approve.goneBody}</p>
+      <OpenAppLink />
     </ApproveResult>
   );
 }
@@ -63,14 +76,16 @@ function Decided({ summary: s }: { summary: ApproveSummaryDto }) {
   return s.status === 'approved' ? (
     <ApproveResult icon="ok" title={t.approve.approvedTitle}>
       <p>
-        <span className="host">{s.device.name}</span> {s.kind === 'update' ? t.approve.mayChange(name) : t.approve.receives(name)} {t.approve.closeWindow}
+        <span className="host">{s.device.name}</span> {s.kind === 'update' ? t.approve.mayChange(name) : t.approve.receives(name)}
       </p>
+      <OpenAppLink />
     </ApproveResult>
   ) : (
     <ApproveResult icon="no" title={t.approve.deniedTitle}>
       <p>
-        <span className="host">{s.device.name}</span> {t.approve.noAccess(name)} {t.approve.closeWindow}
+        <span className="host">{s.device.name}</span> {t.approve.noAccess(name)}
       </p>
+      <OpenAppLink />
     </ApproveResult>
   );
 }
