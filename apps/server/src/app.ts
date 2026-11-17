@@ -150,6 +150,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   const ctx = createServiceCtx({
     db: deps.db, clock: deps.clock, kek: deps.config.masterKey, hooks, events: deps.events, autoModeMaxMin: deps.config.autoModeMaxMin,
     standingMaxDays: deps.config.standingMaxDays,
+    standingRequestMaxDays: deps.config.standingRequestMaxDays,
     logger: root.log,
   });
   const push = createPushService({

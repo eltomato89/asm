@@ -16,6 +16,8 @@ export type AuditEvent =
   | 'automode.enabled' | 'automode.disabled'
   | 'standing_approval.set' | 'standing_approval.removed' | 'standing_approval.renewed' | 'standing_approval.expired'
   | 'standing_approval.secret_added'
+  | 'standing_request.created' | 'standing_request.approved' | 'standing_request.denied' | 'standing_request.expired'
+  | 'standing_request.cancelled'
   | 'vault.member_added' | 'vault.member_removed';
 
 export type AuditActorType = 'user' | 'device' | 'system';

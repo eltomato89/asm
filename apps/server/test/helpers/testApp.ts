@@ -35,6 +35,7 @@ export async function createTestApp(
     trustedNetworks: null,
     vapidSubject: 'mailto:asm@localhost',
     ...opts.config,
+    standingRequestMaxDays: opts.config?.standingRequestMaxDays ?? Math.min(14, opts.config?.standingMaxDays ?? 90),
   };
   const db = openDb(opts.dbPath ?? ':memory:');
   const logger = opts.logger ?? pino({ level: 'silent' });
@@ -47,6 +48,7 @@ export async function createTestApp(
   });
   const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin,
     standingMaxDays: config.standingMaxDays,
+    standingRequestMaxDays: config.standingRequestMaxDays,
   });
   return { app, db, clock, config, ctx };
 }

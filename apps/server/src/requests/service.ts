@@ -669,7 +669,7 @@ export function cancelPlaintextForSecret(ctx: ServiceCtx, secretId: string): voi
 }
 
 /** Real hook implementations, wired by buildApp. */
-export const requestHooks: Omit<ServiceHooks, 'onRequestPending'> = {
+export const requestHooks: Omit<ServiceHooks, 'onRequestPending' | 'onStandingRequestPending'> = {
   onSecretArchived: cancelOpenForSecret,
   onSecretDeleted: cancelOpenForDeletedSecret,
   onVaultMemberRemoved: revokeForRemovedMember,

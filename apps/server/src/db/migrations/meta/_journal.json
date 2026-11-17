@@ -43,6 +43,13 @@
       "when": 1794922769945,
       "tag": "0005_device_links",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794923242597,
+      "tag": "0006_standing_requests",
+      "breakpoints": true
     }
   ]
 }

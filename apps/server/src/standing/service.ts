@@ -5,6 +5,8 @@ import {
   type StandingApprovalResponse,
   type StandingApprovalSecret,
   type StandingApprovalSummary,
+  type StandingProposal,
+  type StandingRequestDiff,
 } from '@asm/shared';
 import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
@@ -192,7 +194,40 @@ export function setStandingApproval(
   const vaultIds = input.scope === 'vaults' ? [...new Set(input.vaultIds)] : [];
   for (const id of vaultIds) if (!canAccessVault(db, userId, id)) throw new HttpError(404, 'vault_not_found');
 
-  db.$client.transaction(() => {
+  const res = writeStandingApproval(ctx, userId, deviceId, input, info);
+  emitDeviceChanged(ctx, userId, deviceId);
+  return res;
+}
+
+/** Provenance recorded in the standing_approval.set audit entry when an agent proposal was approved. */
+export type StandingApprovalOrigin = {
+  type: 'agent_request';
+  requestId: string;
+  proposed: StandingProposal;
+  diff: StandingRequestDiff;
+};
+
+/**
+ * Write part of setStandingApproval (upsert + secret/vault rows + standing_approval.set audit). Performs NO validation —
+ * callers validate (ownership, device state, feature enabled, until/renewDays range, ids visible) first. Runs inside the
+ * caller's transaction (nests as a savepoint) and does not emit events: callers emit device.changed after commit
+ * (emitDeviceChanged after the transaction, or emitDeviceChangedAfterCommit from inside it).
+ */
+export function writeStandingApproval(
+  ctx: ServiceCtx,
+  userId: string,
+  deviceId: string,
+  rawInput: StandingApprovalInputRaw,
+  info: RequestInfo = {},
+  origin?: StandingApprovalOrigin,
+): StandingApprovalResponse {
+  const { db } = ctx;
+  const input = StandingApprovalInputSchema.parse(rawInput);
+  const max = ctx.standingMaxDays;
+  const now = ctx.clock.now();
+  const ids = input.scope === 'list' ? [...new Set(input.secretIds)] : [];
+  const vaultIds = input.scope === 'vaults' ? [...new Set(input.vaultIds)] : [];
+  return db.$client.transaction(() => {
     const prev = loadStanding(ctx, deviceId);
     db.$client
       .prepare(
@@ -236,11 +271,11 @@ export function setStandingApproval(
         includeCreated: input.includeCreated,
         allowUpdates: input.allowUpdates, afterExpiry: input.afterExpiry, renewDays: input.renewDays,
         previous: prev ? auditSnapshot(prev, max) : null,
+        ...(origin ? { origin } : {}),
       },
     });
+    return response(ctx, deviceId);
   })();
-  emitDeviceChanged(ctx, userId, deviceId);
-  return response(ctx, deviceId);
 }
 
 /**

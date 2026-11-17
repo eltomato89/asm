@@ -387,3 +387,113 @@ export const ApproveDecisionInputSchema = z.object({
   response: z.object({ id: z.string().min(1).max(1024) }).passthrough().optional(),
 });
 export type ApproveDecisionInput = z.infer<typeof ApproveDecisionInputSchema>;
+
+// ---------- standing requests (agent proposes a standing approval) ----------
+/** Scopes an agent may propose (never 'all'). */
+export const StandingRequestScopeSchema = z.enum(['vaults', 'list']);
+export type StandingRequestScope = z.infer<typeof StandingRequestScopeSchema>;
+
+/**
+ * Settings of a proposed standing approval (reads only; allowUpdates/includeCreated are always false).
+ * Shape-only: the server checks days ≤ max, renewDays ≤ max, non-empty ids for the scope, ownership/archival.
+ */
+export const StandingProposalSchema = z.strictObject({
+  scope: StandingRequestScopeSchema,
+  vaultIds: z.array(z.string().min(1).max(100)).max(50),
+  secretIds: z.array(z.string().min(1).max(100)).max(200),
+  days: z.number().int().min(1),
+  afterExpiry: AfterExpirySchema,
+  /** Only meaningful for afterExpiry 'renew'; null otherwise. */
+  renewDays: z.number().int().min(1).nullable(),
+});
+export type StandingProposal = z.infer<typeof StandingProposalSchema>;
+
+/** Narrowed settings chosen by the user before approving (must be a subset of the proposal: `not_narrower` otherwise). */
+export const StandingNarrowInputSchema = StandingProposalSchema;
+export type StandingNarrowInput = z.infer<typeof StandingNarrowInputSchema>;
+
+export const StandingRequestStatusSchema = z.enum(['pending', 'approved', 'denied', 'expired', 'cancelled']);
+export type StandingRequestStatus = z.infer<typeof StandingRequestStatusSchema>;
+
+const NumberChange = z.strictObject({ from: z.number(), to: z.number() });
+
+/** What the user changed relative to the proposal (empty object = approved as proposed). */
+export const StandingRequestDiffSchema = z.strictObject({
+  days: NumberChange.optional(),
+  removedVaultIds: z.array(z.string()).optional(),
+  removedSecretIds: z.array(z.string()).optional(),
+  afterExpiry: z.strictObject({ from: AfterExpirySchema, to: AfterExpirySchema }).optional(),
+  renewDays: z.strictObject({ from: z.number().nullable(), to: z.number().nullable() }).optional(),
+});
+export type StandingRequestDiff = z.infer<typeof StandingRequestDiffSchema>;
+
+export const StandingRequestItemsSchema = z.strictObject({
+  /** `available` = still accessible to the owner (false → cannot be approved, shown greyed out). */
+  vaults: z.array(z.strictObject({ id: z.string(), name: z.string(), personal: z.boolean(), available: z.boolean() })),
+  secrets: z.array(
+    z.strictObject({
+      id: z.string(),
+      title: z.string(),
+      envName: z.string().nullable(),
+      vaultName: z.string(),
+      available: z.boolean(),
+    }),
+  ),
+});
+export type StandingRequestItems = z.infer<typeof StandingRequestItemsSchema>;
+
+export const AttachedCliSchema = z.strictObject({ name: z.string(), hostname: z.string().nullable() });
+
+export const StandingRequestDtoSchema = z.strictObject({
+  id: z.string(),
+  status: StandingRequestStatusSchema,
+  device: z.strictObject({ id: z.string(), name: z.string(), kind: DeviceKindSchema }),
+  /** CLIs attached to the proposing main device (they are covered by the approval too). */
+  attachedCli: z.array(AttachedCliSchema),
+  project: z.string(),
+  reason: z.string(),
+  proposal: StandingProposalSchema,
+  items: StandingRequestItemsSchema,
+  limits: z.strictObject({ maxDays: z.number().int() }),
+  /** Settings actually approved (null unless approved). */
+  final: StandingProposalSchema.nullable(),
+  /** true when `final` differs from `proposal`. */
+  adjusted: z.boolean(),
+  /** Why it ended without a user decision: 'device_revoked' | 'superseded' | 'disabled_by_admin' | … */
+  cause: z.string().nullable(),
+  /** Name of the deciding user (null while pending / system end). */
+  decidedBy: z.string().nullable(),
+  createdAt: z.number(),
+  decidedAt: z.number().nullable(),
+  expiresAt: z.number(),
+});
+export type StandingRequestDto = z.infer<typeof StandingRequestDtoSchema>;
+
+/** POST /api/standing-requests/:id/decision body. `settings` (approve only) narrows the proposal. */
+export const StandingRequestDecisionInputSchema = z.strictObject({
+  decision: DecisionSchema,
+  settings: StandingNarrowInputSchema.optional(),
+});
+export type StandingRequestDecisionInput = z.infer<typeof StandingRequestDecisionInputSchema>;
+
+/** Public summary behind a standing push approval link (/api/approve/standing/:token). */
+export const StandingApproveSummaryDtoSchema = z.strictObject({
+  device: z.strictObject({ name: z.string() }),
+  attachedCli: z.array(AttachedCliSchema),
+  project: z.string(),
+  reason: z.string(),
+  proposal: StandingProposalSchema,
+  items: StandingRequestItemsSchema,
+  limits: z.strictObject({ maxDays: z.number().int() }),
+  status: StandingRequestStatusSchema,
+  expiresAt: z.number(),
+  final: StandingProposalSchema.nullable(),
+  adjusted: z.boolean(),
+});
+export type StandingApproveSummaryDto = z.infer<typeof StandingApproveSummaryDtoSchema>;
+
+/** Body of POST /api/approve/standing/:token/decision; `response` (passkey, UV) is required to approve. */
+export const StandingApproveDecisionInputSchema = ApproveDecisionInputSchema.extend({
+  settings: StandingNarrowInputSchema.optional(),
+});
+export type StandingApproveDecisionInput = z.infer<typeof StandingApproveDecisionInputSchema>;

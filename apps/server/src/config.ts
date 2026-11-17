@@ -18,6 +18,8 @@ export type Config = {
   autoModeMaxMin: number;
   /** Upper bound for standing approvals in days; 0 = feature disabled. */
   standingMaxDays: number;
+  /** Upper bound in days for standing approvals proposed by agents; 0 = proposals disabled. Always ≤ standingMaxDays. */
+  standingRequestMaxDays: number;
   dataDir: string;
   port: number;
   /** Directory with the CLI bundle (asm.mjs + asm.json) served under /cli; null = not available. */
@@ -115,6 +117,25 @@ function parseStandingMaxDays(raw: string | undefined): number {
   return v;
 }
 
+export const DEFAULT_STANDING_REQUEST_MAX_DAYS = 14;
+
+/**
+ * ASM_STANDING_REQUEST_MAX_DAYS: unset → min(14, standingMaxDays); 0 disables agent proposals;
+ * an explicit value above ASM_STANDING_APPROVAL_MAX_DAYS is a startup error.
+ */
+function parseStandingRequestMaxDays(raw: string | undefined, standingMaxDays: number): number {
+  const trimmed = raw?.trim();
+  if (trimmed === undefined || trimmed === '') return Math.min(DEFAULT_STANDING_REQUEST_MAX_DAYS, standingMaxDays);
+  const v = parseInt10(trimmed, 0, 'ASM_STANDING_REQUEST_MAX_DAYS');
+  if (v > MAX_STANDING_MAX_DAYS) throw new ConfigError(`ASM_STANDING_REQUEST_MAX_DAYS must be at most ${MAX_STANDING_MAX_DAYS}`);
+  if (v > standingMaxDays) {
+    throw new ConfigError(
+      `ASM_STANDING_REQUEST_MAX_DAYS (${v}) must not exceed ASM_STANDING_APPROVAL_MAX_DAYS (${standingMaxDays})`,
+    );
+  }
+  return v;
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv,
   readFile: (p: string) => string = (p) => readFileSync(p, 'utf8'),
@@ -162,12 +183,15 @@ export function loadConfig(
     );
   }
 
+  const standingMaxDays = parseStandingMaxDays(env.ASM_STANDING_APPROVAL_MAX_DAYS);
+
   return {
     publicUrl,
     masterKey,
     trustProxy,
     autoModeMaxMin: parseInt10(env.ASM_AUTO_MODE_MAX_MIN, 240, 'ASM_AUTO_MODE_MAX_MIN'),
-    standingMaxDays: parseStandingMaxDays(env.ASM_STANDING_APPROVAL_MAX_DAYS),
+    standingMaxDays,
+    standingRequestMaxDays: parseStandingRequestMaxDays(env.ASM_STANDING_REQUEST_MAX_DAYS, standingMaxDays),
     dataDir: env.ASM_DATA_DIR || '/data',
     port: parseInt10(env.PORT, 8080, 'PORT'),
     cliDir: env.ASM_CLI_DIR || defaultCliDir(exists),

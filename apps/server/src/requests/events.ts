@@ -1,11 +1,13 @@
 import { EventEmitter } from 'node:events';
-import type { AccessRequestDto, AutoModeDto } from '@asm/shared';
+import type { AccessRequestDto, AutoModeDto, StandingRequestDto } from '@asm/shared';
 
 export type RequestEvent =
   | { type: 'request.created' | 'request.updated'; data: AccessRequestDto }
   | { type: 'automode.changed'; data: AutoModeDto }
   /** A device's state (status, standing approval) changed; clients refetch the device list. */
-  | { type: 'device.changed'; data: { deviceId: string } };
+  | { type: 'device.changed'; data: { deviceId: string } }
+  /** An agent's standing-approval proposal was created or changed state. */
+  | { type: 'standing_request.created' | 'standing_request.updated'; data: StandingRequestDto };
 
 export type RequestEventListener = (event: RequestEvent) => void;
 

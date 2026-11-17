@@ -73,6 +73,35 @@ describe('loadConfig', () => {
       expect(withMax('3651')).toThrow(/at most 3650/);
     });
   });
+  describe('ASM_STANDING_REQUEST_MAX_DAYS', () => {
+    const load = (env: Record<string, string>) => () => loadConfig({ ...base, ...env });
+    it('defaults to min(14, ASM_STANDING_APPROVAL_MAX_DAYS)', () => {
+      expect(loadConfig(base).standingRequestMaxDays).toBe(14);
+      expect(load({ ASM_STANDING_APPROVAL_MAX_DAYS: '7' })().standingRequestMaxDays).toBe(7);
+      expect(load({ ASM_STANDING_APPROVAL_MAX_DAYS: '0' })().standingRequestMaxDays).toBe(0);
+      expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: '' })().standingRequestMaxDays).toBe(14);
+    });
+    it('accepts explicit values from 0 up to the standing max', () => {
+      expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: '0' })().standingRequestMaxDays).toBe(0);
+      expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: '30' })().standingRequestMaxDays).toBe(30);
+      expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: '90' })().standingRequestMaxDays).toBe(90);
+      expect(
+        load({ ASM_STANDING_APPROVAL_MAX_DAYS: '3650', ASM_STANDING_REQUEST_MAX_DAYS: '3650' })().standingRequestMaxDays,
+      ).toBe(3650);
+    });
+    it('rejects invalid values', () => {
+      for (const v of ['-1', 'abc', '1.5', '7d']) {
+        expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: v })).toThrow(ConfigError);
+        expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: v })).toThrow(/ASM_STANDING_REQUEST_MAX_DAYS/);
+      }
+    });
+    it('rejects values above the standing max or above 3650', () => {
+      expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: '91' })).toThrow(ConfigError);
+      expect(load({ ASM_STANDING_REQUEST_MAX_DAYS: '91' })).toThrow(/must not exceed ASM_STANDING_APPROVAL_MAX_DAYS/);
+      expect(load({ ASM_STANDING_APPROVAL_MAX_DAYS: '0', ASM_STANDING_REQUEST_MAX_DAYS: '1' })).toThrow(ConfigError);
+      expect(load({ ASM_STANDING_APPROVAL_MAX_DAYS: '3650', ASM_STANDING_REQUEST_MAX_DAYS: '3651' })).toThrow(/at most 3650/);
+    });
+  });
   describe('ASM_PUBLIC_URL hardening', () => {
     const withUrl = (u: string) => () => loadConfig({ ...base, ASM_PUBLIC_URL: u });
     it('rejects non-http(s) schemes', () => {

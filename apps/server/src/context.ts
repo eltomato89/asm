@@ -1,4 +1,5 @@
 import type { Clock } from './clock.js';
+import { DEFAULT_STANDING_REQUEST_MAX_DAYS } from './config.js';
 import type { Db } from './db/client.js';
 import { RequestEvents } from './requests/events.js';
 
@@ -14,6 +15,8 @@ export type ServiceHooks = {
   onPlaintextDisabled: (ctx: ServiceCtx, secretId: string) => void;
   /** Runs after commit when a new request waits for a manual decision (push notification). Must not throw. */
   onRequestPending: (ctx: ServiceCtx, requestId: string) => void;
+  /** Runs after commit when a new standing request (agent proposal) waits for a decision (push notification). Must not throw. */
+  onStandingRequestPending: (ctx: ServiceCtx, standingRequestId: string) => void;
 };
 
 /** Minimal logger surface used by services for background failures (never pass values). */
@@ -30,6 +33,8 @@ export type ServiceCtx = {
   autoModeMaxMin: number;
   /** Upper bound for standing approvals in days (ASM_STANDING_APPROVAL_MAX_DAYS); 0 = feature disabled. */
   standingMaxDays: number;
+  /** Upper bound for agent-proposed standing approvals in days (ASM_STANDING_REQUEST_MAX_DAYS); 0 = proposals disabled. */
+  standingRequestMaxDays: number;
   logger?: ServiceLogger;
 };
 
@@ -44,6 +49,7 @@ export const defaultHooks: ServiceHooks = {
   onVaultMemberRemoved: () => {},
   onPlaintextDisabled: () => {},
   onRequestPending: () => {},
+  onStandingRequestPending: () => {},
 };
 
 export const DEFAULT_AUTO_MODE_MAX_MIN = 240;
@@ -57,8 +63,11 @@ export function createServiceCtx(deps: {
   events?: RequestEvents;
   autoModeMaxMin?: number;
   standingMaxDays?: number;
+  /** Default: min(14, standingMaxDays). */
+  standingRequestMaxDays?: number;
   logger?: ServiceLogger;
 }): ServiceCtx {
+  const standingMaxDays = deps.standingMaxDays ?? DEFAULT_STANDING_MAX_DAYS;
   return {
     db: deps.db,
     clock: deps.clock,
@@ -66,7 +75,8 @@ export function createServiceCtx(deps: {
     hooks: deps.hooks ?? { ...defaultHooks },
     events: deps.events ?? new RequestEvents(),
     autoModeMaxMin: deps.autoModeMaxMin ?? DEFAULT_AUTO_MODE_MAX_MIN,
-    standingMaxDays: deps.standingMaxDays ?? DEFAULT_STANDING_MAX_DAYS,
+    standingMaxDays,
+    standingRequestMaxDays: deps.standingRequestMaxDays ?? Math.min(DEFAULT_STANDING_REQUEST_MAX_DAYS, standingMaxDays),
     logger: deps.logger,
   };
 }

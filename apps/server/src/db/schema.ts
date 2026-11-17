@@ -1,4 +1,15 @@
-import { type AnySQLiteColumn, blob, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import {
+  type AnySQLiteColumn,
+  blob,
+  index,
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from 'drizzle-orm/sqlite-core';
+import type { StandingProposal, StandingRequestDiff } from '@asm/shared';
 
 const bool = (name: string) => integer(name, { mode: 'boolean' });
 const bytes = (name: string) => blob(name, { mode: 'buffer' });
@@ -319,6 +330,64 @@ export const approveTokens = sqliteTable(
     createdAt: ts('created_at').notNull(),
   },
   (t) => [index('approve_tokens_request_idx').on(t.requestId)],
+);
+
+/**
+ * Standing approval proposed by an agent (MCP main device); the user approves (optionally narrowed) or denies it.
+ * At most one pending proposal per device (partial unique index).
+ */
+export const standingRequests = sqliteTable(
+  'standing_requests',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    /** The proposing (MCP/main) device. */
+    deviceId: text('device_id').notNull().references(() => devices.id, { onDelete: 'cascade' }),
+    scope: text('scope', { enum: ['vaults', 'list'] }).notNull(),
+    vaultIds: text('vault_ids', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+    secretIds: text('secret_ids', { mode: 'json' }).$type<string[]>().notNull().default(sql`'[]'`),
+    days: integer('days').notNull(),
+    afterExpiry: text('after_expiry', { enum: ['ask', 'renew'] }).notNull().default('ask'),
+    renewDays: integer('renew_days'),
+    project: text('project').notNull(),
+    reason: text('reason').notNull(),
+    status: text('status', { enum: ['pending', 'approved', 'denied', 'expired', 'cancelled'] })
+      .notNull()
+      .default('pending'),
+    decidedBy: text('decided_by'),
+    decidedAt: ts('decided_at'),
+    /** Final (possibly narrowed) settings + diff to the proposal; set on approval. */
+    decision: text('decision', { mode: 'json' }).$type<StandingRequestDecisionRecord>(),
+    /** Why the request ended without a user decision (e.g. 'device_revoked', 'superseded', 'disabled_by_admin'). */
+    cause: text('cause'),
+    createdAt: ts('created_at').notNull(),
+    expiresAt: ts('expires_at').notNull(),
+  },
+  (t) => [
+    uniqueIndex('standing_requests_one_pending').on(t.deviceId).where(sql`status = 'pending'`),
+    index('standing_requests_status_idx').on(t.status, t.expiresAt),
+    index('standing_requests_user_idx').on(t.userId, t.status),
+    index('standing_requests_device_idx').on(t.deviceId, t.createdAt),
+  ],
+);
+
+export type StandingRequestDecisionRecord = { final: StandingProposal; diff: StandingRequestDiff };
+
+/** One-time push approval links for standing requests (parallel to approve_tokens; only the SHA-256 is stored). */
+export const standingApproveTokens = sqliteTable(
+  'standing_approve_tokens',
+  {
+    tokenHash: text('token_hash').primaryKey(),
+    standingRequestId: text('standing_request_id')
+      .notNull()
+      .references(() => standingRequests.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    subscriptionId: text('subscription_id').references(() => pushSubscriptions.id, { onDelete: 'set null' }),
+    expiresAt: ts('expires_at').notNull(),
+    usedAt: ts('used_at'),
+    createdAt: ts('created_at').notNull(),
+  },
+  (t) => [index('standing_approve_tokens_request_idx').on(t.standingRequestId)],
 );
 
 /** The server's VAPID key pair (single row, id = 1); the private key is sealed with the master key. */

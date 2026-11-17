@@ -14,6 +14,7 @@ const TABLES = [
   'secrets_fts', 'devices', 'oauth_clients', 'oauth_codes', 'device_codes', 'tokens',
   'access_requests', 'grants', 'projects', 'project_usage', 'auto_mode', 'audit_log',
   'standing_approvals', 'standing_approval_secrets', 'standing_approval_vaults',
+  'standing_requests', 'standing_approve_tokens',
 ];
 
 function seed(db: Db) {
@@ -154,6 +155,35 @@ describe('openDb', () => {
     expect(db.$client.prepare("SELECT linked_to_device_id AS l FROM devices WHERE id = 'dev_cli'").get()).toEqual({ l: null });
     const gcols = db.$client.prepare("SELECT name, \"notnull\" AS nn FROM pragma_table_info('grants') WHERE name = 'restricted_to_device_id'").all();
     expect(gcols).toEqual([{ name: 'restricted_to_device_id', nn: 0 }]);
+  });
+
+  it('migration 0006: standing_requests defaults, one pending per device, cascades; tokens cascade with the request', () => {
+    const db = openDb(':memory:');
+    seed(db);
+    const dev = db.$client.prepare("INSERT INTO devices (id, user_id, name, kind, status, created_at) VALUES (?, 'usr_1', 'd', 'mcp', 'approved', 1)");
+    dev.run('dev_1');
+    dev.run('dev_2');
+    const ins = db.$client.prepare(
+      "INSERT INTO standing_requests (id, user_id, device_id, scope, days, project, reason, created_at, expires_at, status) VALUES (?, 'usr_1', ?, 'list', 3, 'p', 'r', 1, 2, ?)",
+    );
+    ins.run('srq_1', 'dev_1', 'pending');
+    const row = db.$client.prepare("SELECT vault_ids, secret_ids, after_expiry, renew_days, status, decision FROM standing_requests WHERE id = 'srq_1'").get();
+    expect(row).toEqual({ vault_ids: '[]', secret_ids: '[]', after_expiry: 'ask', renew_days: null, status: 'pending', decision: null });
+    expect(() => ins.run('srq_2', 'dev_1', 'pending')).toThrow(/UNIQUE/);
+    ins.run('srq_3', 'dev_1', 'denied');
+    ins.run('srq_4', 'dev_1', 'expired');
+    ins.run('srq_5', 'dev_2', 'pending');
+    expect(() => ins.run('srq_bad', 'dev_missing', 'denied')).toThrow(/FOREIGN KEY/);
+    for (const name of ['standing_requests_status_idx', 'standing_requests_user_idx', 'standing_requests_device_idx', 'standing_approve_tokens_request_idx']) {
+      expect(db.$client.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get(name)).toBeTruthy();
+    }
+    db.$client.prepare("INSERT INTO standing_approve_tokens (token_hash, standing_request_id, user_id, expires_at, created_at) VALUES ('h1', 'srq_5', 'usr_1', 2, 1)").run();
+    const n = (t: string) => (db.$client.prepare(`SELECT count(*) AS n FROM ${t}`).get() as { n: number }).n;
+    db.$client.prepare("DELETE FROM devices WHERE id = 'dev_2'").run();
+    expect(n('standing_approve_tokens')).toBe(0);
+    db.$client.prepare("DELETE FROM devices WHERE id = 'dev_1'").run();
+    expect(n('standing_requests')).toBe(0);
+    expect(db.$client.prepare('PRAGMA foreign_key_check').all()).toEqual([]);
   });
 
   it('standing approval rows cascade with the device and the secret', () => {
