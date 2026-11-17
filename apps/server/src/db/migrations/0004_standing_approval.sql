@@ -39,4 +39,5 @@ CREATE TABLE `standing_approvals` (
 CREATE INDEX `standing_approvals_user_idx` ON `standing_approvals` (`user_id`);--> statement-breakpoint
 ALTER TABLE `access_requests` ADD `auto_source` text;--> statement-breakpoint
 ALTER TABLE `access_requests` ADD `standing_renewal` integer DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE `devices` ADD `default_vault_id` text REFERENCES vaults(id) ON DELETE set null;--> statement-breakpoint
 UPDATE `access_requests` SET `auto_source` = 'automode' WHERE `auto` = 1;

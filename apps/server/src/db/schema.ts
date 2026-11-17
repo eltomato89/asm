@@ -107,6 +107,8 @@ export const devices = sqliteTable('devices', {
   kind: text('kind', { enum: ['mcp', 'cli'] }).notNull(),
   hostname: text('hostname'),
   status: text('status', { enum: ['pending', 'approved', 'denied', 'revoked'] }).notNull(),
+  // NULL = the owner's personal vault (resolved at read time).
+  defaultVaultId: text('default_vault_id').references(() => vaults.id, { onDelete: 'set null' }),
   lastUsedAt: ts('last_used_at'),
   createdAt: ts('created_at').notNull(),
 });

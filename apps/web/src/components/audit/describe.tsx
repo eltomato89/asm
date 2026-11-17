@@ -144,6 +144,11 @@ export function describeAudit(r: AuditRow, names: Names): Described {
     }
     case 'device.revoked':
       return r.actorType === 'system' ? s(ev.revokedBySystem(c), str(meta.cause)) : s(ev.revoked(c));
+    case 'device.default_vault_changed': {
+      // The vault column holds the new effective default (personal when meta.vaultId is null).
+      const vault = <strong>{names.vault(r.vaultId) ?? (meta.vaultId === null ? t.vaults.personal : w.someVault)}</strong>;
+      return meta.cause === 'member_removed' ? s(ev.defaultVaultReset(c, vault), w.memberRemoved) : s(ev.defaultVaultChanged(c, vault));
+    }
     case 'vault.member_added':
     case 'vault.member_removed': {
       const who = <strong>{names.user(str(meta.userId)) ?? w.someUser}</strong>;
@@ -167,6 +172,6 @@ export const AUDIT_EVENTS = [
   'automode.enabled', 'automode.disabled',
   'standing_approval.set', 'standing_approval.removed', 'standing_approval.renewed', 'standing_approval.expired', 'standing_approval.secret_added',
   'auth.login', 'auth.login_failed',
-  'device.pair_requested', 'device.approved', 'device.denied', 'device.revoked',
+  'device.pair_requested', 'device.approved', 'device.denied', 'device.revoked', 'device.default_vault_changed',
   'vault.member_added', 'vault.member_removed',
 ] as const;

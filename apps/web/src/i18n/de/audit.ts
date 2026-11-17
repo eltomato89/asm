@@ -101,6 +101,7 @@ export const audit: Messages['audit'] = {
     disabledByAdmin: 'Dauerfreigaben wurden vom Admin abgeschaltet',
     renewalRequest: 'Dauerfreigabe abgelaufen',
     renewedStanding: 'Dauerfreigabe verlängert',
+    memberRemoved: 'kein Mitglied des bisherigen Tresors mehr',
     viaPush: 'per Push',
   },
   events: {
@@ -132,6 +133,8 @@ export const audit: Messages['audit'] = {
     deviceDenied: (c, client) => f(c.subject, ' ', hat(c), ' die Kopplung ', client ? f('von ', client, ' ') : null, 'verweigert'),
     revokedBySystem: (c) => f('Der Zugriff von ', c.device, ' wurde widerrufen'),
     revoked: (c) => f(c.subject, ' ', hat(c), ' den Zugriff von ', c.device, ' widerrufen'),
+    defaultVaultChanged: (c, vault) => f(c.subject, ' ', hat(c), ' den Standardtresor von ', c.device, ' auf ', vault, ' gesetzt'),
+    defaultVaultReset: (c, vault) => f('Der Standardtresor von ', c.device, ' wurde auf ', vault, ' zurückgesetzt'),
     standingSet: (c, until, scope, changed) =>
       changed
         ? f(c.subject, ' ', hat(c), ' die Dauerfreigabe für ', c.device, ' geändert, jetzt bis ', until, ' ', scope)

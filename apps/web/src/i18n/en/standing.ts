@@ -44,7 +44,8 @@ export const standing = {
   vaultsNone: 'You have no vaults yet.',
   vaultsLoading: 'Loading vaults',
   vaultsLoadFailed: "Couldn't load your vaults.",
-  includeCreated: 'Automatically add secrets this device creates',
+  includeCreated: (vault: string) => `Automatically add secrets this device creates in its default vault (${vault})`,
+  includeCreatedHelp: 'Secrets it creates in other vaults still need your approval. You can change the default vault in the device list.',
   listEmpty: 'Pick at least one secret, or turn on adding the ones this device creates.',
 
   allowUpdates: 'Also allow changes without asking',

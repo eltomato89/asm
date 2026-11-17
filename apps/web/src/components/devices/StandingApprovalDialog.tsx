@@ -303,7 +303,13 @@ function StandingForm({ device, existing, maxDays, close }: { device: DeviceDto;
         ) : (
           <div className="standing-list">
             <SecretMultiPicker value={secrets} onChange={setSecrets} disabled={busy} />
-            <Switch checked={includeCreated} onChange={setIncludeCreated} label={t.standing.includeCreated} disabled={busy} />
+            <Switch
+              checked={includeCreated}
+              onChange={setIncludeCreated}
+              label={t.standing.includeCreated(device.defaultVault ? vaultLabel(device.defaultVault) : t.vaults.personal)}
+              disabled={busy}
+            />
+            <p className="help">{t.standing.includeCreatedHelp}</p>
             {submitted && !listOk ? <FieldError>{t.standing.listEmpty}</FieldError> : null}
           </div>
         )}

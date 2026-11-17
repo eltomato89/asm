@@ -23,6 +23,7 @@ const DEVICE: DeviceDto = {
   lastUsedAt: null,
   createdAt: 0,
   standingApproval: null,
+  defaultVault: { id: 'vlt_p', name: 'Personal', personal: true },
 };
 const PATH = '/api/devices/dev_1/standing-approval';
 
@@ -73,15 +74,15 @@ function server({ maxDays = 90, current = null, reauth = false, extra }: Opts = 
   });
 }
 
-function Host() {
-  const [device, setDevice] = useState<DeviceDto | null>(DEVICE);
+function Host({ initial = DEVICE }: { initial?: DeviceDto }) {
+  const [device, setDevice] = useState<DeviceDto | null>(initial);
   return <StandingApprovalDialog device={device} onOpenChange={(v) => !v && setDevice(null)} />;
 }
 
-function renderDialog() {
+function renderDialog(device?: DeviceDto) {
   render(
     <AppProviders queryClient={makeQueryClient()}>
-      <Host />
+      <Host initial={device} />
     </AppProviders>,
   );
 }
@@ -155,7 +156,7 @@ describe('StandingApprovalDialog', () => {
     expect(within(d).getByRole('alert')).toHaveTextContent('Pick at least one secret');
     expect(putCall(calls)).toBeUndefined();
 
-    await user.click(within(d).getByRole('switch', { name: 'Automatically add secrets this device creates' }));
+    await user.click(within(d).getByRole('switch', { name: 'Automatically add secrets this device creates in its default vault (Personal)' }));
     expect(within(d).queryByRole('alert')).toBeNull();
     await user.click(within(d).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(putCall(calls)).toBeDefined());
@@ -199,7 +200,7 @@ describe('StandingApprovalDialog', () => {
     const vaults = await within(d).findByRole('group', { name: 'Vaults' });
     expect(within(vaults).getAllByRole('checkbox').map((c) => c.parentElement!.textContent!.trim())).toEqual(['Personal', 'Work']);
     expect(within(d).getByText('New secrets in these vaults are covered automatically.')).toBeInTheDocument();
-    expect(within(d).queryByRole('switch', { name: 'Automatically add secrets this device creates' })).toBeNull();
+    expect(within(d).queryByRole('switch', { name: /^Automatically add secrets this device creates/ })).toBeNull();
   });
 
   it('requires at least one vault for selected vaults and sends nothing until then', async () => {
@@ -246,6 +247,16 @@ describe('StandingApprovalDialog', () => {
     await user.click(within(d).getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(putCall(calls)).toBeDefined());
     expect(putCall(calls)!.body).toMatchObject({ scope: 'all', vaultIds: [], secretIds: [] });
+  });
+
+  it('names the device default vault in the include-created switch', async () => {
+    server();
+    const user = userEvent.setup();
+    renderDialog({ ...DEVICE, defaultVault: { id: 'vlt_w', name: 'Work', personal: false } });
+    const d = await dialog();
+    await user.click(await within(d).findByRole('button', { name: 'Selected secrets' }));
+    expect(within(d).getByRole('switch', { name: 'Automatically add secrets this device creates in its default vault (Work)' })).toBeInTheDocument();
+    expect(d).toHaveTextContent('Secrets it creates in other vaults still need your approval.');
   });
 
   it('asks to confirm identity when the server wants recent auth, then retries the PUT', async () => {
@@ -306,7 +317,7 @@ describe('StandingApprovalDialog', () => {
     const chips = within(d).getByRole('list', { name: 'Selected secrets' });
     expect(within(chips).getAllByRole('listitem')).toHaveLength(2);
     expect(within(chips).getAllByText('created by device')).toHaveLength(1);
-    expect(within(d).getByRole('switch', { name: 'Automatically add secrets this device creates' })).toBeChecked();
+    expect(within(d).getByRole('switch', { name: 'Automatically add secrets this device creates in its default vault (Personal)' })).toBeChecked();
     expect(within(d).getByRole('textbox', { name: 'Extend by number of days' })).toHaveValue('14');
 
     await user.click(within(d).getByRole('button', { name: 'Remove STRIPE_KEY' }));

@@ -22,6 +22,7 @@ export const devices: Messages['devices'] = {
     host: 'Host',
     lastUsed: 'Zuletzt genutzt',
     status: 'Status',
+    defaultVault: 'Standardtresor',
     actions: 'Aktionen',
   },
   never: 'nie',
@@ -35,4 +36,8 @@ export const devices: Messages['devices'] = {
   rename: (name) => `${name} umbenennen`,
   renamed: 'Gerät umbenannt.',
   renameFailed: 'Umbenennen fehlgeschlagen.',
+  defaultVaultLabel: (name) => `Standardtresor für ${name}`,
+  defaultVaultHelp: 'Hier legt das Gerät neue Secrets an, wenn es keinen Tresor angibt.',
+  defaultVaultChanged: (name, vault) => `${name} legt neue Secrets jetzt in ${vault} an.`,
+  defaultVaultFailed: 'Standardtresor konnte nicht geändert werden.',
 };

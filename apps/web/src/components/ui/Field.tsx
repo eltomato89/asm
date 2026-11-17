@@ -30,15 +30,22 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   );
 });
 
-type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & { label: string; help?: ReactNode };
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement> & {
+  label: string;
+  help?: ReactNode;
+  /** Compact variant for table cells: smaller select, label only for screen readers. */
+  compact?: boolean;
+};
 
-export function Select({ label, help, id, className, children, ...rest }: SelectProps) {
+export function Select({ label, help, id, className, compact, children, ...rest }: SelectProps) {
   const auto = useId();
   const fid = id ?? auto;
   return (
-    <div className={cx('field', className)}>
-      <label htmlFor={fid}>{label}</label>
-      <select id={fid} className="select" {...rest}>
+    <div className={cx('field', compact && 'field-compact', className)}>
+      <label htmlFor={fid} className={compact ? 'visually-hidden' : undefined}>
+        {label}
+      </label>
+      <select id={fid} className={cx('select', compact && 'select-sm')} {...rest}>
         {children}
       </select>
       {help ? <p className="help">{help}</p> : null}

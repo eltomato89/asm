@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { DeviceDtoSchema, newId } from '@asm/shared';
 import { devices } from '../src/db/schema.js';
 import { issueTokens } from '../src/oauth/token.js';
+import { personalVaultId } from '../src/vaults/service.js';
 import { addBearerProbe, allKeys, auditRows, bearer, pairDevice, world } from './helpers/fixtures.js';
 
 async function setup() {
@@ -19,7 +20,7 @@ describe('devices API', () => {
     expect(items).toEqual([
       {
         id: a.deviceId, name: 'Claude Laptop', kind: 'mcp', hostname: null, status: 'approved', lastUsedAt: null, createdAt: w.clock.now(),
-        standingApproval: null,
+        standingApproval: null, defaultVault: { id: personalVaultId(w.db, w.alice.id), name: 'Personal', personal: true },
       },
     ]);
     for (const it of items) DeviceDtoSchema.parse(it);

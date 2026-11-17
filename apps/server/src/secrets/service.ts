@@ -20,7 +20,7 @@ import { secrets, secretVersions, type MetaSnapshot } from '../db/schema.js';
 import { HttpError, ValidationError } from '../errors.js';
 import { recordUsage, touchProject, type Project } from '../projects/service.js';
 import { addCreatedSecret } from '../standing/service.js';
-import { canAccessVault, personalVaultId } from '../vaults/service.js';
+import { canAccessVault, deviceDefaultVault, personalVaultId } from '../vaults/service.js';
 
 // ---------- types ----------
 
@@ -274,7 +274,9 @@ export function createSecret(ctx: ServiceCtx, actor: Actor, input: CreateSecretI
   requireDeviceContext(actor, input, { reason: true });
   const data = SecretCreateSchema.parse(input);
   if ((data.value === undefined) === (data.generate === undefined)) throw new ValidationError('value_or_generate');
-  const vaultId = data.vaultId ?? personalVaultId(db, actor.userId);
+  // Without an explicit vault: users create in their personal vault, devices in their (effective) default vault.
+  const vaultId =
+    data.vaultId ?? (actor.type === 'device' ? deviceDefaultVault(db, actor.deviceId)?.id : undefined) ?? personalVaultId(db, actor.userId);
   if (!canAccessVault(db, actor.userId, vaultId)) throw new HttpError(404, 'vault_not_found');
   const plaintext = data.value ?? generateValue(data.generate!.length, data.generate!.alphabet);
   const snapshot: MetaSnapshot = { title: data.title, description: data.description ?? '', tags: data.tags ?? [], envName: data.envName ?? null };
@@ -301,8 +303,8 @@ export function createSecret(ctx: ServiceCtx, actor: Actor, input: CreateSecretI
     appendAudit(db, ctx.clock, {
       ...auditActor(actor), event: 'secret.created', secretId: id, vaultId, project: project?.slug, reason: data.reason, ip: info.ip, meta: { version: 1 },
     });
-    // A list-scoped standing approval with include_created also covers secrets the device creates itself.
-    if (actor.type === 'device') addCreatedSecret(ctx, actor.deviceId, id);
+    // A list-scoped standing approval with include_created also covers secrets the device creates itself in its default vault.
+    if (actor.type === 'device') addCreatedSecret(ctx, actor.deviceId, id, vaultId);
   })();
   return getSecretMeta(db, actor.userId, id);
 }

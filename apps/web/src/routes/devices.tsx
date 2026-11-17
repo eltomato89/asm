@@ -8,12 +8,14 @@ import { StandingBadge } from '../components/devices/StandingBadge';
 import { Badge, type BadgeTone } from '../components/ui/Badge';
 import { Button, IconButton } from '../components/ui/Button';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { Select } from '../components/ui/Field';
 import { Skeleton } from '../components/ui/Skeleton';
 import { Table, TBody, Td, Th, THead, Tr } from '../components/ui/Table';
 import { useToast } from '../components/ui/Toast';
 import { t } from '../i18n';
 import { api, queryKeys, type DeviceDto } from '../lib/api';
 import { errorText } from '../lib/errors';
+import { vaultLabel } from '../lib/vault';
 
 const STATUS_TONE: Record<DeviceDto['status'], BadgeTone> = {
   approved: 'ok',
@@ -81,6 +83,7 @@ export function DevicesPage() {
               <Th>{t.devices.col.kind}</Th>
               <Th className="col-host">{t.devices.col.host}</Th>
               <Th>{t.devices.col.lastUsed}</Th>
+              <Th className="col-vault">{t.devices.col.defaultVault}</Th>
               <Th>{t.devices.col.status}</Th>
               <Th>
                 <span className="visually-hidden">{t.devices.col.actions}</span>
@@ -98,6 +101,9 @@ export function DevicesPage() {
                 </Td>
                 <Td className="col-host">{d.hostname ? <span className="host">{d.hostname}</span> : <span className="faint">–</span>}</Td>
                 <Td>{d.lastUsedAt ? <RelativeTime ts={d.lastUsedAt} className="faint" /> : <span className="faint">{t.devices.never}</span>}</Td>
+                <Td className="col-vault">
+                  {d.status === 'approved' && d.defaultVault ? <DefaultVaultSelect device={d} /> : <span className="faint">–</span>}
+                </Td>
                 <Td>
                   <span className="device-status">
                     <Badge tone={STATUS_TONE[d.status]}>{t.devices.status[d.status]}</Badge>
@@ -137,6 +143,46 @@ export function DevicesPage() {
         onConfirm={() => revoking && revoke.mutate(revoking)}
       />
     </div>
+  );
+}
+
+/** Compact select for an approved device's default vault (where it creates secrets without naming a vault). */
+function DefaultVaultSelect({ device }: { device: DeviceDto }) {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const vaults = useQuery({ queryKey: queryKeys.vaults, queryFn: api.vaults });
+  const current = device.defaultVault!;
+  const set = useMutation({
+    mutationFn: (vaultId: string | null) => api.setDeviceDefaultVault(device.id, vaultId),
+    onSuccess: (d) => {
+      qc.setQueryData<{ items: DeviceDto[] }>(queryKeys.devices, (old) => old && { items: old.items.map((x) => (x.id === d.id ? d : x)) });
+      void qc.invalidateQueries({ queryKey: queryKeys.devices });
+      toast(t.devices.defaultVaultChanged(d.name, d.defaultVault ? vaultLabel(d.defaultVault) : t.vaults.personal), 'ok');
+    },
+    onError: (e) => toast(errorText(e, t.devices.defaultVaultFailed), 'danger'),
+  });
+  const items = vaults.data?.items ?? [];
+  // The current default is always an option, even before the vault list has loaded.
+  const options = items.some((v) => v.id === current.id) ? items : [current, ...items];
+  return (
+    <Select
+      compact
+      label={t.devices.defaultVaultLabel(device.name)}
+      title={t.devices.defaultVaultHelp}
+      value={current.id}
+      disabled={set.isPending}
+      onChange={(e) => {
+        const v = options.find((o) => o.id === e.target.value);
+        if (!v || v.id === current.id) return;
+        set.mutate(v.personal ? null : v.id);
+      }}
+    >
+      {options.map((v) => (
+        <option key={v.id} value={v.id}>
+          {vaultLabel(v)}
+        </option>
+      ))}
+    </Select>
   );
 }
 

@@ -5,7 +5,7 @@ import type { Db } from '../db/client.js';
 
 export type AuditEvent =
   | 'auth.login' | 'auth.login_failed'
-  | 'device.pair_requested' | 'device.approved' | 'device.denied' | 'device.revoked'
+  | 'device.pair_requested' | 'device.approved' | 'device.denied' | 'device.revoked' | 'device.default_vault_changed'
   | 'secret.searched'
   | 'request.created' | 'request.approved' | 'request.denied' | 'request.auto_approved' | 'request.expired'
   | 'grant.redeemed' | 'grant.redeem_denied'

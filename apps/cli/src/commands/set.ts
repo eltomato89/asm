@@ -94,7 +94,7 @@ export function registerSet(program: Command, rt: () => Runtime): void {
     .option('--description <text>', 'description')
     .option('--tags <a,b>', 'comma-separated tags')
     .option('--env <NAME>', 'environment variable name')
-    .option('--vault <id>', 'target vault for --new (default: personal vault)')
+    .option('--vault <id>', "target vault for --new (default: this device's default vault)")
     .option('--project <name>', 'project name (default: git repo / folder name)')
     .option('--reason <text>', 'reason (required)')
     .option('--from-stdin', 'read the value from stdin')

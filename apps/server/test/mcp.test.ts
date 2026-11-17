@@ -9,6 +9,7 @@ import { enableAutoMode } from '../src/requests/automode.js';
 import { decideRequest } from '../src/requests/service.js';
 import { archiveSecret, createSecret } from '../src/secrets/service.js';
 import { setStandingApproval } from '../src/standing/service.js';
+import { addMember, createVault, personalVaultId } from '../src/vaults/service.js';
 import { FORBIDDEN_RESPONSE_KEYS, allKeys, auditRows, pairDevice, world } from './helpers/fixtures.js';
 
 const MIN = 60_000;
@@ -434,9 +435,26 @@ describe('mcp: create, update, archive, vaults, whoami', () => {
       user: { id: w.alice.id, username: 'alice' },
       auto_mode: { active: false, enabledUntil: null, defaultDurationMin: 30, vaultIds: null },
       standing_approval: null,
+      default_vault: { id: personalVaultId(w.db, w.alice.id), name: 'Personal' },
     });
     const project = w.db.$client.prepare("SELECT last_seen FROM projects WHERE slug = 'foo'").get();
     expect(project).toBeDefined();
+  });
+});
+
+describe('mcp: default vault', () => {
+  it('create_secret without vault_id lands in the device default vault; whoami reports it; explicit vault_id still wins', async () => {
+    const { w, call, dev } = await setup();
+    const team = createVault(w.ctx, w.bob.id, 'Team');
+    addMember(w.ctx, w.bob.id, team.id, { username: 'alice' });
+    w.db.$client.prepare('UPDATE devices SET default_vault_id = ? WHERE id = ?').run(team.id, dev.deviceId);
+    expect((await call('whoami', P)).data.default_vault).toEqual({ id: team.id, name: 'Team' });
+    const vaultOf = (id: unknown) => (w.db.$client.prepare('SELECT vault_id FROM secrets WHERE id = ?').get(id) as { vault_id: string }).vault_id;
+    const a = await call('create_secret', { title: 'A', description: 'a', reason: 'r', generate: { length: 16 }, ...P });
+    expect(vaultOf(a.data.secret_id)).toBe(team.id);
+    const personal = personalVaultId(w.db, w.alice.id);
+    const b = await call('create_secret', { title: 'B', description: 'b', reason: 'r', generate: { length: 16 }, vault_id: personal, ...P });
+    expect(vaultOf(b.data.secret_id)).toBe(personal);
   });
 });
 

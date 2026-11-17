@@ -115,6 +115,7 @@ export const audit = {
     renewalRequest: 'standing approval expired',
     renewedStanding: 'standing approval extended',
     viaPush: 'via push',
+    memberRemoved: 'no longer a member of the previous vault',
   },
   events: {
     requestCreated: (c: AuditCtx, update: boolean) => f(c.device, ' requested ', c.secret, forProject(c), update ? ' (change)' : ''),
@@ -145,6 +146,8 @@ export const audit = {
     deviceDenied: (c: AuditCtx, client: ReactNode | null) => f(c.subject, ' denied the pairing request', client ? f(' from ', client) : null),
     revokedBySystem: (c: AuditCtx) => f('Access for ', c.device, ' was revoked'),
     revoked: (c: AuditCtx) => f(c.subject, ' revoked access for ', c.device),
+    defaultVaultChanged: (c: AuditCtx, vault: ReactNode) => f(c.subject, ' set the default vault of ', c.device, ' to ', vault),
+    defaultVaultReset: (c: AuditCtx, vault: ReactNode) => f('The default vault of ', c.device, ' was reset to ', vault),
     standingSet: (c: AuditCtx, until: ReactNode, scope: ReactNode, changed: boolean) =>
       changed
         ? f(c.subject, ' changed the standing approval for ', c.device, ', now until ', until, ' ', scope)

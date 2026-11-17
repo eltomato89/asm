@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { StandingApprovalInputSchema } from '@asm/shared';
+import { DeviceDefaultVaultInputSchema, StandingApprovalInputSchema } from '@asm/shared';
 import type { ModuleDeps } from '../app.js';
 import { requireRecentAuth, requireUser } from '../auth/guards.js';
 import { reqInfo } from '../secrets/routes.js';
 import { getStandingApproval, removeStandingApproval, setStandingApproval } from '../standing/service.js';
-import { listDevices, renameDevice, revokeOwnDevice } from './service.js';
+import { listDevices, renameDevice, revokeOwnDevice, setDeviceDefaultVault } from './service.js';
 
 const idParams = z.object({ id: z.string().min(1).max(100) });
 const renameBody = z.strictObject({ name: z.string().trim().min(1).max(100) });
@@ -23,6 +23,13 @@ export async function registerDeviceRoutes(app: FastifyInstance, deps: ModuleDep
   app.post('/api/devices/:id/revoke', { preHandler: [requireUser, requireRecentAuth(clock)] }, async (req) => {
     const { id } = idParams.parse(req.params);
     return revokeOwnDevice(ctx, req.user!.id, id, reqInfo(req));
+  });
+
+  // Can widen what a standing approval with includeCreated auto-approves: needs a recent login. Owner only (others 404).
+  app.put('/api/devices/:id/default-vault', { preHandler: [requireUser, requireRecentAuth(clock)] }, async (req) => {
+    const { id } = idParams.parse(req.params);
+    const { vaultId } = DeviceDefaultVaultInputSchema.parse(req.body ?? {});
+    return setDeviceDefaultVault(ctx, req.user!.id, id, vaultId, reqInfo(req));
   });
 
   // ---------- standing approval (owner only; others get 404) ----------

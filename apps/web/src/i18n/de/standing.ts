@@ -45,7 +45,8 @@ export const standing: Messages['standing'] = {
   vaultsNone: 'Du hast noch keine Tresore.',
   vaultsLoading: 'Tresore werden geladen',
   vaultsLoadFailed: 'Deine Tresore konnten nicht geladen werden.',
-  includeCreated: 'Secrets, die dieses Gerät anlegt, automatisch aufnehmen',
+  includeCreated: (vault) => `Secrets, die dieses Gerät in seinem Standardtresor (${vault}) anlegt, automatisch aufnehmen`,
+  includeCreatedHelp: 'Secrets, die es in anderen Tresoren anlegt, brauchen weiterhin deine Freigabe. Den Standardtresor änderst du in der Geräteliste.',
   listEmpty: 'Wähle mindestens ein Secret aus oder lass die vom Gerät angelegten automatisch aufnehmen.',
 
   allowUpdates: 'Auch Änderungen ohne Rückfrage erlauben',

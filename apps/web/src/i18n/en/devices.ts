@@ -21,6 +21,7 @@ export const devices = {
     host: 'Host',
     lastUsed: 'Last used',
     status: 'Status',
+    defaultVault: 'Default vault',
     actions: 'Actions',
   },
   never: 'never',
@@ -34,4 +35,8 @@ export const devices = {
   rename: (name: string) => `Rename ${name}`,
   renamed: 'Device renamed.',
   renameFailed: 'Renaming failed.',
+  defaultVaultLabel: (name: string) => `Default vault for ${name}`,
+  defaultVaultHelp: 'Where this device creates new secrets when it doesn\'t name a vault.',
+  defaultVaultChanged: (name: string, vault: string) => `${name} now creates new secrets in ${vault}.`,
+  defaultVaultFailed: "Couldn't change the default vault.",
 };

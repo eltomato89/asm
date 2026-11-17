@@ -33,6 +33,7 @@ export function makeDevice(over: Partial<DeviceDto> = {}): DeviceDto {
     lastUsedAt: T0 - 60_000,
     createdAt: T0 - 86_400_000,
     standingApproval: null,
+    defaultVault: { id: 'vlt_p', name: 'Personal', personal: true },
     ...over,
   };
 }

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "ccc1542b-4695-4a19-bb41-8cc027fe49ff",
+  "id": "e2eff9e5-ea56-4630-948e-9c974e268806",
   "prevId": "9fd7f23c-a68a-471a-837e-c2c5cbc964db",
   "tables": {
     "access_requests": {
@@ -586,6 +586,13 @@
           "notNull": true,
           "autoincrement": false
         },
+        "default_vault_id": {
+          "name": "default_vault_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "last_used_at": {
           "name": "last_used_at",
           "type": "integer",
@@ -614,6 +621,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "devices_default_vault_id_vaults_id_fk": {
+          "name": "devices_default_vault_id_vaults_id_fk",
+          "tableFrom": "devices",
+          "tableTo": "vaults",
+          "columnsFrom": [
+            "default_vault_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },

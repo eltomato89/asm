@@ -18,7 +18,7 @@ import { createRequest, createUpdateRequest, decideRequest, expireDue } from '..
 import { archiveSecret, createSecret, deleteSecret } from '../src/secrets/service.js';
 import { listVersions } from '../src/secrets/versions.js';
 import { getStandingApproval, removeStandingApproval, setStandingApproval } from '../src/standing/service.js';
-import { addMember, createVault, personalVaultId, removeMember } from '../src/vaults/service.js';
+import { addMember, createVault, deviceDefaultVault, personalVaultId, removeMember } from '../src/vaults/service.js';
 import { FakeClock } from '../src/clock.js';
 import { ORIGIN, addUser, auditRows, login, pairDevice, world } from './helpers/fixtures.js';
 import { createTestApp } from './helpers/testApp.js';
@@ -788,5 +788,146 @@ describe('standing approval: routes', () => {
     t.w.clock.advance(7 * DAY);
     // (the session would have expired by now: check through the service)
     expect(listDevices(t.w.ctx, t.w.alice.id).find((d) => d.id === t.dev.id)!.standingApproval).toMatchObject({ active: false, until });
+  });
+});
+
+describe('device default vault', () => {
+  async function withDefault() {
+    const t = await setup();
+    const team = createVault(t.w.ctx, t.w.bob.id, 'Team');
+    addMember(t.w.ctx, t.w.bob.id, team.id, { username: 'alice' });
+    const personal = personalVaultId(t.w.db, t.w.alice.id);
+    const url = `/api/devices/${t.dev.id}/default-vault`;
+    const putDefault = (vaultId: unknown, user = t.w.alice) => t.w.req(user, 'PUT', url, { vaultId });
+    const stored = () => (t.w.db.$client.prepare('SELECT default_vault_id AS v FROM devices WHERE id = ?').get(t.dev.id) as { v: string | null }).v;
+    const dto = () => listDevices(t.w.ctx, t.w.alice.id).find((d) => d.id === t.dev.id)!;
+    const vaultOf = (id: string) => (t.w.db.$client.prepare('SELECT vault_id FROM secrets WHERE id = ?').get(id) as { vault_id: string }).vault_id;
+    const create = (title: string, vaultId?: string) =>
+      createSecret(t.w.ctx, t.devActor, { title, value: 'x', project: 'p', reason: 'r', ...(vaultId ? { vaultId } : {}) });
+    return { ...t, team, personal, url, putDefault, stored, dto, vaultOf, create };
+  }
+
+  it('defaults to the personal vault; device creations without a vault land there (users unchanged)', async () => {
+    const t = await withDefault();
+    expect(t.stored()).toBeNull();
+    expect(t.dto().defaultVault).toEqual({ id: t.personal, name: 'Personal', personal: true });
+    expect(t.vaultOf(t.create('A').id)).toBe(t.personal);
+    // A pending device without an owner has no default vault.
+    const pending = newId('dev');
+    t.w.db.insert(devices).values({ id: pending, userId: null, name: 'p', kind: 'mcp', status: 'pending', createdAt: t.w.clock.now() }).run();
+    expect(deviceDefaultVault(t.w.db, pending)).toBeNull();
+  });
+
+  it('PUT sets the default (audited, device.changed); device creations follow it, an explicit vault still wins; null resets', async () => {
+    const t = await withDefault();
+    t.events.length = 0;
+    const res = await t.putDefault(t.team.id);
+    expect(res.statusCode).toBe(200);
+    expect(DeviceDtoSchema.parse(res.json()).defaultVault).toEqual({ id: t.team.id, name: 'Team', personal: false });
+    expect(t.stored()).toBe(t.team.id);
+    const audit = auditRows(t.w.db, 'device.default_vault_changed');
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({ actor_type: 'user', actor_id: t.w.alice.id, device_id: t.dev.id, vault_id: t.team.id });
+    expect(meta(audit[0])).toEqual({ previousVaultId: t.personal, vaultId: t.team.id });
+    expect(t.deviceChanged()).toEqual([{ type: 'device.changed', data: { deviceId: t.dev.id } }]);
+
+    expect(t.vaultOf(t.create('In team').id)).toBe(t.team.id);
+    expect(t.vaultOf(t.create('Explicit', t.personal).id)).toBe(t.personal);
+    // Users still create in their personal vault by default.
+    expect(t.vaultOf(createSecret(t.w.ctx, t.w.alice.actor, { title: 'U', value: 'u' }).id)).toBe(t.personal);
+
+    const reset = await t.putDefault(null);
+    expect(reset.statusCode).toBe(200);
+    expect(t.stored()).toBeNull();
+    expect(meta(auditRows(t.w.db, 'device.default_vault_changed')[1])).toEqual({ previousVaultId: t.team.id, vaultId: null });
+    // Choosing the personal vault explicitly is stored as NULL as well.
+    await t.putDefault(t.team.id);
+    expect((await t.putDefault(t.personal)).statusCode).toBe(200);
+    expect(t.stored()).toBeNull();
+  });
+
+  it('includeCreated only adds secrets created in the default vault', async () => {
+    const t = await withDefault();
+    t.set({ scope: 'list', secretIds: [], includeCreated: true });
+    const inShared = t.create('Placeholder', t.team.id);
+    const inDefault = t.create('Mine');
+    expect(t.get().standingApproval!.secrets.map((s) => s.id)).toEqual([inDefault.id]);
+    expect(t.read(inShared.id).status).toBe('pending');
+    expect(auditRows(t.w.db, 'standing_approval.secret_added')).toHaveLength(1);
+    expect(auditRows(t.w.db, 'standing_approval.secret_added')[0]).toMatchObject({ vault_id: t.personal });
+
+    // With the team vault as default, creations there are added and explicit personal ones are not.
+    await t.putDefault(t.team.id);
+    const teamCreated = t.create('Team new');
+    const personalCreated = t.create('Personal new', t.personal);
+    const ids = t.get().standingApproval!.secrets.map((s) => s.id);
+    expect(ids).toContain(teamCreated.id);
+    expect(ids).not.toContain(personalCreated.id);
+  });
+
+  it('route: owner only (404), vault must be accessible (404 vault_not_found), device approved (409), body validated, recent login', async () => {
+    const t = await withDefault();
+    const bobVault = createVault(t.w.ctx, t.w.bob.id, 'Bob only');
+    expect((await t.putDefault(t.team.id, t.w.bob)).statusCode).toBe(404);
+    expect((await t.w.req(t.w.alice, 'PUT', '/api/devices/dev_nope/default-vault', { vaultId: null })).statusCode).toBe(404);
+    expect((await t.w.req(undefined, 'PUT', t.url, { vaultId: null })).statusCode).toBe(401);
+    for (const v of [bobVault.id, personalVaultId(t.w.db, t.w.bob.id), 'vlt_nope']) {
+      const res = await t.putDefault(v);
+      expect(res.statusCode, v).toBe(404);
+      expect(res.json()).toEqual({ error: 'vault_not_found' });
+    }
+    for (const bad of [{}, { vaultId: 1 }, { vaultId: '' }, { vaultId: null, extra: 1 }]) {
+      const res = await t.w.req(t.w.alice, 'PUT', t.url, bad);
+      expect(res.statusCode, JSON.stringify(bad)).toBe(400);
+      expect(res.json()).toEqual({ error: 'invalid_request' });
+    }
+    expect(t.stored()).toBeNull();
+    expect(auditRows(t.w.db, 'device.default_vault_changed')).toHaveLength(0);
+
+    t.w.clock.advance(10 * MIN + 1);
+    const stale = await t.putDefault(t.team.id);
+    expect(stale.statusCode).toBe(401);
+    expect(stale.json()).toEqual({ error: 'reauth_required' });
+    expect(t.stored()).toBeNull();
+
+    const fresh = await login(t.w.app, 'alice');
+    revokeDevice(t.w.ctx, t.dev.id, { type: 'user', userId: t.w.alice.id });
+    const inactive = await t.w.app.inject({ method: 'PUT', url: t.url, headers: { cookie: fresh, origin: ORIGIN }, payload: { vaultId: t.team.id } });
+    expect(inactive.statusCode).toBe(409);
+    expect(inactive.json()).toEqual({ error: 'device_inactive' });
+  });
+
+  it('losing membership of the default vault resets it to personal (audited with cause member_removed, device.changed)', async () => {
+    const t = await withDefault();
+    await t.putDefault(t.team.id);
+    t.events.length = 0;
+    removeMember(t.w.ctx, t.w.bob.id, t.team.id, t.w.alice.id);
+    expect(t.stored()).toBeNull();
+    expect(t.dto().defaultVault).toEqual({ id: t.personal, name: 'Personal', personal: true });
+    const rows = auditRows(t.w.db, 'device.default_vault_changed');
+    expect(rows).toHaveLength(2);
+    expect(rows[1]).toMatchObject({ actor_type: 'system', device_id: t.dev.id, vault_id: t.personal });
+    expect(meta(rows[1])).toEqual({ cause: 'member_removed', previousVaultId: t.team.id, vaultId: null });
+    await tick();
+    expect(t.deviceChanged()).toEqual([{ type: 'device.changed', data: { deviceId: t.dev.id } }]);
+    expect(t.vaultOf(t.create('After').id)).toBe(t.personal);
+  });
+
+  it('deleting the default vault sets the column to NULL (falls back to personal)', async () => {
+    const t = await withDefault();
+    const empty = createVault(t.w.ctx, t.w.alice.id, 'Empty');
+    await t.putDefault(empty.id);
+    expect(t.stored()).toBe(empty.id);
+    t.w.db.$client.prepare('DELETE FROM vaults WHERE id = ?').run(empty.id);
+    expect(t.stored()).toBeNull();
+    expect(t.dto().defaultVault).toMatchObject({ id: t.personal, personal: true });
+  });
+
+  it('an inaccessible stored default falls back to personal without being rewritten', async () => {
+    const t = await withDefault();
+    await t.putDefault(t.team.id);
+    t.w.db.$client.prepare('DELETE FROM vault_members WHERE vault_id = ? AND user_id = ?').run(t.team.id, t.w.alice.id);
+    expect(t.dto().defaultVault).toMatchObject({ id: t.personal });
+    expect(t.vaultOf(t.create('Fallback').id)).toBe(t.personal);
   });
 });

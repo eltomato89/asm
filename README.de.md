@@ -27,7 +27,8 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
 - **Dauerfreigabe pro Gerät.** Einem einzelnen Gerät für Tage statt Minuten vertrauen (Geräte → „Dauerfreigabe…“):
   bis zu einem Datum deiner Wahl (höchstens `ASM_STANDING_APPROVAL_MAX_DAYS`, Standard 90), für alle Secrets,
   für ausgewählte Tresore (inklusive später darin angelegter Secrets) oder für ausgewählte Secrets, optional inklusive
-  der Secrets, die das Gerät selbst anlegt. Abrufe sind abgedeckt, Änderungen nur,
+  der Secrets, die das Gerät selbst in seinem Standardtresor anlegt (was es in anderen Tresoren anlegt, braucht weiter
+  deine Freigabe). Abrufe sind abgedeckt, Änderungen nur,
   wenn du sie zusätzlich erlaubst. Nach Ablauf fragt ASM entweder wieder jedes Mal, oder einmal – und deine Freigabe
   verlängert die Dauerfreigabe um eine voreingestellte Anzahl Tage. Jede automatische Freigabe steht als „per
   Dauerfreigabe“ im Audit-Log; Widerrufen des Geräts entfernt sie.
@@ -40,11 +41,13 @@ Browser frei. Den Wert bekommt standardmäßig nicht der Agent, sondern nur der 
 - **Audit-Log** mit Hash-Kette: Jeder Eintrag enthält den Hash des vorigen, Manipulationen fallen auf
   (Grenzen siehe unten).
 - **Geräte.** Jede Kopplung (Claude Code, CLI) ist ein eigenes Gerät, das du im Browser freigibst und
-  jederzeit widerrufen kannst. Refresh-Tokens rotieren; Wiederverwendung sperrt das Gerät.
+  jederzeit widerrufen kannst. Refresh-Tokens rotieren; Wiederverwendung sperrt das Gerät. Jedes Gerät hat einen
+  **Standardtresor**, in dem es Secrets ohne Tresorangabe anlegt (anfangs dein persönlicher Tresor; änderbar in der
+  Geräteliste, mit frischer Anmeldung). Verlierst du den Zugriff auf diesen Tresor, gilt wieder dein persönlicher.
 - **Konten deaktivieren.** Admins können Konten in den Einstellungen deaktivieren (Offboarding): Die Person wird
   abgemeldet, kann sich nicht mehr anmelden, und alle ihre Geräte werden widerrufen.
 - **Verschlüsselung.** AES-256-GCM, pro Secret ein eigener Schlüssel, der mit dem Master-Key verschlüsselt ist.
-  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus, Dauerfreigabe setzen) verlangen eine Anmeldung, die höchstens
+  Sensible Aktionen (Wert anzeigen, Gerät koppeln, Auto-Modus, Dauerfreigabe oder Standardtresor eines Geräts setzen) verlangen eine Anmeldung, die höchstens
   10 Minuten alt ist. Anmeldung mit Passwort oder Passkey.
 
 ## Setup (Docker)

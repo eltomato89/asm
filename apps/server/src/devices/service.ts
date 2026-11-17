@@ -6,6 +6,7 @@ import { cancelOpenForDevice } from '../requests/service.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import { deviceCodes, devices, oauthCodes, tokens } from '../db/schema.js';
 import { HttpError } from '../errors.js';
+import { canAccessVault, deviceDefaultVault, personalVaultId } from '../vaults/service.js';
 import { deleteForRevokedDevice, emitDeviceChanged, standingSummariesForUser, standingSummaryForDevice } from '../standing/service.js';
 
 export type DeviceKind = DeviceDto['kind'];
@@ -43,18 +44,47 @@ export function listDevices(ctx: ServiceCtx, userId: string): DeviceDto[] {
     .where(eq(devices.userId, userId))
     .orderBy(devices.createdAt, devices.id)
     .all()
-    .map((d) => ({ ...d, standingApproval: standing.get(d.id) ?? null }));
+    .map((d) => ({ ...d, standingApproval: standing.get(d.id) ?? null, defaultVault: deviceDefaultVault(ctx.db, d.id) }));
 }
 
 function getOwnDevice(ctx: ServiceCtx, userId: string, deviceId: string): DeviceDto {
   const row = ctx.db.select(dtoColumns).from(devices).where(and(eq(devices.id, deviceId), eq(devices.userId, userId))).get();
   if (!row) throw new HttpError(404, 'not_found');
-  return { ...row, standingApproval: standingSummaryForDevice(ctx, deviceId) };
+  return { ...row, standingApproval: standingSummaryForDevice(ctx, deviceId), defaultVault: deviceDefaultVault(ctx.db, deviceId) };
 }
 
 export function renameDevice(ctx: ServiceCtx, userId: string, deviceId: string, name: string): DeviceDto {
   getOwnDevice(ctx, userId, deviceId);
   ctx.db.update(devices).set({ name }).where(eq(devices.id, deviceId)).run();
+  return getOwnDevice(ctx, userId, deviceId);
+}
+
+/**
+ * Sets the device's default vault (`vaultId` null = back to the owner's personal vault). Callers (routes) must require recent
+ * auth: with an include_created standing approval it widens what gets auto-approved.
+ * 404 not_found (not own device) | 404 vault_not_found | 409 device_inactive. Audit device.default_vault_changed, device.changed.
+ */
+export function setDeviceDefaultVault(
+  ctx: ServiceCtx, userId: string, deviceId: string, vaultId: string | null, info: RequestInfo = {},
+): DeviceDto {
+  const { db } = ctx;
+  const dev = db.select({ status: devices.status, defaultVaultId: devices.defaultVaultId }).from(devices)
+    .where(and(eq(devices.id, deviceId), eq(devices.userId, userId))).get();
+  if (!dev) throw new HttpError(404, 'not_found');
+  if (vaultId !== null && !canAccessVault(db, userId, vaultId)) throw new HttpError(404, 'vault_not_found');
+  if (dev.status !== 'approved') throw new HttpError(409, 'device_inactive');
+  // Storing the personal vault explicitly is the same as the default: keep NULL so it follows the owner's personal vault.
+  const stored = vaultId !== null && vaultId === personalVaultId(db, userId) ? null : vaultId;
+  const previous = deviceDefaultVault(db, deviceId);
+  db.$client.transaction(() => {
+    db.update(devices).set({ defaultVaultId: stored }).where(eq(devices.id, deviceId)).run();
+    const next = deviceDefaultVault(db, deviceId);
+    appendAudit(db, ctx.clock, {
+      actorType: 'user', actorId: userId, event: 'device.default_vault_changed', deviceId, vaultId: next?.id ?? null, ip: info.ip ?? null,
+      meta: { previousVaultId: previous?.id ?? null, vaultId: stored },
+    });
+  })();
+  emitDeviceChanged(ctx, userId, deviceId);
   return getOwnDevice(ctx, userId, deviceId);
 }
 

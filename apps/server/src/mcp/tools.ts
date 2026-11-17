@@ -20,7 +20,7 @@ import { grantIdForRequest, redeemGrant } from '../requests/grants.js';
 import { createRequest, createUpdateRequest, waitForRequest } from '../requests/service.js';
 import { archiveSecret, createSecret, searchSecrets } from '../secrets/service.js';
 import { standingSummaryForDevice } from '../standing/service.js';
-import { listVaultsForUser } from '../vaults/service.js';
+import { deviceDefaultVault, listVaultsForUser } from '../vaults/service.js';
 
 /** Per-HTTP-request context of a tool call. */
 export type ToolContext = {
@@ -138,6 +138,12 @@ function standingApproval(t: ToolContext): ToolPayload | null {
   return s ? { active: s.active, until: iso(s.until), covers_updates: s.allowUpdates, scope: s.scope } : null;
 }
 
+/** This device's effective default vault for whoami. */
+function defaultVault(t: ToolContext): ToolPayload | null {
+  const v = deviceDefaultVault(t.ctx.db, t.device.id);
+  return v ? { id: v.id, name: v.name } : null;
+}
+
 // ---------- tools ----------
 
 type ToolDef<S extends z.ZodObject> = {
@@ -218,14 +224,14 @@ export const TOOLS = [
   tool({
     name: 'create_secret',
     description:
-      'Create a new secret immediately (no approval needed), in the personal vault or in vault_id. Give exactly one of value or generate. ' +
+      "Create a new secret immediately (no approval needed), in this device's default vault (see whoami) or in vault_id. Give exactly one of value or generate. " +
       `${VALUE_HINT} ${NEVER_LEAK} Always pass the git repo / working-folder name as project and a concrete reason.`,
     schema: z.strictObject({
       title: TitleSchema.describe('Short human-readable title, e.g. "Stripe API key (staging)".'),
       description: DescriptionSchema.describe('What the secret is for and where it comes from.'),
       tags: TagsSchema.optional(),
       env_name: EnvNameSchema.optional().describe('Environment variable name used by `asm run`, e.g. STRIPE_API_KEY.'),
-      vault_id: id('Target vault (vlt_…); default: personal vault.').optional(),
+      vault_id: id("Target vault (vlt_…); default: this device's default vault (see whoami).").optional(),
       project,
       reason,
       value: value.optional(),
@@ -298,7 +304,8 @@ export const TOOLS = [
     name: 'whoami',
     description:
       'Show which device and user this connection acts as, whether auto mode (automatic approval of requests) is active, and ' +
-      "this device's standing approval (automatic approval for this device until a date; null if none). Always pass project.",
+      "this device's standing approval (automatic approval for this device until a date; null if none) and its default vault " +
+      '(where create_secret puts secrets without vault_id). Always pass project.',
     schema: z.strictObject({ project }),
     run: (t) => {
       const user = t.ctx.db.$client.prepare('SELECT id, username FROM users WHERE id = ?').get(t.device.userId) as { id: string; username: string };
@@ -307,6 +314,7 @@ export const TOOLS = [
         user: { id: user.id, username: user.username },
         auto_mode: getAutoMode(t.ctx, t.device.userId),
         standing_approval: standingApproval(t),
+        default_vault: defaultVault(t),
       };
     },
   }),

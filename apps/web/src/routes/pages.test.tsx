@@ -25,7 +25,7 @@ const auditRow = (over: Partial<AuditRow> = {}): AuditRow => ({
   ...over,
 });
 
-const devices = { items: [{ id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp', hostname: 'mbp-office', status: 'approved', lastUsedAt: T0, createdAt: T0, standingApproval: null }] };
+const devices = { items: [{ id: 'dev_1', name: 'claude@mbp-office', kind: 'mcp', hostname: 'mbp-office', status: 'approved', lastUsedAt: T0, createdAt: T0, standingApproval: null, defaultVault: { id: 'vlt_p', name: 'Personal', personal: true } }] };
 
 describe('audit page', () => {
   it('row reads as a sentence and expands to show project and reason', async () => {
@@ -273,6 +273,63 @@ describe('devices page', () => {
   });
 });
 
+describe('devices page: default vault', () => {
+  it('shows the default vault and changes it via PUT, confirming identity first when asked', async () => {
+    let recent = false;
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/devices' && c.method === 'GET') return { body: devices };
+      if (c.path === '/api/devices/dev_1/default-vault' && c.method === 'PUT') {
+        if (!recent) return { status: 401, body: { error: 'reauth_required' } };
+        const vaultId = (c.body as { vaultId: string | null }).vaultId;
+        return { body: { ...devices.items[0], defaultVault: vaultId ? { id: vaultId, name: 'Work', personal: false } : { id: 'vlt_p', name: 'Personal', personal: true } } };
+      }
+      if (c.path === '/api/auth/reauth/password') {
+        recent = true;
+        return { body: { ok: true } };
+      }
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/devices');
+    const table = await screen.findByRole('table', { name: 'Devices' });
+    expect(within(table).getByRole('columnheader', { name: 'Default vault' })).toBeInTheDocument();
+    const select = within(table).getByRole('combobox', { name: 'Default vault for claude@mbp-office' });
+    expect(select).toHaveValue('vlt_p');
+    await waitFor(() => expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Personal', 'Work']));
+    await u.selectOptions(select, 'vlt_w');
+    await u.type(await screen.findByLabelText('Password'), 'secret-enough!');
+    await u.click(screen.getByRole('button', { name: 'Confirm' }));
+    expect(await screen.findByText('claude@mbp-office now creates new secrets in Work.')).toBeInTheDocument();
+    const puts = calls.filter((c) => c.path === '/api/devices/dev_1/default-vault' && c.method === 'PUT');
+    expect(puts).toHaveLength(2);
+    expect(puts[1]!.body).toEqual({ vaultId: 'vlt_w' });
+  });
+
+  it('sends null for the personal vault and shows server errors', async () => {
+    const work = { ...devices.items[0], defaultVault: { id: 'vlt_w', name: 'Work', personal: false } };
+    const { calls } = appServer((c) => {
+      if (c.path === '/api/devices' && c.method === 'GET') return { body: { items: [work] } };
+      if (c.path === '/api/devices/dev_1/default-vault') return { status: 404, body: { error: 'vault_not_found' } };
+      return undefined;
+    });
+    const u = userEvent.setup();
+    renderApp('/devices');
+    const select = await screen.findByRole('combobox', { name: 'Default vault for claude@mbp-office' });
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(2));
+    await u.selectOptions(select, 'vlt_p');
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/devices/dev_1/default-vault')?.body).toEqual({ vaultId: null }));
+    expect(await screen.findByText("One of the selected vaults no longer exists or you've lost access to it.")).toBeInTheDocument();
+  });
+
+  it('shows no select for devices that are not active', async () => {
+    const pending = { ...devices.items[0], id: 'dev_2', name: 'waiting', status: 'pending', defaultVault: null };
+    appServer((c) => (c.path === '/api/devices' && c.method === 'GET' ? { body: { items: [pending] } } : undefined));
+    renderApp('/devices');
+    const table = await screen.findByRole('table', { name: 'Devices' });
+    expect(within(table).queryByRole('combobox')).toBeNull();
+  });
+});
+
 describe('devices page: standing approval', () => {
   const DAY = 24 * 60 * 60 * 1000;
   const summary = (over: Record<string, unknown> = {}) => ({
@@ -294,6 +351,7 @@ describe('devices page: standing approval', () => {
     lastUsedAt: null,
     createdAt: T0,
     standingApproval: null,
+    defaultVault: { id: 'vlt_p', name: 'Personal', personal: true },
     ...over,
   });
 

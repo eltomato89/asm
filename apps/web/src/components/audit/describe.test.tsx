@@ -108,3 +108,17 @@ describe('describeAudit: standing approvals', () => {
     }
   });
 });
+
+describe('describeAudit: device default vault', () => {
+  it('changed by the user, and reset after losing vault membership', () => {
+    const set = text(row({ event: 'device.default_vault_changed', vaultId: 'vlt_w', meta: { previousVaultId: 'vlt_p', vaultId: 'vlt_w' } }));
+    expect(set.sentence).toBe('You set the default vault of claude@mbp-office to Work');
+    expect(set.note).toBeUndefined();
+    const reset = text(
+      row({ event: 'device.default_vault_changed', actorType: 'system', actorId: null, vaultId: 'vlt_p', meta: { cause: 'member_removed', previousVaultId: 'vlt_w', vaultId: null } }),
+    );
+    expect(reset.sentence).toBe('The default vault of claude@mbp-office was reset to Personal');
+    expect(reset.note).toBe('no longer a member of the previous vault');
+    expect(AUDIT_EVENTS).toContain('device.default_vault_changed');
+  });
+});

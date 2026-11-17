@@ -9,7 +9,7 @@ import {
 import { appendAudit } from '../audit/audit.js';
 import type { RequestInfo, ServiceCtx } from '../context.js';
 import { HttpError } from '../errors.js';
-import { canAccessVault } from '../vaults/service.js';
+import { canAccessVault, deviceDefaultVault } from '../vaults/service.js';
 
 // NOTE: must not import secrets/service.ts or requests/service.ts (both import this module).
 
@@ -337,17 +337,21 @@ export function renewOnApproval(
   return true;
 }
 
-/** Inside createSecret's transaction (device actor): add the new secret to a list-scoped approval with include_created. */
-export function addCreatedSecret(ctx: ServiceCtx, deviceId: string, secretId: string): boolean {
+/**
+ * Inside createSecret's transaction (device actor): add the new secret to a list-scoped approval with include_created — but only
+ * if it was created in the device's effective default vault. (Otherwise a device could create a placeholder in a shared vault,
+ * get it auto-listed, and later read a real value another member put in without approval.)
+ */
+export function addCreatedSecret(ctx: ServiceCtx, deviceId: string, secretId: string, vaultId: string): boolean {
   const row = loadStanding(ctx, deviceId);
   if (!row || row.scope !== 'list' || row.include_created !== 1) return false;
+  if (deviceDefaultVault(ctx.db, deviceId)?.id !== vaultId) return false;
   const res = ctx.db.$client
     .prepare(`INSERT OR IGNORE INTO standing_approval_secrets (device_id, secret_id, added_by, added_at) VALUES (?, ?, 'device', ?)`)
     .run(deviceId, secretId, ctx.clock.now());
   if (res.changes === 0) return false;
-  const vault = ctx.db.$client.prepare('SELECT vault_id FROM secrets WHERE id = ?').get(secretId) as { vault_id: string } | undefined;
   appendAudit(ctx.db, ctx.clock, {
-    actorType: 'device', actorId: deviceId, event: 'standing_approval.secret_added', deviceId, secretId, vaultId: vault?.vault_id ?? null,
+    actorType: 'device', actorId: deviceId, event: 'standing_approval.secret_added', deviceId, secretId, vaultId,
     meta: { cause: 'created_by_device' },
   });
   emitDeviceChangedAfterCommit(ctx, row.user_id, deviceId);
@@ -355,8 +359,8 @@ export function addCreatedSecret(ctx: ServiceCtx, deviceId: string, secretId: st
 }
 
 /**
- * Member-removal hook (inside the removal transaction): drop the vault's secrets from the user's standing approval lists and
- * the vault from vaults-scoped approvals.
+ * Member-removal hook (inside the removal transaction): reset the user's devices whose default vault was this vault, drop the
+ * vault's secrets from the user's standing approval lists and the vault from vaults-scoped approvals.
  */
 export function removeForLostVault(ctx: ServiceCtx, vaultId: string, userId: string): void {
   const affected = ctx.db.$client
@@ -371,6 +375,7 @@ export function removeForLostVault(ctx: ServiceCtx, vaultId: string, userId: str
         WHERE sa.user_id = ? AND y.vault_id = ?`,
     )
     .all(userId, vaultId, userId, vaultId) as { device_id: string }[];
+  resetDefaultVaultForLostVault(ctx, vaultId, userId);
   if (affected.length === 0) return;
   ctx.db.$client
     .prepare(
@@ -386,6 +391,27 @@ export function removeForLostVault(ctx: ServiceCtx, vaultId: string, userId: str
     )
     .run(userId, vaultId);
   for (const a of affected) emitDeviceChangedAfterCommit(ctx, userId, a.device_id);
+}
+
+/**
+ * Member-removal part: devices of `userId` whose default vault is `vaultId` fall back to the personal vault (default_vault_id
+ * NULL), audited as device.default_vault_changed (cause member_removed), device.changed after commit.
+ */
+function resetDefaultVaultForLostVault(ctx: ServiceCtx, vaultId: string, userId: string): void {
+  const devs = ctx.db.$client
+    .prepare('SELECT id FROM devices WHERE user_id = ? AND default_vault_id = ?')
+    .all(userId, vaultId) as { id: string }[];
+  if (devs.length === 0) return;
+  ctx.db.$client.prepare('UPDATE devices SET default_vault_id = NULL WHERE user_id = ? AND default_vault_id = ?').run(userId, vaultId);
+  for (const d of devs) {
+    const fallback = deviceDefaultVault(ctx.db, d.id);
+    // System actor; the owner sees it via the device rule. The vault column is the new default, not the lost vault.
+    appendAudit(ctx.db, ctx.clock, {
+      actorType: 'system', actorId: null, event: 'device.default_vault_changed', deviceId: d.id, vaultId: fallback?.id ?? null,
+      meta: { cause: 'member_removed', previousVaultId: vaultId, vaultId: null },
+    });
+    emitDeviceChangedAfterCommit(ctx, userId, d.id);
+  }
 }
 
 /**

@@ -233,8 +233,19 @@ export const DeviceDtoSchema = z.strictObject({
   lastUsedAt: z.number().nullable(),
   createdAt: z.number(),
   standingApproval: StandingApprovalSummarySchema.nullable(),
+  /**
+   * Effective default vault (where the device creates secrets without an explicit vault).
+   * Null only for devices without an owner (e.g. pending).
+   */
+  defaultVault: z.strictObject({ id: z.string(), name: z.string(), personal: z.boolean() }).nullable(),
 });
 export type DeviceDto = z.infer<typeof DeviceDtoSchema>;
+
+/** PUT /api/devices/:id/default-vault body. `vaultId` null = reset to the owner's personal vault. */
+export const DeviceDefaultVaultInputSchema = z.strictObject({
+  vaultId: z.string().min(1).max(100).nullable(),
+});
+export type DeviceDefaultVaultInput = z.infer<typeof DeviceDefaultVaultInputSchema>;
 
 export const StandingApprovalSecretSchema = z.strictObject({
   id: z.string(),

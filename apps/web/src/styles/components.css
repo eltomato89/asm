@@ -814,6 +814,9 @@ button { cursor: pointer; }
 @layer components {
   .device-status, .device-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .device-actions { gap: 4px; flex-wrap: nowrap; }
+  .field-compact { position: relative; margin: 0; }
+  .select.select-sm { width: auto; max-width: 180px; height: 28px; padding: 0 6px; font-size: var(--fs-12); text-overflow: ellipsis; }
+  @media (max-width: 760px) { .col-vault { display: none; } }
 
   .dialog:has(.standing-form) { max-width: 520px; top: 6vh; max-height: 88vh; overflow-y: auto; }
   .standing-form { display: grid; gap: 18px; }

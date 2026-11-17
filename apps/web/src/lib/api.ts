@@ -200,6 +200,9 @@ export const api = {
   devices: () => get<{ items: DeviceDto[] }>('/api/devices'),
   renameDevice: (deviceId: string, name: string) => patch<DeviceDto>(`/api/devices/${id(deviceId)}`, { name }),
   revokeDevice: (deviceId: string) => post<DeviceDto>(`/api/devices/${id(deviceId)}/revoke`),
+  /** `vaultId` null = back to the personal vault. Needs a recent login (sessionFetch handles the reauth prompt). */
+  setDeviceDefaultVault: (deviceId: string, vaultId: string | null) =>
+    client.request<DeviceDto>('PUT', `/api/devices/${id(deviceId)}/default-vault`, { body: { vaultId } }),
   standingApproval: (deviceId: string) => get<StandingApprovalResponse>(`/api/devices/${id(deviceId)}/standing-approval`),
   /** Full replace; needs recent auth (sessionFetch opens the ReauthDialog on `reauth_required`). */
   setStandingApproval: (deviceId: string, body: StandingApprovalInputRaw) =>

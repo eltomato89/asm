@@ -28,7 +28,7 @@ browser. By default the value never reaches the agent, only the process it start
 - **Standing approval per device.** Trust a single device for days instead of minutes (Devices → "Standing
   approval…"): until a date you pick (at most `ASM_STANDING_APPROVAL_MAX_DAYS`, default 90), for all secrets, for
   selected vaults (including secrets added to them later) or for a selected list of secrets, optionally including the
-  secrets the device creates itself. Reads are covered; changes only if you
+  secrets the device creates itself in its default vault (secrets it creates in other vaults still need approval). Reads are covered; changes only if you
   also allow them. After the expiry, ASM either asks every time again, or asks once and extends the standing approval
   by a preset number of days when you approve. Every automatic approval is recorded as "via standing approval"; revoking
   the device removes it.
@@ -41,11 +41,13 @@ browser. By default the value never reaches the agent, only the process it start
 - **Audit log** with a hash chain: each entry contains the hash of the previous one, so tampering is detectable
   (see limitations below).
 - **Devices.** Every pairing (Claude Code, CLI) is a separate device that you approve in the browser and can
-  revoke at any time. Refresh tokens rotate; reuse locks the device.
+  revoke at any time. Refresh tokens rotate; reuse locks the device. Each device has a **default vault** where it
+  creates secrets when it doesn't name one (initially your personal vault; changeable in the device list, which needs a
+  recent sign-in). If you lose access to that vault, it falls back to your personal vault.
 - **Deactivating accounts.** Admins can deactivate accounts in Settings (offboarding): the person is
   signed out, can no longer sign in, and all their devices are revoked.
 - **Encryption.** AES-256-GCM, with a separate key per secret that is encrypted with the master key.
-  Sensitive actions (reveal a value, pair a device, auto mode, setting a standing approval) require a sign-in no older than
+  Sensitive actions (reveal a value, pair a device, auto mode, setting a standing approval or a device's default vault) require a sign-in no older than
   10 minutes. Sign in with password or passkey.
 
 ## Setup (Docker)
