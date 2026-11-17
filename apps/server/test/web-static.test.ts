@@ -14,6 +14,9 @@ function makeDist(): string {
   mkdirSync(join(dir, 'assets'));
   writeFileSync(join(dir, 'assets', 'index-abc123.js'), 'console.log(1)');
   writeFileSync(join(dir, 'theme-init.js'), '/* theme */');
+  writeFileSync(join(dir, '.env'), 'SECRET=dotfile-leak');
+  mkdirSync(join(dir, '.hidden'));
+  writeFileSync(join(dir, '.hidden', 'note.txt'), 'dotdir-leak');
   return dir;
 }
 
@@ -82,6 +85,13 @@ describe('web UI static serving', () => {
     expect(res.json()).toEqual({ needsSetup: true });
     const health = await app.inject({ method: 'GET', url: '/healthz' });
     expect(health.json()).toEqual({ status: 'ok' });
+  });
+
+  it('never serves dotfiles or files inside dot-directories', async () => {
+    for (const url of ['/.env', '/.hidden/note.txt', '/%2eenv', '/assets/../.env']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.body, url).not.toContain('leak');
+    }
   });
 
   it('does not fall back for non-GET methods', async () => {

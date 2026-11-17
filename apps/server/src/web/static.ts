@@ -41,6 +41,8 @@ export async function registerWebStatic(app: FastifyInstance, opts: { distDir: s
     wildcard: false,
     index: false,
     cacheControl: false,
+    // Defense in depth: never serve dotfiles/dot-directories from the dist folder (send's default, made explicit).
+    dotfiles: 'ignore',
     // @fastify/static >= 10 passes the FastifyReply (not the raw ServerResponse) and applies these after its own headers.
     setHeaders: (reply, filePath) => {
       if (filePath.endsWith('.html')) {
