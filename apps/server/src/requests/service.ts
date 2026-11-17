@@ -82,7 +82,7 @@ type ProposedMeta = { diff: RequestMetaDiff; valueChanged: boolean; baseVersion?
 type RequestRow = {
   id: string; kind: 'read' | 'update'; secret_id: string; device_id: string; user_id: string; project: string; reason: string;
   delivery: Delivery | null; proposed_meta: string | null; proposed_value_sealed: string | null; status: RequestStatus;
-  decided_by: string | null; auto: number; created_at: number; decided_at: number | null; expires_at: number;
+  decided_by: string | null; auto: number; auto_source: 'automode' | 'standing' | null; standing_renewal: number; created_at: number; decided_at: number | null; expires_at: number;
   title: string; env_name: string | null; vault_id: string; vault_name: string;
   device_name: string; device_kind: 'mcp' | 'cli'; device_status: string; decided_by_name: string | null;
   allow_plaintext_to_agent: number; current_version: number;
@@ -121,6 +121,9 @@ function toDto(r: RequestRow): AccessRequestDto {
     createdAt: r.created_at,
     decidedAt: r.decided_at,
     expiresAt: r.expires_at,
+    autoSource: r.auto_source,
+    // TODO(WP1): {days} for pending standing renewals (needs ctx for the cap).
+    renewal: null,
   };
   if (r.kind === 'update') {
     const pm = r.proposed_meta ? (JSON.parse(r.proposed_meta) as ProposedMeta) : { diff: {}, valueChanged: false };
@@ -287,7 +290,7 @@ function insertAndSettle(
   try {
     // Savepoint: a failed apply rolls back only the approval, not the inserted request.
     db.$client.transaction(() => {
-      db.$client.prepare(`UPDATE access_requests SET status = 'approved', auto = 1, decided_at = ? WHERE id = ?`).run(now, r.id);
+      db.$client.prepare(`UPDATE access_requests SET status = 'approved', auto = 1, auto_source = 'automode', decided_at = ? WHERE id = ?`).run(now, r.id);
       applyOrFail(() => applyApproval(ctx, loadRow(db, r.id)!));
       appendAudit(db, ctx.clock, { actorType: 'system', actorId: null, event: 'request.auto_approved', meta: auditMeta, ...common });
     })();

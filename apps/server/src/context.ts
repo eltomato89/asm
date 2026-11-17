@@ -28,6 +28,8 @@ export type ServiceCtx = {
   events: RequestEvents;
   /** Upper bound for auto mode duration in minutes (ASM_AUTO_MODE_MAX_MIN). */
   autoModeMaxMin: number;
+  /** Upper bound for standing approvals in days (ASM_STANDING_APPROVAL_MAX_DAYS); 0 = feature disabled. */
+  standingMaxDays: number;
   logger?: ServiceLogger;
 };
 
@@ -45,6 +47,7 @@ export const defaultHooks: ServiceHooks = {
 };
 
 export const DEFAULT_AUTO_MODE_MAX_MIN = 240;
+export const DEFAULT_STANDING_MAX_DAYS = 90;
 
 export function createServiceCtx(deps: {
   db: Db;
@@ -53,6 +56,7 @@ export function createServiceCtx(deps: {
   hooks?: ServiceHooks;
   events?: RequestEvents;
   autoModeMaxMin?: number;
+  standingMaxDays?: number;
   logger?: ServiceLogger;
 }): ServiceCtx {
   return {
@@ -62,6 +66,7 @@ export function createServiceCtx(deps: {
     hooks: deps.hooks ?? { ...defaultHooks },
     events: deps.events ?? new RequestEvents(),
     autoModeMaxMin: deps.autoModeMaxMin ?? DEFAULT_AUTO_MODE_MAX_MIN,
+    standingMaxDays: deps.standingMaxDays ?? DEFAULT_STANDING_MAX_DAYS,
     logger: deps.logger,
   };
 }

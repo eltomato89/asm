@@ -161,6 +161,10 @@ export const accessRequests = sqliteTable(
     status: text('status', { enum: ['pending', 'approved', 'denied', 'expired'] }).notNull(),
     decidedBy: text('decided_by'),
     auto: bool('auto').notNull().default(false),
+    /** What auto-approved the request (null = manual/undecided). */
+    autoSource: text('auto_source', { enum: ['automode', 'standing'] }),
+    /** Pending request whose approval renews the device's expired standing approval. */
+    standingRenewal: bool('standing_renewal').notNull().default(false),
     createdAt: ts('created_at').notNull(),
     decidedAt: ts('decided_at'),
     expiresAt: ts('expires_at').notNull(),
@@ -204,6 +208,38 @@ export const autoMode = sqliteTable('auto_mode', {
   defaultDurationMin: integer('default_duration_min').notNull().default(30),
   vaultIds: text('vault_ids', { mode: 'json' }).$type<string[]>(),
 });
+
+/** Per-device standing approval (at most one per device). */
+export const standingApprovals = sqliteTable(
+  'standing_approvals',
+  {
+    deviceId: text('device_id').primaryKey().references(() => devices.id, { onDelete: 'cascade' }),
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    until: ts('until').notNull(),
+    grantedAt: ts('granted_at').notNull(),
+    scope: text('scope', { enum: ['all', 'list'] }).notNull(),
+    includeCreated: bool('include_created').notNull().default(false),
+    allowUpdates: bool('allow_updates').notNull().default(false),
+    afterExpiry: text('after_expiry', { enum: ['ask', 'renew'] }).notNull().default('ask'),
+    renewDays: integer('renew_days').notNull().default(7),
+    /** Set once the expiry has been audited (reset when `until` moves). */
+    expiryAudited: bool('expiry_audited').notNull().default(false),
+    createdAt: ts('created_at').notNull(),
+    updatedAt: ts('updated_at').notNull(),
+  },
+  (t) => [index('standing_approvals_user_idx').on(t.userId)],
+);
+
+export const standingApprovalSecrets = sqliteTable(
+  'standing_approval_secrets',
+  {
+    deviceId: text('device_id').notNull().references(() => standingApprovals.deviceId, { onDelete: 'cascade' }),
+    secretId: text('secret_id').notNull().references(() => secrets.id, { onDelete: 'cascade' }),
+    addedBy: text('added_by', { enum: ['user', 'device'] }).notNull(),
+    addedAt: ts('added_at').notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.deviceId, t.secretId] }), index('standing_approval_secrets_secret_idx').on(t.secretId)],
+);
 
 export const auditLog = sqliteTable('audit_log', {
   seq: integer('seq').primaryKey({ autoIncrement: true }),

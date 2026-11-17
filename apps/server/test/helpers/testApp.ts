@@ -28,6 +28,7 @@ export async function createTestApp(
     masterKey: TEST_KEY,
     trustProxy: false,
     autoModeMaxMin: 240,
+    standingMaxDays: 90,
     dataDir: ':memory:',
     port: 0,
     cliDir: null,
@@ -44,6 +45,8 @@ export async function createTestApp(
   const app = await buildApp({ config, db, clock, logger, webauthn: opts.webauthn, hooks, events, mcpAwaitTimeoutMs: opts.mcpAwaitTimeoutMs,
     webDistDir: opts.webDistDir ?? null, pushSender: opts.pushSender,
   });
-  const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin });
+  const ctx = createServiceCtx({ db, clock, kek: config.masterKey, hooks, events, autoModeMaxMin: config.autoModeMaxMin,
+    standingMaxDays: config.standingMaxDays,
+  });
   return { app, db, clock, config, ctx };
 }

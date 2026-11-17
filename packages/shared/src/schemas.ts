@@ -179,6 +179,10 @@ export const AccessRequestDtoSchema = z.strictObject({
   createdAt: z.number(),
   decidedAt: z.number().nullable(),
   expiresAt: z.number(),
+  /** What approved the request automatically; null for manual decisions and pending/denied/expired requests. */
+  autoSource: z.enum(['automode', 'standing']).nullable(),
+  /** Set when approving this request renews the device's expired standing approval by `days`. */
+  renewal: z.strictObject({ days: z.number().int() }).nullable(),
 });
 export type AccessRequestDto = z.infer<typeof AccessRequestDtoSchema>;
 
@@ -196,6 +200,81 @@ export const AutoModeInputSchema = z.strictObject({
   minutes: z.number().int().min(1).optional(),
   vaultIds: z.array(z.string().min(1).max(100)).min(1).max(100).nullable().optional(),
 });
+
+// ---------- devices / standing approval ----------
+export const DeviceKindSchema = z.enum(['mcp', 'cli']);
+export const DeviceStatusSchema = z.enum(['pending', 'approved', 'denied', 'revoked']);
+export const StandingScopeSchema = z.enum(['all', 'list']);
+export type StandingScope = z.infer<typeof StandingScopeSchema>;
+export const AfterExpirySchema = z.enum(['ask', 'renew']);
+export type AfterExpiry = z.infer<typeof AfterExpirySchema>;
+
+/** Short form of a device's standing approval (device list). `until` is the effective (capped) expiry. */
+export const StandingApprovalSummarySchema = z.strictObject({
+  until: z.number(),
+  active: z.boolean(),
+  scope: StandingScopeSchema,
+  /** Number of listed secrets (also reported for scope 'all'). */
+  secretCount: z.number().int(),
+  allowUpdates: z.boolean(),
+  afterExpiry: AfterExpirySchema,
+  renewDays: z.number().int(),
+});
+export type StandingApprovalSummary = z.infer<typeof StandingApprovalSummarySchema>;
+
+export const DeviceDtoSchema = z.strictObject({
+  id: z.string(),
+  name: z.string(),
+  kind: DeviceKindSchema,
+  hostname: z.string().nullable(),
+  status: DeviceStatusSchema,
+  lastUsedAt: z.number().nullable(),
+  createdAt: z.number(),
+  standingApproval: StandingApprovalSummarySchema.nullable(),
+});
+export type DeviceDto = z.infer<typeof DeviceDtoSchema>;
+
+export const StandingApprovalSecretSchema = z.strictObject({
+  id: z.string(),
+  title: z.string(),
+  envName: z.string().nullable(),
+  vaultId: z.string(),
+  vaultName: z.string(),
+  archived: z.boolean(),
+  addedBy: z.enum(['user', 'device']),
+  addedAt: z.number(),
+});
+export type StandingApprovalSecret = z.infer<typeof StandingApprovalSecretSchema>;
+
+export const StandingApprovalDtoSchema = StandingApprovalSummarySchema.extend({
+  includeCreated: z.boolean(),
+  grantedAt: z.number(),
+  updatedAt: z.number(),
+  secrets: z.array(StandingApprovalSecretSchema),
+});
+export type StandingApprovalDto = z.infer<typeof StandingApprovalDtoSchema>;
+
+/** GET/PUT /api/devices/:id/standing-approval response. `maxDays` 0 = feature disabled. */
+export const StandingApprovalResponseSchema = z.strictObject({
+  standingApproval: StandingApprovalDtoSchema.nullable(),
+  maxDays: z.number().int(),
+});
+export type StandingApprovalResponse = z.infer<typeof StandingApprovalResponseSchema>;
+
+/** PUT /api/devices/:id/standing-approval body (full replace). */
+export const StandingApprovalInputSchema = z
+  .strictObject({
+    until: z.number().int(),
+    scope: StandingScopeSchema,
+    secretIds: z.array(z.string().min(1).max(100)).max(200).default([]),
+    includeCreated: z.boolean().default(false),
+    allowUpdates: z.boolean().default(false),
+    afterExpiry: AfterExpirySchema.default('ask'),
+    renewDays: z.number().int().min(1).default(7),
+  })
+  .refine((v) => v.scope === 'all' || v.secretIds.length > 0 || v.includeCreated, { message: 'empty_list' });
+export type StandingApprovalInput = z.infer<typeof StandingApprovalInputSchema>;
+export type StandingApprovalInputRaw = z.input<typeof StandingApprovalInputSchema>;
 
 // ---------- push approval ----------
 export const PushSubscriptionDtoSchema = z.strictObject({
@@ -234,6 +313,8 @@ export const ApproveSummaryDtoSchema = z.strictObject({
   valueChanged: z.boolean().optional(),
   expiresAt: z.number(),
   status: RequestStatusSchema,
+  /** Set when approving renews the device's expired standing approval by `days`. */
+  renewal: z.strictObject({ days: z.number().int() }).nullable().optional(),
 });
 export type ApproveSummaryDto = z.infer<typeof ApproveSummaryDtoSchema>;
 

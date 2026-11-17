@@ -13,6 +13,8 @@ export function makeRequest(over: Partial<AccessRequestDto> = {}): AccessRequest
     reason: 'Push the release workflow',
     delivery: 'cli',
     auto: false,
+    autoSource: null,
+    renewal: null,
     decidedBy: null,
     createdAt: T0,
     decidedAt: null,

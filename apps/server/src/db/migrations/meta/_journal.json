@@ -29,6 +29,13 @@
       "when": 1794869103199,
       "tag": "0003_push",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794915627493,
+      "tag": "0004_standing_approval",
+      "breakpoints": true
     }
   ]
 }

@@ -52,6 +52,27 @@ describe('loadConfig', () => {
     });
     expect(cfg).toMatchObject({ port: 9000, autoModeMaxMin: 60, trustProxy: true, dataDir: '/tmp/x' });
   });
+  describe('ASM_STANDING_APPROVAL_MAX_DAYS', () => {
+    const withMax = (v: string) => () => loadConfig({ ...base, ASM_STANDING_APPROVAL_MAX_DAYS: v });
+    it('defaults to 90', () => {
+      expect(loadConfig(base).standingMaxDays).toBe(90);
+    });
+    it('accepts 0 (disabled) and other values up to 3650', () => {
+      expect(withMax('0')().standingMaxDays).toBe(0);
+      expect(withMax('30')().standingMaxDays).toBe(30);
+      expect(withMax('3650')().standingMaxDays).toBe(3650);
+    });
+    it('rejects invalid values', () => {
+      for (const v of ['-1', 'abc', '1.5', '7d']) {
+        expect(withMax(v)).toThrow(ConfigError);
+        expect(withMax(v)).toThrow(/ASM_STANDING_APPROVAL_MAX_DAYS/);
+      }
+    });
+    it('rejects values above 3650', () => {
+      expect(withMax('3651')).toThrow(ConfigError);
+      expect(withMax('3651')).toThrow(/at most 3650/);
+    });
+  });
   describe('ASM_PUBLIC_URL hardening', () => {
     const withUrl = (u: string) => () => loadConfig({ ...base, ASM_PUBLIC_URL: u });
     it('rejects non-http(s) schemes', () => {

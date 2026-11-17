@@ -16,6 +16,8 @@ export type Config = {
   /** Fastify trustProxy: false, true (every hop — unsafe with a gate), a hop count, or a comma list of proxy IPs/CIDRs. */
   trustProxy: boolean | number | string;
   autoModeMaxMin: number;
+  /** Upper bound for standing approvals in days; 0 = feature disabled. */
+  standingMaxDays: number;
   dataDir: string;
   port: number;
   /** Directory with the CLI bundle (asm.mjs + asm.json) served under /cli; null = not available. */
@@ -104,6 +106,15 @@ function parseInt10(raw: string | undefined, def: number, name: string): number 
   return Number(raw);
 }
 
+export const MAX_STANDING_MAX_DAYS = 3650;
+
+/** ASM_STANDING_APPROVAL_MAX_DAYS: default 90, 0 disables standing approvals, at most 3650. */
+function parseStandingMaxDays(raw: string | undefined): number {
+  const v = parseInt10(raw?.trim(), 90, 'ASM_STANDING_APPROVAL_MAX_DAYS');
+  if (v > MAX_STANDING_MAX_DAYS) throw new ConfigError(`ASM_STANDING_APPROVAL_MAX_DAYS must be at most ${MAX_STANDING_MAX_DAYS}`);
+  return v;
+}
+
 export function loadConfig(
   env: NodeJS.ProcessEnv,
   readFile: (p: string) => string = (p) => readFileSync(p, 'utf8'),
@@ -156,6 +167,7 @@ export function loadConfig(
     masterKey,
     trustProxy,
     autoModeMaxMin: parseInt10(env.ASM_AUTO_MODE_MAX_MIN, 240, 'ASM_AUTO_MODE_MAX_MIN'),
+    standingMaxDays: parseStandingMaxDays(env.ASM_STANDING_APPROVAL_MAX_DAYS),
     dataDir: env.ASM_DATA_DIR || '/data',
     port: parseInt10(env.PORT, 8080, 'PORT'),
     cliDir: env.ASM_CLI_DIR || defaultCliDir(exists),
