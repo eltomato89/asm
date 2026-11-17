@@ -24,6 +24,7 @@ import { createServiceCtx, defaultHooks, type ServiceCtx, type ServiceHooks } fr
 import type { RequestEvents } from './requests/events.js';
 import { registerRequestRoutes } from './requests/routes.js';
 import { expireDue, requestHooks } from './requests/service.js';
+import { emitDeviceChanged, removeAllStandingApprovals } from './standing/service.js';
 import { registerProjectRoutes } from './projects/routes.js';
 import { registerSecretRoutes } from './secrets/routes.js';
 import { registerVaultRoutes } from './vaults/routes.js';
@@ -168,6 +169,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   await root.register(registerPushRoutes, { ...moduleDeps, push });
   let sweep: NodeJS.Timeout | undefined;
   root.addHook('onReady', async () => {
+    // Feature disabled (max days 0): remove existing standing approvals right away rather than on the first sweep tick.
+    if (ctx.standingMaxDays <= 0) {
+      try {
+        for (const s of removeAllStandingApprovals(ctx)) emitDeviceChanged(ctx, s.userId, s.deviceId);
+      } catch (err) {
+        root.log.error({ errName: (err as Error).name }, 'standing approval cleanup failed');
+      }
+    }
     sweep = setInterval(() => {
       try {
         expireDue(ctx);

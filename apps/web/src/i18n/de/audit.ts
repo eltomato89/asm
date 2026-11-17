@@ -98,6 +98,7 @@ export const audit: Messages['audit'] = {
     thenAsk: 'danach wird wieder jedes Mal gefragt',
     thenRenew: (days) => (days ? `die nächste Anfrage fragt einmal und verlängert sie um ${days} Tage` : 'die nächste Anfrage fragt einmal und verlängert sie'),
     deviceRevoked: 'Gerät widerrufen',
+    disabledByAdmin: 'Dauerfreigaben wurden vom Admin abgeschaltet',
     renewalRequest: 'Dauerfreigabe abgelaufen',
     renewedStanding: 'Dauerfreigabe verlängert',
     viaPush: 'per Push',

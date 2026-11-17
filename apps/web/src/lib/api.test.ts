@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { ApiError, api, reauth } from './api';
 import { mockFetch } from '../test/utils';
+import { decisionErrorText } from './errors';
+import { t } from '../i18n';
 
 afterEach(() => reauth.setHandler(null));
 
@@ -33,6 +35,29 @@ describe('api client', () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(2);
     expect(calls[1]?.body).toEqual({ minutes: 30, vaultIds: null });
+  });
+
+  it('a renewal approval answered with reauth_required re-authenticates and retries the decision', async () => {
+    let n = 0;
+    const { calls } = mockFetch(({ method, path }) => {
+      if (method === 'POST' && path === '/api/requests/r1/decision') {
+        n += 1;
+        return n === 1 ? { status: 401, body: { error: 'reauth_required' } } : { body: { id: 'r1', status: 'approved' } };
+      }
+      return undefined;
+    });
+    const handler = vi.fn(async () => true);
+    reauth.setHandler(handler);
+    await expect(api.decide('r1', 'approve')).resolves.toMatchObject({ status: 'approved' });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(calls.filter((c) => c.method === 'POST').map((c) => c.body)).toEqual([{ decision: 'approve' }, { decision: 'approve' }]);
+  });
+
+  it('a cancelled re-authentication on a decision shows the cancelled toast text', async () => {
+    mockFetch(() => ({ status: 401, body: { error: 'reauth_required' } }));
+    reauth.setHandler(async () => false);
+    const err = await api.decide('r1', 'approve').catch((e: unknown) => e);
+    expect(decisionErrorText(err)).toBe(t.errors.reauthCancelled);
   });
 
   it('fails with reauth_required when the user cancels', async () => {

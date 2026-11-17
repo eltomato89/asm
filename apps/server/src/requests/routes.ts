@@ -7,7 +7,7 @@ import { HttpError } from '../errors.js';
 import { reqInfo } from '../secrets/routes.js';
 import { disableAutoMode, enableAutoMode, getAutoMode } from './automode.js';
 import type { RequestEvent } from './events.js';
-import { decideRequest, listRequests } from './service.js';
+import { approvalWouldRenew, decideRequest, listRequests } from './service.js';
 
 const idParams = z.object({ id: z.string().min(1).max(100) });
 const listQuery = z.object({ status: z.enum(['pending', 'all']).default('pending') });
@@ -27,10 +27,13 @@ export async function registerRequestRoutes(app: FastifyInstance, deps: ModuleDe
     return { items: listRequests(ctx, req.user!.id, status) };
   });
 
-  // Deliberately no recent-auth: approvals must be one click.
-  app.post('/api/requests/:id/decision', { preHandler: requireUser }, async (req) => {
+  // Deliberately no recent-auth for normal approvals (one click). An approval that would renew a standing approval extends a
+  // long-lived grant, so it requires recent auth like setting one (the web client re-authenticates and retries).
+  const recentAuth = requireRecentAuth(clock);
+  app.post('/api/requests/:id/decision', { preHandler: requireUser }, async (req, reply) => {
     const { id } = idParams.parse(req.params);
     const { decision } = decisionBody.parse(req.body);
+    if (decision === 'approve' && approvalWouldRenew(ctx, id, req.user!.id)) await recentAuth(req, reply);
     return decideRequest(ctx, { requestId: id, userId: req.user!.id, decision }, reqInfo(req));
   });
 

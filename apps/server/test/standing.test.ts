@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   AccessRequestDtoSchema, DeviceDtoSchema, StandingApprovalInputSchema, StandingApprovalResponseSchema, newId,
@@ -16,7 +19,9 @@ import { archiveSecret, createSecret, deleteSecret } from '../src/secrets/servic
 import { listVersions } from '../src/secrets/versions.js';
 import { getStandingApproval, removeStandingApproval, setStandingApproval } from '../src/standing/service.js';
 import { addMember, createVault, personalVaultId, removeMember } from '../src/vaults/service.js';
-import { ORIGIN, auditRows, pairDevice, world } from './helpers/fixtures.js';
+import { FakeClock } from '../src/clock.js';
+import { ORIGIN, addUser, auditRows, login, pairDevice, world } from './helpers/fixtures.js';
+import { createTestApp } from './helpers/testApp.js';
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -273,6 +278,28 @@ describe('standing approval: after expiry', () => {
     expect(t3.get().standingApproval).toBeNull();
   });
 
+  it('coverage is re-checked at decision time: no longer covered -> approved without extension', async () => {
+    // Secret dropped from the list while the renewal request is pending.
+    const t = await expiredRenew({ scope: 'list' });
+    const r = t.read();
+    expect(r.renewal).toEqual({ days: 10 });
+    t.w.db.$client.prepare('DELETE FROM standing_approval_secrets WHERE device_id = ?').run(t.dev.id);
+    expect(t.approve(r.id)).toMatchObject({ status: 'approved' });
+    expect(untilOf(t.w, t.dev.id)).toBe(t.until);
+    expect(auditRows(t.w.db, 'standing_approval.renewed')).toHaveLength(0);
+    expect(meta(auditRows(t.w.db, 'request.approved')[0])).not.toHaveProperty('renewed');
+
+    // Updates no longer allowed while an update renewal request is pending.
+    const t2 = await expiredRenew();
+    t2.w.db.$client.prepare('UPDATE standing_approvals SET allow_updates = 1 WHERE device_id = ?').run(t2.dev.id);
+    const u = t2.update();
+    expect(u.renewal).toEqual({ days: 10 });
+    t2.w.db.$client.prepare('UPDATE standing_approvals SET allow_updates = 0 WHERE device_id = ?').run(t2.dev.id);
+    expect(t2.approve(u.id)).toMatchObject({ status: 'approved' });
+    expect(untilOf(t2.w, t2.dev.id)).toBe(t2.until);
+    expect(auditRows(t2.w.db, 'standing_approval.renewed')).toHaveLength(0);
+  });
+
   it('renewal is capped by the admin max (renewDays > lowered max)', async () => {
     const t = await expiredRenew({ renewDays: 30 });
     t.w.ctx.standingMaxDays = 20;
@@ -327,6 +354,65 @@ describe('standing approval: caps', () => {
     expect(res.statusCode).toBe(403);
     expect(res.json()).toEqual({ error: 'standing_disabled' });
     expect((await off.w.req(off.w.alice, 'GET', `/api/devices/${off.dev.id}/standing-approval`)).json()).toEqual({ standingApproval: null, maxDays: 0 });
+  });
+});
+
+describe('standing approval: disabled by the admin (maxDays 0)', () => {
+  it('the sweep removes all standing approvals (audited, device.changed); raising the cap does not bring them back', async () => {
+    const t = await setup();
+    const second = pairDevice(t.w.ctx, { userId: t.w.alice.id, kind: 'cli', name: 'cli' });
+    t.set({ scope: 'list', secretIds: [t.secret.id] });
+    const vault = createVault(t.w.ctx, t.w.alice.id, 'Team');
+    t.set({ scope: 'vaults', vaultIds: [vault.id] }, second.deviceId);
+    t.w.ctx.standingMaxDays = 0;
+    t.events.length = 0;
+    expireDue(t.w.ctx);
+    await tick();
+    const count = (table: string) => (t.w.db.$client.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
+    expect(count('standing_approvals')).toBe(0);
+    expect(count('standing_approval_secrets')).toBe(0);
+    expect(count('standing_approval_vaults')).toBe(0);
+    const removed = auditRows(t.w.db, 'standing_approval.removed');
+    expect(removed).toHaveLength(2);
+    for (const r of removed) {
+      expect(r).toMatchObject({ actor_type: 'system', actor_id: null });
+      expect(meta(r)).toMatchObject({ cause: 'disabled_by_admin', previous: expect.any(Object) });
+    }
+    expect(removed.map((r) => r.device_id).sort()).toEqual([t.dev.id, second.deviceId].sort());
+    expect(t.deviceChanged().map((e) => (e.data as { deviceId: string }).deviceId).sort()).toEqual([t.dev.id, second.deviceId].sort());
+
+    // Idempotent; re-enabling the feature does not reactivate anything.
+    expireDue(t.w.ctx);
+    expect(auditRows(t.w.db, 'standing_approval.removed')).toHaveLength(2);
+    t.w.ctx.standingMaxDays = 90;
+    expect(t.get().standingApproval).toBeNull();
+    expect(t.read().status).toBe('pending');
+  });
+
+  it('runs at startup: a server started with maxDays 0 removes existing standing approvals immediately', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'asm-sa-'));
+    try {
+      const dbPath = join(dir, 'asm.db');
+      const clock = new FakeClock();
+      const first = await createTestApp({ dbPath, clock });
+      const alice = await addUser(first, 'alice');
+      const { deviceId } = pairDevice(first.ctx, { userId: alice.id, kind: 'mcp' });
+      setStandingApproval(first.ctx, alice.id, deviceId, StandingApprovalInputSchema.parse({ until: clock.now() + DAY, scope: 'all' }), {});
+      await first.app.close();
+      first.db.$client.close();
+
+      const second = await createTestApp({ dbPath, clock, config: { standingMaxDays: 0 } });
+      await second.app.ready();
+      expect(second.db.$client.prepare('SELECT count(*) AS n FROM standing_approvals').get()).toEqual({ n: 0 });
+      const removed = auditRows(second.db, 'standing_approval.removed');
+      expect(removed).toHaveLength(1);
+      expect(removed[0]).toMatchObject({ actor_type: 'system', device_id: deviceId });
+      expect(meta(removed[0])).toMatchObject({ cause: 'disabled_by_admin' });
+      await second.app.close();
+      second.db.$client.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -634,6 +720,49 @@ describe('standing approval: routes', () => {
     const del = await t.w.req(t.w.alice, 'DELETE', `/api/devices/${t.dev.id}/standing-approval`);
     expect(del.statusCode).toBe(200);
     expect(t.get().standingApproval).toBeNull();
+  });
+
+  it('approving a renewal request needs a recent login; normal approvals and denials do not', async () => {
+    const t = await expiredRenew();
+    const decide = (id: string, decision: 'approve' | 'deny', cookie = t.w.alice.cookie) =>
+      t.w.app.inject({ method: 'POST', url: `/api/requests/${id}/decision`, headers: { cookie, origin: ORIGIN }, payload: { decision } });
+    // Login is 2 days old by now.
+    const r = t.read();
+    const stale = await decide(r.id, 'approve');
+    expect(stale.statusCode).toBe(401);
+    expect(stale.json()).toEqual({ error: 'reauth_required' });
+    expect(t.w.db.$client.prepare('SELECT status FROM access_requests WHERE id = ?').get(r.id)).toEqual({ status: 'pending' });
+    expect(untilOf(t.w, t.dev.id)).toBe(t.until);
+
+    // Denying a renewal request stays one click.
+    const d = t.read(t.other.id);
+    expect((await decide(d.id, 'deny')).statusCode).toBe(200);
+
+    // After re-authentication the approval renews.
+    const fresh = await login(t.w.app, 'alice');
+    const ok = await decide(r.id, 'approve', fresh);
+    expect(ok.statusCode).toBe(200);
+    expect(untilOf(t.w, t.dev.id)).toBe(t.w.clock.now() + 10 * DAY);
+
+    // A non-renewal approval with a stale login is still one click.
+    const t2 = await setup();
+    t2.w.clock.advance(11 * MIN);
+    const p = t2.read();
+    expect(p.status).toBe('pending');
+    const plain = await t2.w.app.inject({
+      method: 'POST', url: `/api/requests/${p.id}/decision`, headers: { cookie: t2.w.alice.cookie, origin: ORIGIN }, payload: { decision: 'approve' },
+    });
+    expect(plain.statusCode).toBe(200);
+
+    // A renewal request that would no longer renew (coverage lost) needs no re-auth and does not extend.
+    const t3 = await expiredRenew({ scope: 'list' });
+    const q = t3.read();
+    t3.w.db.$client.prepare('DELETE FROM standing_approval_secrets WHERE device_id = ?').run(t3.dev.id);
+    const lost = await t3.w.app.inject({
+      method: 'POST', url: `/api/requests/${q.id}/decision`, headers: { cookie: t3.w.alice.cookie, origin: ORIGIN }, payload: { decision: 'approve' },
+    });
+    expect(lost.statusCode).toBe(200);
+    expect(untilOf(t3.w, t3.dev.id)).toBe(t3.until);
   });
 
   it('PUT on a device that is not approved -> 409 device_inactive', async () => {

@@ -111,6 +111,7 @@ export const audit = {
     thenAsk: 'afterwards, every request asks again',
     thenRenew: (days: string | null) => (days ? `the next request asks once to extend it by ${days} days` : 'the next request asks once to extend it'),
     deviceRevoked: 'device revoked',
+    disabledByAdmin: 'standing approvals were turned off by the admin',
     renewalRequest: 'standing approval expired',
     renewedStanding: 'standing approval extended',
     viaPush: 'via push',

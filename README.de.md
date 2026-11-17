@@ -81,7 +81,7 @@ Weitere Nutzer legst du unter „Einstellungen“ an. Einen Passkey fügst du do
 | `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master-Key (base64, 32 Byte) als Datei bzw. direkt. Fehlt er, beendet sich der Server mit Fehler. | – |
 | `ASM_TRUST_PROXY` | Hinter einem Reverse Proxy: Anzahl der Proxy-Hops (meist `1`) oder kommagetrennte IPs/CIDRs der Proxys. `true` vertraut jedem `X-Forwarded-For`-Eintrag (fälschbar, Warnung im Log) und ist zusammen mit `ASM_TRUSTED_NETWORKS` verboten. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximale Dauer des Auto-Modus. | `240` |
-| `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximale Dauer einer Dauerfreigabe pro Gerät in Tagen (höchstens `3650`). Begrenzt auch Verlängerungen; ein kleinerer Wert verkürzt bestehende Dauerfreigaben. `0` schaltet die Funktion ab. | `90` |
+| `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximale Dauer einer Dauerfreigabe pro Gerät in Tagen (höchstens `3650`). Begrenzt auch Verlängerungen; ein kleinerer Wert verkürzt bestehende Dauerfreigaben. `0` schaltet die Funktion ab und entfernt bestehende Dauerfreigaben. | `90` |
 | `ASM_DATA_DIR` | Datenverzeichnis (`asm.db`). | `/data` |
 | `PORT` | HTTP-Port. | `8080` |
 | `ASM_CLI_DIR` | Verzeichnis mit CLI-Bundle (`asm.mjs`, `asm.json`) für `/cli/install.sh`. | Image: `/app/cli` |

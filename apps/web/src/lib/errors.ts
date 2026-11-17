@@ -13,6 +13,7 @@ export function decisionErrorText(e: unknown): string {
   if (isApiError(e, 'plaintext_not_allowed')) return m.plaintextNotAllowed;
   if (isApiError(e, 'device_inactive')) return m.deviceInactive;
   if (isApiError(e, 'not_found')) return m.requestNotFound;
+  if (isApiError(e, 'reauth_required')) return m.reauthCancelled;
   return m.decisionFailed;
 }
 

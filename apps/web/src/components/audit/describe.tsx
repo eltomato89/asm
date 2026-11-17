@@ -87,6 +87,7 @@ export function describeAudit(r: AuditRow, names: Names): Described {
       return s(ev.standingSet(c, <Day ts={num(meta.until)} />, scope, changed), note);
     }
     case 'standing_approval.removed':
+      if (meta.cause === 'disabled_by_admin') return s(ev.standingRemovedRevoked(c), w.disabledByAdmin);
       return meta.cause === 'device_revoked' || r.actorType === 'system' ? s(ev.standingRemovedRevoked(c), w.deviceRevoked) : s(ev.standingRemoved(c));
     case 'standing_approval.renewed':
       return s(ev.standingRenewed(c, str(meta.days) ?? '?', <Day ts={num(meta.until)} />), meta.via === 'push' ? w.viaPush : undefined);

@@ -64,6 +64,9 @@ describe('describeAudit: standing approvals', () => {
     const revoked = text(row({ event: 'standing_approval.removed', actorType: 'system', actorId: null, meta: { cause: 'device_revoked' } }));
     expect(revoked.sentence).toBe('The standing approval for claude@mbp-office was removed');
     expect(revoked.note).toBe('device revoked');
+    const disabled = text(row({ event: 'standing_approval.removed', actorType: 'system', actorId: null, meta: { cause: 'disabled_by_admin' } }));
+    expect(disabled.sentence).toBe('The standing approval for claude@mbp-office was removed');
+    expect(disabled.note).toBe('standing approvals were turned off by the admin');
   });
 
   it('renewed, expired and secret added', () => {

@@ -113,9 +113,27 @@ function loadRow(db: Db, requestId: string): RequestRow | undefined {
   return db.$client.prepare(`${REQUEST_SELECT} WHERE r.id = ?`).get(requestId) as RequestRow | undefined;
 }
 
+/** Whether approving this renewal request now would extend the device's standing approval (coverage re-checked). */
+function renewsNow(ctx: ServiceCtx, r: RequestRow): boolean {
+  return (
+    r.standing_renewal === 1 &&
+    standingCoverage(ctx, { deviceId: r.device_id, userId: r.user_id, secretId: r.secret_id, vaultId: r.vault_id, kind: r.kind }) ===
+      'renewal'
+  );
+}
+
+/**
+ * For the dashboard decision route: whether approving `requestId` as `userId` would currently renew a standing approval
+ * (then recent auth is required). False for unknown/foreign/decided requests (decideRequest reports those).
+ */
+export function approvalWouldRenew(ctx: ServiceCtx, requestId: string, userId: string): boolean {
+  const row = loadRow(ctx.db, requestId);
+  return !!row && row.user_id === userId && row.status === 'pending' && renewsNow(ctx, row);
+}
+
 /** Pending renewal request whose approval would currently extend the device's standing approval. */
 function renewalOf(ctx: ServiceCtx, r: RequestRow): AccessRequestDto['renewal'] {
-  if (r.standing_renewal !== 1 || r.status !== 'pending' || r.sa_until === null) return null;
+  if (r.standing_renewal !== 1 || r.status !== 'pending' || r.sa_until === null || !renewsNow(ctx, r)) return null;
   const days = renewalDays(ctx, {
     until: r.sa_until, granted_at: r.sa_granted_at!, after_expiry: r.sa_after_expiry!, renew_days: r.sa_renew_days!,
   });
@@ -490,9 +508,10 @@ function decideTxn(
       throw new HttpError(409, 'already_decided');
     }
     if (decision === 'approve') applyOrFail(() => applyApproval(ctx, row));
-    // Denying a renewal request leaves the standing approval expired.
+    // Denying a renewal request leaves the standing approval expired. Coverage is re-checked at decision time (scope, vault
+    // access, kind or after_expiry may have changed since the request was created); if it no longer holds, approve without renewing.
     const renewed =
-      decision === 'approve' && row.standing_renewal === 1 &&
+      decision === 'approve' && renewsNow(ctx, row) &&
       renewOnApproval(ctx, { requestId, deviceId: row.device_id, userId }, info, auditMeta);
     appendAudit(db, ctx.clock, {
       actorType: 'user', actorId: userId, event: decision === 'approve' ? 'request.approved' : 'request.denied',

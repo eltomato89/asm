@@ -389,12 +389,36 @@ export function removeForLostVault(ctx: ServiceCtx, vaultId: string, userId: str
 }
 
 /**
+ * Feature disabled by the admin (max days 0): delete every standing approval (cascade clears lists and vault rows) with audit
+ * standing_approval.removed (cause disabled_by_admin), so raising the cap later does not silently reactivate them.
+ * Returns the affected devices for device.changed.
+ */
+export function removeAllStandingApprovals(ctx: ServiceCtx): { userId: string; deviceId: string }[] {
+  const { db } = ctx;
+  const out: { userId: string; deviceId: string }[] = [];
+  db.$client.transaction(() => {
+    const rows = db.$client.prepare('SELECT * FROM standing_approvals').all() as StandingRow[];
+    const del = db.$client.prepare('DELETE FROM standing_approvals WHERE device_id = ?');
+    for (const row of rows) {
+      if (del.run(row.device_id).changes === 0) continue;
+      appendAudit(db, ctx.clock, {
+        actorType: 'system', actorId: null, event: 'standing_approval.removed', deviceId: row.device_id,
+        meta: { cause: 'disabled_by_admin', previous: auditSnapshot(row, ctx.standingMaxDays) },
+      });
+      out.push({ userId: row.user_id, deviceId: row.device_id });
+    }
+  })();
+  return out;
+}
+
+/**
  * Sweep: audits each elapsed standing approval once (standing_approval.expired, actor = owner) and returns the affected
- * devices so the caller can emit device.changed. Coverage itself is always checked lazily. No-op while the feature is off.
+ * devices so the caller can emit device.changed. Coverage itself is always checked lazily. While the feature is off
+ * (max days 0) it removes all standing approvals instead (removeAllStandingApprovals).
  */
 export function expireStandingApprovals(ctx: ServiceCtx): { userId: string; deviceId: string }[] {
   const max = ctx.standingMaxDays;
-  if (max <= 0) return [];
+  if (max <= 0) return removeAllStandingApprovals(ctx);
   const { db } = ctx;
   const now = ctx.clock.now();
   const due = db.$client

@@ -82,7 +82,7 @@ Add more users under "Settings". You can also add a passkey there.
 | `ASM_MASTER_KEY_FILE` / `ASM_MASTER_KEY` | Master key (base64, 32 bytes) as a file or inline. If missing, the server exits with an error. | – |
 | `ASM_TRUST_PROXY` | Behind a reverse proxy: number of proxy hops (usually `1`) or comma-separated IPs/CIDRs of the proxies. `true` trusts every `X-Forwarded-For` entry (spoofable, logs a warning) and is not allowed together with `ASM_TRUSTED_NETWORKS`. | `false` |
 | `ASM_AUTO_MODE_MAX_MIN` | Maximum duration of auto mode. | `240` |
-| `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximum duration of a standing approval per device, in days (at most `3650`). Also caps renewals; lowering it shortens existing standing approvals. `0` turns the feature off. | `90` |
+| `ASM_STANDING_APPROVAL_MAX_DAYS` | Maximum duration of a standing approval per device, in days (at most `3650`). Also caps renewals; lowering it shortens existing standing approvals. `0` turns the feature off and removes existing standing approvals. | `90` |
 | `ASM_DATA_DIR` | Data directory (`asm.db`). | `/data` |
 | `PORT` | HTTP port. | `8080` |
 | `ASM_CLI_DIR` | Directory containing the CLI bundle (`asm.mjs`, `asm.json`) for `/cli/install.sh`. | Image: `/app/cli` |
